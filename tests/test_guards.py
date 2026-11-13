@@ -8,7 +8,14 @@ Scan sets are resolved from this file location. The suite scan set is every
 test file under product/tests except this guard file itself, which is excluded
 because it carries the guard patterns as data. The Step 13 reporting artefact
 scan set is every step-13 file under design/steps. The golden and result scan
-set is every file under product outside product/tests. Guards run against the
+set is every file under product outside product/tests. A guard whose scan set
+consists only of Step 13 reporting artefacts stands down as a recorded skip
+in a tree where the design steps directory stands absent, because its scan
+object does not exist in such a tree; the same guard stands in full force
+whenever that directory stands present, and a present directory with an
+empty scan set still fails as a vacuous pass. A guard whose scan set also
+covers product artefacts runs on those artefacts in either tree and does
+not stand down. Guards run against the
 artefacts as they stand and require no product surface. Several guards check
 per unit inside their loci, a unit being one test function with its docstring,
 or per artefact block, as their docstrings state.
@@ -101,6 +108,18 @@ def artefact_blocks(files):
 
 
 class GuardBase(unittest.TestCase):
+    def require_design_steps(self, guard_id):
+        if not (ROOT_DIR / "design" / "steps").is_dir():
+            print(
+                "GUARD " + guard_id + " stands down: the design steps tree stands absent "
+                "in this tree, so the scan object of this guard does not exist here"
+            )
+            self.skipTest(
+                "GUARD " + guard_id + " stands down in this tree: the design steps tree "
+                "stands absent, so the Step 13 reporting artefacts this guard scans do "
+                "not exist in a product only tree"
+            )
+
     def run_guard(self, guard_id, files, violations, extra=""):
         print(
             "GUARD " + guard_id + " scan set: " + str(len(files)) + " files"
@@ -230,8 +249,9 @@ class TestGuard4AC11NonPassState(GuardBase):
         Fixture: The scan set stated in this file header: every Step 13 reporting artefact under design/steps, the artefact set section 8 item 4 names as every Step 13 reporting artefact that carries a criterion verdict, taken as the whole standing set.
         Pins: Guard 4 of section 8. The forbidden act: any suite summary, coverage report, or criterion checklist recording AC-11, or the retention limb of any slice, as met, satisfied, or passed on the strength of a retention record that states only that the late promotion gap is declared in words, while the gap stands declared not closed.
         Bar: DECLARED NOT CLOSED is a non pass state in the brief own words; recording it as any form of pass is a suite defect, not a reporting preference.
-        Failure: Fails on any scan set line recording AC-11 as passed, met, or satisfied outside a non pass wording, and fails on an empty scan set.
+        Failure: Fails on any scan set line recording AC-11 as passed, met, or satisfied outside a non pass wording, and fails on an empty scan set in a tree where the design steps directory stands present. Recorded state in a product only tree: stands down as a skip while that directory stands absent, because the scan object does not exist there.
         """
+        self.require_design_steps("4, AC-11 non pass state")
         files = step13_files()
         hits = line_hits(
             files, r"AC-11\b[^.\n]{0,60}\b(passed|met|satisfied)\b",
@@ -281,8 +301,9 @@ class TestGuard6RemainingStandingBars(GuardBase):
         Fixture: The scan set stated in this file header: every Step 13 reporting artefact under design/steps.
         Pins: Guard 6(a) of section 8. The forbidden act: affordability wording for a grid, in a reporting artefact, before the timing pilot lands, at TG-12.3.
         Bar: No affordability wording before the timing pilot lands; a statement resting on a figure is not affordability wording, and wording that states the bar itself is not the barred act.
-        Failure: Fails on any scan set line asserting a grid or point as affordable, or asserting affordability as a result, outside a barring wording, and fails on an empty scan set.
+        Failure: Fails on any scan set line asserting a grid or point as affordable, or asserting affordability as a result, outside a barring wording, and fails on an empty scan set in a tree where the design steps directory stands present. Recorded state in a product only tree: stands down as a skip while that directory stands absent, because the scan object does not exist there.
         """
+        self.require_design_steps("6a, provisional grids, no affordability wording")
         files = step13_files()
         hits = line_hits(
             files, r"\b(grid|point|run)s?\b[^\n]{0,60}\baffordable\b|\baffordability (statement|result|claim) (stands|is|was) ",
