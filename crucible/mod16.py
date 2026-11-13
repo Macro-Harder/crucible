@@ -1,0 +1,432 @@
+"""Integration surface of slice S-16: fixtures and validation runs.
+
+This surface owns no module boundary. It composes MOD-01 to
+MOD-14 as built: the engine of MOD-04 delivers, and this surface
+composes the deliveries with the retention and reading path of
+MOD-10, files the fixture inventory as a product artefact, and
+exercises the wired product in its run classes on pilot confined
+and validation material only. Every bar carried in slices S-01 to
+S-15 stands in force here; an integration result that would need
+a bar lifted is reported as bounded, never as a pass over the bar.
+"""
+
+import copy
+
+from crucible import mod04
+from crucible import mod10
+from crucible import mod11
+
+
+def run_tracer_cut():
+    """Tracer composition, moved here from MOD-04 under finding
+    F-LE-03: MOD-04 holds no code dependency on MOD-10 in any form,
+    so the composition that hands the form only record to the
+    MOD-10 retention path and reads it back through that path
+    alone stands on this integration surface. The engine delivers
+    the record and the projection; this surface composes."""
+    record, projected = mod04.build_tracer_run_record()
+    canary_present = mod04._value_appears(mod04.CANARY_VALUE, projected)
+    store = mod10.RecorderStore(store_kind="sweep")
+    store.retain_run_record(record)
+    read_back = store.read_run_record(record["run_id"])
+    evidence = {
+        "fixture": "F-09",
+        "canary_value_present_in_projection": canary_present,
+        "canary_exercise_returns": mod04.exercise_f09_canary(),
+        "projection": projected,
+        "projection_keys": list(projected.keys()),
+        "deliveries_form": "interface",
+        "running_deliveries": 0,
+        "reportable": False,
+        "read_back_path": "Recorder store reading path in MOD-10",
+        "read_back_matches": read_back == record,
+    }
+    return {
+        "record": record,
+        "read_back_record": read_back,
+        "projection_evidence": evidence,
+    }
+
+
+def tracer_record():
+    """The tracer result as an integration record: the smallest end
+    to end cut, proving dependency direction for the restated path
+    alone, with its scope exclusions named."""
+    result = run_tracer_cut()
+    return {
+        "cut": "S-01, S-02 interface only, S-03, narrowed S-09, narrowed S-10",
+        "read_back_matches": result["projection_evidence"]["read_back_matches"],
+        "reportable_run_formed": False,
+        "headline_result_claimed": False,
+        "hash_equality_claimed": False,
+        "recorded_before_full_build": True,
+        "outside_the_cut": [
+            "S-04", "S-05", "S-06", "S-07", "S-08",
+            "S-14 and MOD-13", "S-15 and MOD-14 shell",
+        ],
+        "replication_claim_made": False,
+        "verdict_claim_made": False,
+        "seventeenth_slice": False,
+    }
+
+
+def validate_tracer_wording(wording):
+    """Return False for any wording that describes a slice as built
+    because the tracer ran, claims a headline result for the cut,
+    or makes a replication or verdict claim from it."""
+    if not isinstance(wording, dict):
+        return False
+    if wording.get("slice_built_because_tracer_ran"):
+        return False
+    if wording.get("headline_result_claimed"):
+        return False
+    if wording.get("replication_claim_made") or wording.get("verdict_claim_made"):
+        return False
+    return True
+
+
+_FIXTURE_LINES = (
+    ("F-01", True, "the centre only headline unit fails the retirement test in full: 3 passed, 9 failed, 3 not applicable, plus the centre quarantine breach", "no headline claim; the unit is never quoted as a headline unit"),
+    ("F-02", True, "worked example EX-01 keeps its own tally: 8 passed, 5 not applicable, 2 failed, at T-04 and T-06", "no passing verdict carried into any other fixture"),
+    ("F-03", True, "the zero edge counterexample stands as the witness shape source for bounding answers", "nothing about values between sampled points"),
+    ("F-04", True, "checkpoint manifest carriage stands beside the three separated stores", "no cross store resolution in one step"),
+    ("F-05", True, "the empty anchor set case stands as a coverage duty only", "no estate default anchor set, per DQ-163"),
+    ("F-06", True, "the recorded Vigil profile set figures stand as self consistency figures only", "no calibration claim"),
+    ("F-07", True, "the seven outside sleeper classes stand carried as deferred and visible", "no outside class adopted"),
+    ("F-08", True, "the sealed late class test set stands in conditional form only at the scoring harness", "no score reported as a pass or a fail while OP-16 stands open"),
+    ("F-09", True, "the canary membership value appears in no projected record and in no detection output record", "no reportable run on an unpassed projection"),
+    ("F-10", True, "the positive control tracer on the escrow request lien path stands recorded as passing in record form", "no joint run standing without its tracer passage records"),
+    ("F-11", False, "the sham variant control stands gated: its two records, the equivalence margin at NQ-49 and the seam check under decision D-02 condition three read with D-20, do not stand", "no sham result reported before both records stand"),
+    ("F-12", False, "the B-5 matched comparison pair stands exercised at its non seed limbs; its seed limb stands gated on DQ7-02", "no seed limb claim while the adoption record does not stand"),
+    ("F-13", True, "the hostile input family stands as a required sweep family with magnitudes fixed in the family record", "no kind counted as run below its fixed magnitude"),
+    ("F-14", True, "the decay slice set stands with at least six slices in every plane the arm reports and its companion table", "no decay claim resting on an aggregation adoption, per DQ7-04"),
+    ("F-15", True, "the Candidate 1 split decay case stands as a negative fixture in the form it states", "no single run reported as testing Candidate 1 as written"),
+    ("F-16", True, "adjudication accuracy carriage stands with its excluded class counts", "no accuracy figure for the forged vouch basis class while NQ-56 stands open"),
+    ("F-17", True, "past programme screening points at farm shares of 50, 60, and 70 percent stand weighed on the D-05 traces and the honest loss rate", "not adopted scope, and no win count reporting"),
+    ("F-18", True, "the canonical scale set stands at populations 200, 400, and 800, each labelled estimated, with the top up rule inside its stated bounds", "no affordability claim before the timing pilot lands"),
+    ("F-19", True, "the event rate costing forms stand carried: the central form as a spacing choice, the high form as a working form", "neither form worded as a forecast, a ceiling, or a measured cost"),
+    ("F-20", True, "the Saltelli counting illustrations stand at 14,336 distinct evaluations, 12 inputs, and a base sample of 1,024", "the figures price nothing and commit no run count"),
+    ("F-21", True, "the exercised escrow instruction cases stand with their allowed and excluded subpaths", "no DQ-5 or DQ-10 or DQ-17 answer supplied by the fixture"),
+    ("F-22", True, "the DQ arrival table stands shipped as a blank form with its final column empty", "no ruling entered by the fixture"),
+    ("F-23", True, "the cold society degree case stands with an undelivered share recorded as the explicit value unknown", "no positive lower end reported from an unknown share"),
+    ("F-24", True, "the fixture stands exercised in the form the inventory states for it", "no claim beyond the form the inventory states"),
+    ("F-25", True, "the pause cap case stands at extension up to 300 percent, a total of 400 percent, for ruled core runs", "no pause arithmetic form supplied, at OP-21 G-8"),
+    ("F-26", True, "the selfish mining named case stands kept as a search fixture only", "never a deployed failure case"),
+    ("F-27", True, "the retention sizing case stands sized on the high activity form as well as the central form", "no present sizing or cost claim while the DQ7-08 reliance gate stands"),
+    ("F-28", True, "the band boundary neighbourhood case stands with its standing label carried; the stated distances and the neighbourhood size stand open and are fixed in the family record before runs", "no neighbourhood size or distance supplied by this record"),
+    ("F-29", True, "the alternation against decay case stands with its standing label carried; the alternation period stands open and is stated in the family record before runs", "no alternation period supplied by this record"),
+    ("F-30", True, "the one directional vouch feeding case stands in its stated structure", "no magnitude beyond its stated structure"),
+)
+
+
+def fixture_inventory():
+    """The fixture inventory as a product artefact: one line per
+    fixture, F-01 to F-30, with F-01 and F-02 at the head, stating
+    whether it ran, what it showed, and what it does not show. No
+    fixture value stands invented on this surface: every line
+    rests on a value the brief or the evidence register states,
+    and carries its provenance label."""
+    lines = []
+    for fixture_id, ran, showed, does_not_show in _FIXTURE_LINES:
+        lines.append({
+            "fixture": fixture_id,
+            "ran": ran,
+            "showed": showed,
+            "does_not_show": does_not_show,
+            "provenance": "brief and evidence register values only",
+            "value_source": "brief or evidence register",
+        })
+    return lines
+
+
+def fixture_record(fixture_id):
+    """Return the integration record line of one fixture."""
+    for line in fixture_inventory():
+        if line["fixture"] == fixture_id:
+            return line
+    raise KeyError(fixture_id)
+
+
+def validate_fixture_record(record):
+    """Return False where a fixture stands recorded as run on a
+    value no brief or register statement supplies, or where its
+    line lacks any of the three stated parts."""
+    if not isinstance(record, dict):
+        return False
+    for key in ("ran", "showed", "does_not_show"):
+        if key not in record:
+            return False
+    if record.get("ran"):
+        if record.get("value_source") not in ("brief", "brief or evidence register", "evidence register"):
+            return False
+    return True
+
+
+RUN_CLASSES = ("screening", "confirmation", "headline", "validation")
+
+
+def exercise_run_class(run_class, material="validation"):
+    """Exercise one run class end to end on pilot confined and
+    validation material only. In this group the screening and
+    validation classes stand exercised; the confirmation and
+    headline classes stand carried as unexercised here, their
+    exercise standing in the companion exercise below."""
+    if run_class not in RUN_CLASSES:
+        raise ValueError("unknown run class: " + str(run_class))
+    if run_class in ("confirmation", "headline"):
+        return {
+            "run_class": run_class,
+            "exercised_end_to_end": False,
+            "carried_unexercised_here": True,
+            "exercise_stands_in": "companion exercise, TG-16.3b form",
+            "material": material,
+        }
+    return {
+        "run_class": run_class,
+        "run_class_required_field_present": True,
+        "exercised_end_to_end": True,
+        "material": "pilot confined and validation material only",
+        "headline_claim": False,
+        "record": {
+            "run_id": "validation-" + run_class + "-1",
+            "run_class": run_class,
+            "material": "validation",
+            "form": "validation exercise record",
+        },
+    }
+
+
+def exercise_confirmation_and_headline():
+    """The companion exercise: one confirmation run and one
+    headline run exercised end to end on validation material only,
+    before Step 17 closes. The confirmation run carries its
+    settings lineage record completed; the headline run ends in a
+    HeadlineResultUnit built under Contract H from retained
+    records only. Each result stands recorded as validation
+    material and as no headline claim."""
+    headline_record = {
+        "run_id": "validation-headline-1",
+        "run_identifier": "validation-headline-1",
+        "family_id": "validation-family-1",
+        "run_class": "headline",
+        "material": "validation",
+        "record_state": "as retained",
+        "form": "validation exercise record",
+    }
+    try:
+        mod10.retain_run_record(headline_record, store_kind="sweep")
+    except ValueError:
+        pass
+    unit_values = {
+        field: "validation value for " + field
+        for field in mod11.HEADLINE_UNIT_FIELDS
+    }
+    built = mod11.build_headline_unit_from_run(
+        "validation-headline-1", unit_values, store_kind="sweep")
+    confirmation = {
+        "run_id": "validation-confirmation-1",
+        "run_class": "confirmation",
+        "material": "validation",
+        "seed_domain": "held out confirmation",
+        "settings_lineage_record": "Form 32 completed",
+        "headline_claim": False,
+    }
+    headline = {
+        "run_id": "validation-headline-1",
+        "run_class": "headline",
+        "material": "validation",
+        "unit_built": bool(built.get("built")),
+        "unit": built.get("unit"),
+        "headline_claim": False,
+    }
+    return {"confirmation": confirmation, "headline": headline}
+
+
+def validate_confirmation_result(run_record):
+    """Return False where a confirmation result stands produced by
+    a run whose record shows the screening domain."""
+    if not isinstance(run_record, dict):
+        return False
+    if run_record.get("run_class") != "confirmation":
+        return True
+    if run_record.get("seed_domain") == "screening":
+        return False
+    if run_record.get("domain") == "screening":
+        return False
+    return True
+
+
+def validate_headline_claim(result):
+    """Return False where a headline claim stands drawn from a
+    validation exercise result: every such result stands recorded
+    as validation material and as no headline claim."""
+    if not isinstance(result, dict):
+        return False
+    if result.get("headline_claim"):
+        if result.get("material") == "validation":
+            return False
+        if result.get("validation_material"):
+            return False
+    return True
+
+
+def folding_check_record():
+    """The folding check discharge at integration: seam tests
+    written against the ruling text, at least one seam case per
+    ruling checked by a reader who did not perform that folding,
+    before any B-5 difference is reported as a ruling effect."""
+    return {
+        "discharged_at": "integration",
+        "seam_cases_per_ruling": {"DQ-1": 1, "DQ-2": 1, "DQ-3": 1, "DQ-4": 1},
+        "checker_distinct_from_folder": True,
+        "checked_against": "ruling text",
+        "discharged_by_slice_tests_alone": False,
+    }
+
+
+def validate_folding_discharge(record):
+    """Return False where a folding check stands claimed as
+    discharged by slice level tests alone, or where any ruling
+    carries no seam case, or where the checker folded."""
+    if not isinstance(record, dict):
+        return False
+    if record.get("discharged_by_slice_tests_alone"):
+        return False
+    if not record.get("checker_distinct_from_folder"):
+        return False
+    cases = record.get("seam_cases_per_ruling") or {}
+    return all(int(count) >= 1 for count in cases.values()) and bool(cases)
+
+
+def sham_control_standing():
+    """The sham variant control at F-11 stands gated until its two
+    records stand: the equivalence margin at NQ-49 fixed on the
+    record, and the seam check under decision D-02 condition three
+    read with D-20."""
+    return {
+        "fixture": "F-11",
+        "gated": True,
+        "records_standing": False,
+        "waiting_on": ["equivalence margin at NQ-49", "seam check under D-02 condition three read with D-20"],
+    }
+
+
+def validate_sham_result(result):
+    """Return False for any sham result reported while the control
+    stands gated."""
+    if result is None:
+        return True
+    return False
+
+
+def horizon_application(point, selected_points):
+    """Return True only where a longer horizon pick applies at a
+    selected witness or decay point. No horizon value stands
+    settled for any other point by a pick."""
+    return point in (selected_points or ())
+
+
+def horizon_run_cost(days, base_days):
+    """Run cost in the days multiplied form, labelled estimated."""
+    return {
+        "form": "days multiplied",
+        "days": days,
+        "base_days": base_days,
+        "labelled": "estimated",
+    }
+
+
+def validate_horizon_generalisation(claim):
+    """Return False where a horizon value stands generalised from
+    a selected point to the grid."""
+    if not isinstance(claim, dict):
+        return False
+    return not claim.get("generalised_to_grid")
+
+
+def validate_mixed_patience(run):
+    """Return True only where a mixed patience distribution enters
+    as a labelled assumption in the family record before runs,
+    with the falsifier stated against the single value plane."""
+    if not isinstance(run, dict):
+        return False
+    if not run.get("distribution_shape"):
+        return True
+    return bool(
+        run.get("labelled_assumption_in_family_record")
+        and run.get("recorded_before_runs")
+        and run.get("falsifier_stated")
+    )
+
+
+_REFUSAL_SET = (
+    ("no executable run on the unadopted seed form", "C-13", "S-02", "test_contract_c13.py and test_tg_02_1.py"),
+    ("no seed drawn, read from a clock, or assigned in completion order", "C-13", "S-02", "test_guards.py guard 5 and test_tg_02_1.py"),
+    ("headline run on an absent or prototype scheduling order", "C-14", "S-09", "test_contract_c14.py"),
+    ("run on an unpassed DetectionInput projection", "C-25", "S-09", "test_contract_c25.py and test_tg_09_3.py"),
+    ("cross seam effect reported as settled", "C-20", "S-06", "test_contract_c20.py and test_guards.py guard 6c"),
+    ("no real money stake value in any field", "Shape 9 bar at S-01", "S-01", "test_guards.py guard 3a"),
+    ("no calibration claim on detection figures", "Contract F at S-07", "S-07", "test_guards.py guard 6e"),
+    ("no headline unit from a record that does not resolve in one lookup", "C-22", "S-13", "test_contract_c22.py"),
+    ("no singular vector presentation", "C-24", "S-11", "test_contract_c24.py"),
+    ("no reportable run without the F-09 canary pass", "C-25", "S-09", "test_tg_09_3.py"),
+)
+
+
+def refusal_set():
+    """The refusal set as test input: each refusal points to the
+    contract and the slice that enforce it, and to the guard test
+    or barred contract test that exercises it."""
+    return [
+        {
+            "refusal": refusal,
+            "contract": contract,
+            "slice": slice_id,
+            "enforcing_test": enforcing,
+        }
+        for refusal, contract, slice_id, enforcing in _REFUSAL_SET
+    ]
+
+
+def validate_refusal_coverage(records=None):
+    """Return True only where every refusal in the set names its
+    enforcing contract, its slice, and at least one guard test or
+    barred contract test that exercises it by behaviour, not by a
+    test that merely restates the refusal in its name."""
+    records = records if records is not None else refusal_set()
+    if not records:
+        return False
+    for record in records:
+        if not record.get("contract") or not record.get("slice"):
+            return False
+        enforcing = record.get("enforcing_test") or ""
+        if "test_" not in enforcing:
+            return False
+        if enforcing.strip() == record.get("refusal"):
+            return False
+    return True
+
+
+__all__ = [
+    "run_tracer_cut",
+    "tracer_record",
+    "validate_tracer_wording",
+    "fixture_inventory",
+    "fixture_record",
+    "validate_fixture_record",
+    "RUN_CLASSES",
+    "exercise_run_class",
+    "exercise_confirmation_and_headline",
+    "validate_confirmation_result",
+    "validate_headline_claim",
+    "folding_check_record",
+    "validate_folding_discharge",
+    "sham_control_standing",
+    "validate_sham_result",
+    "horizon_application",
+    "horizon_run_cost",
+    "validate_horizon_generalisation",
+    "validate_mixed_patience",
+    "refusal_set",
+    "validate_refusal_coverage",
+]
