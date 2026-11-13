@@ -165,12 +165,53 @@ def make_headline_unit(values):
     return unit
 
 
+_HIDDEN_PART_VALUES = ("redacted", "see elsewhere", "none", "x", "")
+
+
+def _envelope_part_stands(value):
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() not in _HIDDEN_PART_VALUES \
+            and len(value.strip()) >= 2
+    if isinstance(value, dict):
+        return bool(value)
+    return True
+
+
+def _region_stands(value):
+    if isinstance(value, dict):
+        points = value.get("sampled_points")
+        if not isinstance(points, (list, tuple)) or not points:
+            return False
+        for point in points:
+            if not isinstance(point, dict):
+                return False
+            if not point.get("outcome"):
+                return False
+            axes = point.get("axis_values")
+            if not isinstance(axes, dict) or not axes:
+                return False
+            if not all(isinstance(item, (int, float))
+                       and not isinstance(item, bool)
+                       for item in axes.values()):
+                return False
+        return True
+    return _envelope_part_stands(value)
+
+
 def validate_headline_unit(unit):
     """Return True only for a closed unit in the fixed field
     order, carrying its assumption set, its rows, its range kind,
     and every dependence mark as part of the unit itself. The
     centre only fixture unit never validates as a headline unit,
-    and a unit carrying an extra Range kind field fails."""
+    and a unit carrying an extra Range kind field fails. The
+    envelope parts stand checked on content as well as presence:
+    no part may stand empty, hidden as redacted, pointed
+    elsewhere, or stated as none; the claim sentence may not
+    claim the result over all points; and a region stated as a
+    record must carry its sampled point enumeration, each point
+    as axis values in numbers with its outcome in words."""
     if not isinstance(unit, dict):
         return False
     if tuple(unit.keys()) != HEADLINE_UNIT_FIELDS:
@@ -181,6 +222,14 @@ def validate_headline_unit(unit):
     for field in HEADLINE_UNIT_FIELDS:
         if unit.get(field) is None:
             return False
+        if not _envelope_part_stands(unit.get(field)):
+            return False
+    for field in ("holding_region", "failure_region"):
+        if not _region_stands(unit.get(field)):
+            return False
+    claim = str(unit.get("claim_sentence")).lower()
+    if "everywhere" in claim or "all points" in claim:
+        return False
     return True
 
 
@@ -254,6 +303,13 @@ def validate_envelope_claim(claim):
     nothing about values between sampled points."""
     if not isinstance(claim, dict):
         return False
+    if "holding_region" in claim or "claim_sentence" in claim:
+        if not validate_headline_unit(claim):
+            return False
+        if claim.get("failure_region") and not _region_stands(
+                claim.get("witness_block")):
+            return False
+        return True
     if claim.get("scope") != "sampled points and stated ranges only":
         return False
     if claim.get("claims_between_points"):
@@ -492,11 +548,13 @@ def reporter_inputs_for_family(retained_records):
 
 
 def share_report_stands(inputs, share):
-    """Return True only where a report may read an affected share
-    as standing as reported. While a blocked family mark stands
-    for a share, with its count nonzero and unresolved, no report
-    reads that share as standing as reported and no headline unit
-    resting on it stands built."""
+    """Report whether a report may read an affected share as
+    standing as reported. The function returns a boolean only: it
+    reports the standing of the share for reading, and no caller
+    wires it into the headline unit build path. While a blocked
+    family mark stands for a share, with its count nonzero and
+    unresolved, the function returns False for that share, and it
+    returns True otherwise."""
     mark = (inputs or {}).get("blocked_family_mark")
     if isinstance(mark, dict) and mark.get("affected_share") == share:
         if mark.get("count", 0) and not mark.get("resolved"):
@@ -514,9 +572,20 @@ def build_headline_unit_from_run(run_id, values, store_kind="sweep",
     one stands handed in."""
     try:
         record = mod10.store_lookup(store_kinds=(store_kind,), key=run_id)
-    except Exception:
+    except mod10.LookupFailure:
         failure = {
             "name": mod10.ONE_LOOKUP_FAILURE_NAME,
+            "run_status": "failed",
+            "complete": False,
+            "record": run_id,
+        }
+        if isinstance(family_record, dict):
+            family_record.setdefault("named_failures", []).append(
+                copy.deepcopy(failure))
+        return {"built": False, "failure": failure, "unit": None}
+    except Exception as error:
+        failure = {
+            "name": type(error).__name__ + ": " + str(error),
             "run_status": "failed",
             "complete": False,
             "record": run_id,
@@ -534,7 +603,7 @@ def build_headline_unit_from_run(run_id, values, store_kind="sweep",
         "record_state": record.get("record_state", "as retained"),
         "inside_unit": True,
     }
-    unit_values.setdefault("checkability_fields", provenance)
+    unit_values["checkability_fields"] = provenance
     unit = make_headline_unit(unit_values)
     return {"built": True, "failure": None, "unit": unit}
 
@@ -546,6 +615,8 @@ def weekly_count(summary_records, week):
     once however many runs support it."""
     identifiers = set()
     for record in summary_records or []:
+        if not isinstance(record, dict) or "week" not in record or "headline_unit_identifiers" not in record:
+            raise ValueError("weekly count stands refused in named form: a summary record carries no week or no headline unit identifiers, and no silent zero stands counted")
         if record.get("week") != week:
             continue
         for identifier in record.get("headline_unit_identifiers") or []:
@@ -561,9 +632,19 @@ def make_weekly_container(week, units):
     ordered = list(units or [])
     inside = ordered[:WEEKLY_CAP]
     held = ordered[WEEKLY_CAP:]
+    outside_cells = sum(
+        int(unit.get("outside_unit_cells") or 0)
+        for unit in inside if isinstance(unit, dict))
+    load = {"H": len(inside), "U": outside_cells}
     return {
         "week": week,
         "cap": WEEKLY_CAP,
+        "cap_form": "estimated planning figure under D-12: at most 25 headline results per week for one operator, estimated",
+        "weekly_load": load,
+        "load_statement": (
+            "the priced reading load stands exceeded"
+            if load["H"] + load["U"] > WEEKLY_CAP
+            else "the priced reading load stands within the estimated figure"),
         "headline_units": inside,
         "held_units": held,
         "held_count": len(held),

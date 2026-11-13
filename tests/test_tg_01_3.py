@@ -53,7 +53,8 @@ def make_missing_field_test(field):
         self.assertFalse(SURFACE.family_supports_reportable_run(record))
 
     test.__doc__ = (
-        "Fixture: a SweepFamilyRecord missing " + field + ", derived from the brief field list at Shape 1; no inventory fixture is assigned to this group in the mapping.\n"
+        "Fixture: a SweepFamilyRecord missing " + field
+        + ", derived from the brief field list at Shape 1; no inventory fixture is assigned to this group in the mapping.\n"
         "Pins: a family record missing any one of the completeness fields the brief names supports no reportable run; this test pins the case of " + field + ".\n"
         "Bar: values that stand open under open point OP-13 enter as open markers, never as invented numbers, so an open marker in this position stands as present and an absent field does not.\n"
         "Failure: while the surface stands absent the test fails naming this behaviour and TG-01.3; with the surface present, a family record missing this field supporting a reportable run fails."
@@ -98,6 +99,8 @@ class TestFamilyCompletenessBar(unittest.TestCase):
 for _field in COMPLETENESS_FIELDS:
     _slug = _field.replace(" ", "_").replace(",", "")
     setattr(TestFamilyCompletenessBar, "test_missing_" + _slug, make_missing_field_test(_field))
+
+
 del _field, _slug
 
 
@@ -110,8 +113,8 @@ class TestFamilySealMatching(unittest.TestCase):
         """
         behaviour = "run record version and hash matching the sealed family manifest pass seal matching"
         require_surface(self, behaviour, "validate_family_seal_match")
-        manifest = {"family_version": "v", "manifest_hash": "h"}
-        record = {"family_version": "v", "manifest_hash": "h"}
+        manifest = {"family_version": "v", "sealed_family_record_hash": "h"}
+        record = {"family_version": "v", "family_manifest_hash": "h"}
         self.assertTrue(SURFACE.validate_family_seal_match(manifest, record))
 
     def test_family_seal_mismatched_version_fails(self):
@@ -122,8 +125,8 @@ class TestFamilySealMatching(unittest.TestCase):
         """
         behaviour = "run record with a family version mismatching the sealed manifest fails validation"
         require_surface(self, behaviour, "validate_family_seal_match")
-        manifest = {"family_version": "v", "manifest_hash": "h"}
-        record = {"family_version": "other version", "manifest_hash": "h"}
+        manifest = {"family_version": "v", "sealed_family_record_hash": "h"}
+        record = {"family_version": "other version", "family_manifest_hash": "h"}
         self.assertFalse(SURFACE.validate_family_seal_match(manifest, record))
 
     def test_family_seal_mismatched_hash_fails(self):
@@ -134,8 +137,8 @@ class TestFamilySealMatching(unittest.TestCase):
         """
         behaviour = "run record with a manifest hash mismatching the sealed manifest fails validation"
         require_surface(self, behaviour, "validate_family_seal_match")
-        manifest = {"family_version": "v", "manifest_hash": "h"}
-        record = {"family_version": "v", "manifest_hash": "other hash"}
+        manifest = {"family_version": "v", "sealed_family_record_hash": "h"}
+        record = {"family_version": "v", "family_manifest_hash": "other hash"}
         self.assertFalse(SURFACE.validate_family_seal_match(manifest, record))
 
 

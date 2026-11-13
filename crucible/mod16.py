@@ -139,12 +139,124 @@ def fixture_inventory():
     return lines
 
 
+class FixtureLookupFailure(KeyError):
+    """A named failure for a fixture that does not resolve in the
+    inventory. The failure value stands on the exception in the
+    product failure value form the Recorder lookup failure
+    states, carrying the fixture identifier, the module, and the
+    ground, beside its name."""
+
+    def __init__(self, fixture_id):
+        self.fixture_id = fixture_id
+        self.failure = {
+            "name": "fixture lookup failure",
+            "module": "MOD-16",
+            "fixture": fixture_id,
+            "ground": (
+                "no fixture stands in the inventory under that "
+                "identifier"),
+            "run_status": "failed",
+            "complete": False,
+        }
+        super().__init__(
+            "fixture lookup failure: " + str(fixture_id))
+
+
 def fixture_record(fixture_id):
-    """Return the integration record line of one fixture."""
+    """Return the integration record line of one fixture. A
+    fixture identifier that stands in no inventory line raises
+    the named fixture lookup failure, never a bare key error."""
     for line in fixture_inventory():
         if line["fixture"] == fixture_id:
             return line
-    raise KeyError(fixture_id)
+    raise FixtureLookupFailure(fixture_id)
+
+
+def f01_centre_only_unit():
+    """Return the F-01 centre only headline unit as a readable
+    stored fixture record, beside its inventory entry.
+
+    The unit stands carried in full in the form the example
+    states it, in the example own order, which is part of its
+    failure and is no template and no serialisation order. The
+    record names every part that failed and how it failed, on
+    the verified retirement tally, and stands marked as the
+    warning example and as no headline claim: the unit is never
+    quoted as a headline unit.
+    """
+    return {
+        "fixture": "F-01",
+        "warning_example": True,
+        "headline_claim": False,
+        "never_quoted_as_headline_unit": True,
+        "unit": {
+            "headline_unit_identifier_and_issue_date":
+                "W-CENTRE-ONLY, example",
+            "claim_sentence": (
+                "the programme expects 6.85 events per agent per "
+                "day, so a run at 400 agents over 180 days expects "
+                "about 493,200 events, and the defences hold at "
+                "the typical point"),
+            "holding_region": "the typical point",
+            "failure_region": "none stated",
+            "witness_block": (
+                "the typical run, with no retained run identifier "
+                "given"),
+            "assumption_record": (
+                "work rate value 1.00, central form, with the "
+                "event rate stated at its centre value only"),
+            "assumption_set_and_rows": "not stated",
+            "range_kind": "centre only",
+            "interpretation_choices": "none stated",
+            "variant_stamp": "none stated",
+        },
+        "parts_not_stated_in_the_example": [
+            "qualifiers_and_markings_block",
+            "replicate_and_family_data",
+            "checkability_fields",
+            "grounding_sentence",
+            "run_registry_line",
+        ],
+        "retirement_tally": {
+            "passed": 3,
+            "failed": 9,
+            "not_applicable": 3,
+            "total": 15,
+            "centre_quarantine_breach": True,
+        },
+        "failed_parts": [
+            {"check": "T-02", "part": "holding_region",
+             "how": "the holding region is stated as the typical "
+                    "point only, a single centre point carrying "
+                    "no region"},
+            {"check": "T-03", "part": "failure_region",
+             "how": "the failure region stands as none stated"},
+            {"check": "T-04", "part": "witness_block",
+             "how": "the witness is the typical run and names no "
+                    "retained run identifier, so it resolves to "
+                    "no retained run"},
+            {"check": "T-05", "part": "variant_stamp",
+             "how": "the variant stamp stands as none stated"},
+            {"check": "T-06", "part": "assumption_set_and_rows",
+             "how": "the assumption set and its row identifiers "
+                    "stand as not stated"},
+            {"check": "T-07", "part": "interpretation_choices",
+             "how": "the interpretation choices stand as none "
+                    "stated, naming no choice"},
+            {"check": "T-08", "part": "qualifiers_and_markings_block",
+             "how": "the unit states nowhere that no part of the "
+                    "result concerns the escrow; the core only "
+                    "qualifier stands absent by silence"},
+            {"check": "T-10", "part": "qualifiers_and_markings_block",
+             "how": "the unit states nowhere what the result "
+                    "depends on and carries no dependence "
+                    "marking; the mark stands absent by silence"},
+            {"check": "T-11", "part": "qualifiers_and_markings_block",
+             "how": "the unit states nowhere that it uses no "
+                    "anchor scenario; the anchor scenario "
+                    "marking stands absent by silence"},
+        ],
+    }
 
 
 def validate_fixture_record(record):
@@ -203,7 +315,15 @@ def exercise_confirmation_and_headline():
     settings lineage record completed; the headline run ends in a
     HeadlineResultUnit built under Contract H from retained
     records only. Each result stands recorded as validation
-    material and as no headline claim."""
+    material and as no headline claim.
+
+    The exercise verifies the record standing under its headline
+    identifier is its own record, in its own form and class,
+    before building: a duplicate or foreign standing record is a
+    named failure and never a build source, and where the build
+    fails after this act retained its record, the partial
+    retention stands removed and the failure stands named in
+    the result, never silently reused by the next call."""
     headline_record = {
         "run_id": "validation-headline-1",
         "run_identifier": "validation-headline-1",
@@ -213,16 +333,6 @@ def exercise_confirmation_and_headline():
         "record_state": "as retained",
         "form": "validation exercise record",
     }
-    try:
-        mod10.retain_run_record(headline_record, store_kind="sweep")
-    except ValueError:
-        pass
-    unit_values = {
-        field: "validation value for " + field
-        for field in mod11.HEADLINE_UNIT_FIELDS
-    }
-    built = mod11.build_headline_unit_from_run(
-        "validation-headline-1", unit_values, store_kind="sweep")
     confirmation = {
         "run_id": "validation-confirmation-1",
         "run_class": "confirmation",
@@ -231,6 +341,60 @@ def exercise_confirmation_and_headline():
         "settings_lineage_record": "Form 32 completed",
         "headline_claim": False,
     }
+
+    def exercise_failure(name, ground):
+        return {
+            "confirmation": confirmation,
+            "headline": {
+                "run_id": "validation-headline-1",
+                "run_class": "headline",
+                "material": "validation",
+                "unit_built": False,
+                "unit": None,
+                "headline_claim": False,
+                "failure": {
+                    "name": name,
+                    "run_status": "failed",
+                    "complete": False,
+                    "record": "validation-headline-1",
+                    "ground": ground,
+                },
+            },
+        }
+
+    retained_here = False
+    try:
+        standing = mod10.read_run_record(
+            "validation-headline-1", store_kind="sweep")
+    except mod10.LookupFailure:
+        standing = None
+    if standing is not None and standing != headline_record:
+        return exercise_failure(
+            "exercise record standing is not its own",
+            "a record stands under the exercise identifier that "
+            "is not the exercise record in its own form and "
+            "class, and no unit stands built from it")
+    if standing is None:
+        mod10.retain_run_record(headline_record, store_kind="sweep")
+        retained_here = True
+    unit_values = {
+        field: "validation value for " + field
+        for field in mod11.HEADLINE_UNIT_FIELDS
+    }
+    try:
+        built = mod11.build_headline_unit_from_run(
+            "validation-headline-1", unit_values, store_kind="sweep")
+    except Exception as error:
+        if retained_here:
+            store = mod10._STORES["sweep"]
+            store._records.pop("validation-headline-1", None)
+            if "validation-headline-1" in store._index:
+                store._index.remove("validation-headline-1")
+        return exercise_failure(
+            "exercise headline build failure",
+            "the headline build failed after the exercise "
+            "record stood retained, and the partial retention "
+            "stands removed: " + str(error))
     headline = {
         "run_id": "validation-headline-1",
         "run_class": "headline",
@@ -244,8 +408,12 @@ def exercise_confirmation_and_headline():
 
 def validate_confirmation_result(run_record):
     """Return False where a confirmation result stands produced by
-    a run whose record shows the screening domain."""
+    a run whose record shows the screening domain. A record that
+    carries no run class at all is no run record of the form this
+    validator names and stands refused, never passed on absence."""
     if not isinstance(run_record, dict):
+        return False
+    if "run_class" not in run_record:
         return False
     if run_record.get("run_class") != "confirmation":
         return True
@@ -259,8 +427,12 @@ def validate_confirmation_result(run_record):
 def validate_headline_claim(result):
     """Return False where a headline claim stands drawn from a
     validation exercise result: every such result stands recorded
-    as validation material and as no headline claim."""
+    as validation material and as no headline claim. A result
+    that carries no headline claim standing at all is no result
+    of the form this validator names and stands refused."""
     if not isinstance(result, dict):
+        return False
+    if "headline_claim" not in result:
         return False
     if result.get("headline_claim"):
         if result.get("material") == "validation":
@@ -338,8 +510,12 @@ def horizon_run_cost(days, base_days):
 
 def validate_horizon_generalisation(claim):
     """Return False where a horizon value stands generalised from
-    a selected point to the grid."""
+    a selected point to the grid. A claim that carries no
+    generalisation standing at all is no claim of the form this
+    validator names and stands refused."""
     if not isinstance(claim, dict):
+        return False
+    if "generalised_to_grid" not in claim:
         return False
     return not claim.get("generalised_to_grid")
 
@@ -394,9 +570,13 @@ def validate_refusal_coverage(records=None):
     barred contract test that exercises it by behaviour, not by a
     test that merely restates the refusal in its name."""
     records = records if records is not None else refusal_set()
+    if not isinstance(records, (list, tuple)):
+        return False
     if not records:
         return False
     for record in records:
+        if not isinstance(record, dict):
+            return False
         if not record.get("contract") or not record.get("slice"):
             return False
         enforcing = record.get("enforcing_test") or ""
@@ -413,6 +593,8 @@ __all__ = [
     "validate_tracer_wording",
     "fixture_inventory",
     "fixture_record",
+    "FixtureLookupFailure",
+    "f01_centre_only_unit",
     "validate_fixture_record",
     "RUN_CLASSES",
     "exercise_run_class",

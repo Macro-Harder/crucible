@@ -252,6 +252,11 @@ _FORM_SPECS = {
         "run_identifier", "simulated_day", "full_state_hash",
         "generator_state_per_stream", "journal_position", "rule_version_set",
         "assumption_record_reference", "anchor_scenario_identity",
+        "annotation_link_identifier", "resume_attempt_identifier",
+        "journal_event_count_at_checkpoint", "last_event_identifier",
+        "form_standing_value", "build_identifier",
+        "dependency_manifest_hash", "parent_checkpoint_identifier",
+        "branch_cluster_identifier", "production_or_recovery_class",
     )),
     "13A": ("CheckpointState", _fields(
         "run_identifier", "simulated_day", "agent_states",
@@ -324,6 +329,8 @@ _FORM_SPECS = {
     "27": ("DetectionOutput", _fields(
         "run_identifier", "scoring_day_range",
         "verdict_states_and_accumulator_updates", "profile_bound_label",
+        "threshold_formula_table_identifier",
+        "threshold_formula_table_version", "standing_statement",
     )),
     "28": ("ReplicationVerdictRecord", _fields(
         "claim_identifier", "standard_applied", "verdict", "quantities",
@@ -367,6 +374,33 @@ _FORM_SPECS = {
 # Forms a source states as closed: unnamed fields fail validation.
 CLOSED_FORMS = frozenset(("16", "17", "19", "20", "21"))
 
+# The stored parts of the four JointOutcomeVector components, Form 15,
+# in the form plan section 3, Form 15, item 1 states for each component,
+# with the kind of each pair member named in the record under Amendment
+# G2-C18. A component carrying none of its parts, or standing as a bare
+# value, is no component of the form. The kind names themselves stand
+# as the record carries them: no record states a fixed label set for
+# them, and none stands fixed here.
+JOINT_OUTCOME_COMPONENT_PARTS = {
+    "attacker_controlled_share": (
+        "numerator", "denominator", "proportion", "viewer_identifier",
+        "numerator_kind", "denominator_kind",
+    ),
+    "farm_share_of_reputation_mass": (
+        "numerator", "denominator", "proportion", "viewer_identifier",
+        "numerator_kind", "denominator_kind",
+    ),
+    "largest_component_share": (
+        "component_size", "population_size", "proportion",
+        "component_definition_version", "viewer_identifier",
+        "component_size_kind", "population_size_kind",
+    ),
+    "honest_loss_rate": (
+        "numerator", "denominator", "rate", "loss_definition_version",
+        "viewer_identifier", "numerator_kind", "denominator_kind",
+    ),
+}
+
 # The decided ViewRecord, counted beside the 38 and taking no number.
 _VIEW_RECORD_FIELDS = _fields(
     "run_identifier", "viewer_identifier", "simulated_day",
@@ -394,6 +428,16 @@ _CONDITIONS = {
         "discriminator": "is_anchor_scenario_run",
         "condition": "the run is an anchor scenario run",
     },
+}
+
+_EXTRA_CONDITIONS = {
+    "13": (
+        {
+            "field": "annotation_link_identifier",
+            "discriminator": "is_anchor_scenario_run",
+            "condition": "the run is an anchor scenario run",
+        },
+    ),
 }
 
 _EVENTLOG_BASE_FIELDS = (
@@ -432,8 +476,13 @@ def required_fields(form_id):
 
 
 def _conditions_for(form_id):
-    condition = _CONDITIONS.get(_fid(form_id))
-    return (condition,) if condition else ()
+    fid = _fid(form_id)
+    conditions = []
+    condition = _CONDITIONS.get(fid)
+    if condition:
+        conditions.append(condition)
+    conditions.extend(_EXTRA_CONDITIONS.get(fid, ()))
+    return tuple(conditions)
 
 
 def field_conditions(form_id):
@@ -450,6 +499,7 @@ FORM_IDS = tuple(_FORM_SPECS.keys())
 # ---------------------------------------------------------------------------
 
 _FIELD_VALUES = {
+    "form_standing_value": "pending: OP-24 stands open",
     "calibration_claim_field": CALIBRATION_FIELD_VALUE,
     "lien_state": "no lien in force",
     "store_kind": "sweep",
@@ -483,15 +533,24 @@ def minimal_valid_instance(form_id, entry_kind=None, condition_holds=None):
     fid = _fid(form_id)
     if fid == "36":
         return _minimal_eventlog(entry_kind or "ordinary")
+    if fid == "15":
+        return _minimal_joint_outcome_vector()
     if fid == "1":
         return minimal_valid_family_record()
     instance = {}
     for field in required_fields(fid):
         instance[field] = _placeholder(field)
+    named_disc = None
+    if isinstance(condition_holds, dict):
+        for candidate in _conditions_for(fid):
+            if candidate["field"] == condition_holds.get("field"):
+                named_disc = candidate["discriminator"]
     for condition in _conditions_for(fid):
         holds = bool(condition_holds) and (
             not isinstance(condition_holds, dict)
             or condition_holds.get("field") == condition["field"]
+            or (named_disc is not None
+                and condition["discriminator"] == named_disc)
         )
         instance[condition["discriminator"]] = bool(holds)
         if holds:
@@ -509,6 +568,14 @@ def _minimal_eventlog(entry_kind):
             "superseded_from_journal_position")
         instance["resume_attempt_identifier"] = _placeholder(
             "resume_attempt_identifier")
+    return instance
+
+
+def _minimal_joint_outcome_vector():
+    instance = {}
+    for field, parts in JOINT_OUTCOME_COMPONENT_PARTS.items():
+        instance[field] = {part: _placeholder(part) for part in parts}
+    instance["divergence_companion"] = _placeholder("divergence_companion")
     return instance
 
 
@@ -531,9 +598,29 @@ def _carries_reserved_matter(value):
     if isinstance(value, str):
         return value in RESERVED_MATTER_VALUES
     if isinstance(value, dict):
-        return any(_carries_reserved_matter(v) for v in value.values())
-    if isinstance(value, (list, tuple)):
+        return any(
+            _carries_reserved_matter(k) or _carries_reserved_matter(v)
+            for k, v in value.items()
+        )
+    if isinstance(value, (list, tuple, set, frozenset)):
         return any(_carries_reserved_matter(v) for v in value)
+    return False
+
+
+def _carries_real_money_value(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in ("real_money_value", "real_money") and (
+                    item is not None):
+                return True
+            if key == "amount" and "currency" in value and (
+                    item is not None):
+                return True
+            if _carries_real_money_value(item):
+                return True
+        return False
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(_carries_real_money_value(v) for v in value)
     return False
 
 
@@ -575,16 +662,18 @@ def reserved_matter_values():
 
 def validate_family_seal_match(manifest, record):
     """Seal matching as a recorded value comparison: the run record
-    family version and manifest hash must match the sealed manifest."""
+    family version and family manifest hash must match the sealed
+    family record hash and version on the manifest, in the plan
+    named fields of Forms 23 and 4."""
     if not isinstance(manifest, dict) or not isinstance(record, dict):
         return False
     version = manifest.get("family_version")
-    digest = manifest.get("manifest_hash")
+    digest = manifest.get("sealed_family_record_hash")
     if version is None or digest is None:
         return False
     return (
         record.get("family_version") == version
-        and record.get("manifest_hash") == digest
+        and record.get("family_manifest_hash") == digest
     )
 
 
@@ -620,9 +709,30 @@ def validate_record(form_id, instance):
         if field not in instance or instance[field] is None:
             return False
     for condition in _conditions_for(fid):
-        if instance.get(condition["discriminator"]) is True:
+        discriminator = instance.get(condition["discriminator"])
+        if discriminator is not None and not isinstance(
+                discriminator, bool):
+            return False
+        if discriminator is True:
             if condition["field"] not in instance:
                 return False
+    if fid == "4":
+        if _carries_real_money_value(instance):
+            return False
+        anchor_values = instance.get("anchor_scenario_values")
+        if isinstance(anchor_values, dict) and len(anchor_values) != 3:
+            return False
+        if isinstance(anchor_values, (list, tuple)) and len(
+                anchor_values) != 3:
+            return False
+    if fid == "15":
+        for field, parts in JOINT_OUTCOME_COMPONENT_PARTS.items():
+            component = instance.get(field)
+            if not isinstance(component, dict):
+                return False
+            for part in parts:
+                if component.get(part) is None:
+                    return False
     if fid in CLOSED_FORMS:
         allowed = set(form_fields(fid))
         if any(k not in allowed for k in instance):
@@ -661,6 +771,9 @@ def _validate_eventlog(instance):
         if field not in instance or instance[field] is None:
             return False
     kind = instance.get("entry_kind")
+    if kind is not None and kind not in (
+            "ordinary", "agent", "supersession"):
+        return False
     if kind is None:
         if (
             "superseded_from_journal_position" in instance
@@ -671,6 +784,23 @@ def _validate_eventlog(instance):
             kind = "agent"
         else:
             kind = "ordinary"
+    if kind == "ordinary":
+        for field in (
+            "agent_identifier",
+            "superseded_from_journal_position",
+            "resume_attempt_identifier",
+        ):
+            if field in instance:
+                return False
+    if kind == "agent":
+        for field in (
+            "superseded_from_journal_position",
+            "resume_attempt_identifier",
+        ):
+            if field in instance:
+                return False
+    if kind == "supersession" and "agent_identifier" in instance:
+        return False
     if kind == "agent" and "agent_identifier" not in instance:
         return False
     if kind == "supersession":

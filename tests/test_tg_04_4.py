@@ -86,13 +86,14 @@ class TestTG044(unittest.TestCase):
 
     def test_gate_passing_share_recomputation_check(self):
         """
-        Fixture: F-23, cold society degree case, at its gate passing share limb, with the recomputation sample drawn from the epochs of one family on the basis the slice states. Gated in part: the sample size, fraction, and selection rule, and the divergence resolver and record form, stand open at cluster R1-035 in the Manager settlement register, design steps step-13-settlement-register entry 21.
-        Pins: The recomputation stands held in a separate store position from the logged share, its only output is a divergence count, ownership of the share is unchanged, and no second owner of the share is created, per picked proposal CR8B-06 as slice S-04 lands it. The sample size, fraction, and selection rule limb pins no value, because that limb rests on the open settlement at R1-035 and stands gated on it.
+        Fixture: F-23, cold society degree case, at its gate passing share limb, with the recomputation sample drawn from the epochs of one family on the basis the slice states. The sample limb stands settled by Manager ruling Entry 21 at design/steps/step-14-manager-rulings.md, which settles the R1-035 sample. The resolver limb stands separate from the sample limb: Entry 21 supplies no resolver callable, no resolver callable stands on the MOD-05 surface, and the resolver limb stands undemonstrated in this test.
+        Pins: The recomputation stands held in a separate store position from the logged share, its only output is a divergence count, ownership of the share is unchanged, and no second owner of the share is created, per picked proposal CR8B-06 as slice S-04 lands it. The sample limb pins the ruled sample in exact values, as the body below pins them: the whole set at 199 and at 200 records, a sample of 200 drawn at every fifth record from 1000 records, and a sample of 250 drawn at every tenth record from 2500 records.
         Bar: A missing recomputation for a sampled epoch fails this group; a divergence count above zero is a disagreement on the record, and the affected family result does not stand as reported until the divergence is resolved on its record; and a report that reads the affected share, or any result resting on that share for the affected family, as standing as reported while a nonzero count stands unresolved fails this group.
-        Failure: Gated: this test records a skip naming the R1-035 settlement while that settlement stands open, and never records a pass. Once the settlement stands, failure takes the bar forms stated in this docstring.
+        Failure: Fails while crucible.mod05 stands absent, and fails if a sample stands at odds with the ruled form or a recomputation stands at odds with the bar forms stated in this docstring. No skip stands recorded for the settled sample limb.
         """
         require_api(self, "TG-04.4", "gate passing share recomputation held apart with divergence count as its only output", ["recompute_share", "gate_passing_share", "compute_share"])
         # Standing basis: Manager ruling Entry 21 at design/steps/step-14-manager-rulings.md settles the R1-035 sample for this recomputation.
+        # The resolver limb of Entry 21 stands undemonstrated: no resolver callable stands on the MOD-05 surface, and this body pins no resolver behaviour.
         surface = _surface_module
         boundary = list(range(200))
         self.assertEqual(surface.recomputation_sample(boundary), boundary)

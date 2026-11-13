@@ -165,5 +165,35 @@ class TestTG071(unittest.TestCase):
         self.assertFalse(marked["run_valid_for_detection_reporting"])
 
 
+class TestStep15Fix1RecursionBounds(unittest.TestCase):
+    """Step 15 Round 1 fix pins: TA-03, on the MOD-08 barred key search."""
+
+    def _record(self, feature_values):
+        return {
+            "agent_identifier": "agent-deep",
+            "day": 1,
+            "feature_values": feature_values,
+            "records_for_agent_and_day": [],
+        }
+
+    def test_cyclic_input_raises_the_module_named_failure(self):
+        cyclic = {}
+        cyclic["self"] = cyclic
+        with self.assertRaises(_module.NamedDetectionFailure):
+            _module.accept_detection_input(self._record({"loop": cyclic}))
+
+    def test_deep_input_raises_the_module_named_failure(self):
+        deep = {"leaf": 1}
+        for _ in range(2000):
+            deep = {"nested": deep}
+        with self.assertRaises(_module.NamedDetectionFailure) as caught:
+            _module.accept_detection_input(self._record({"deep": deep}))
+        self.assertIn("nested", str(caught.exception))
+
+    def test_ordinary_input_still_accepted(self):
+        accepted = _module.accept_detection_input(self._record({"activity": 1}))
+        self.assertEqual(accepted["agent_identifier"], "agent-deep")
+
+
 if __name__ == "__main__":
     unittest.main()

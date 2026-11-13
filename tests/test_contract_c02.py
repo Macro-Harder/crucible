@@ -54,8 +54,11 @@ class TestContractC02(unittest.TestCase):
         self.assertTrue(check["equal_in_scope"])
         self.assertEqual(check["detection_comparison_points"], ["first verdict state after resume", "run close"])
         unnamed = surface.resume_check({}, {})
-        self.assertTrue(unnamed["equal_in_scope"])
-        self.assertIsNone(unnamed["divergence_record"])
+        self.assertFalse(unnamed["equal_in_scope"])
+        self.assertEqual(unnamed["missing_fields"], fields)
+        self.assertTrue(unnamed["promoted_to_full_retention"])
+        self.assertTrue(unnamed["witness_use_barred"])
+        self.assertIsNotNone(unnamed["divergence_record"])
 
     def test_resume_failure_promotes_and_bars_witness(self):
         """

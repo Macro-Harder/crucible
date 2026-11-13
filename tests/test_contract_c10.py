@@ -43,9 +43,9 @@ class TestContractC10(unittest.TestCase):
         self.require("run record version and hash match the sealed family manifest", "mod01", "mod12")
         import crucible.mod01 as mod01
         import crucible.mod12 as mod12
-        manifest = {"family_version": "v1", "manifest_hash": "hash-1"}
-        self.assertTrue(mod01.validate_family_seal_match(manifest, {"family_version": "v1", "manifest_hash": "hash-1"}))
-        self.assertFalse(mod01.validate_family_seal_match(manifest, {"family_version": "v1", "manifest_hash": "hash-9"}))
+        manifest = {"family_version": "v1", "sealed_family_record_hash": "hash-1"}
+        self.assertTrue(mod01.validate_family_seal_match(manifest, {"family_version": "v1", "family_manifest_hash": "hash-1"}))
+        self.assertFalse(mod01.validate_family_seal_match(manifest, {"family_version": "v1", "family_manifest_hash": "hash-9"}))
         family = mod12.make_family_record(family_id="fam-c10")
         sealed = mod12.seal_family_record(family)
         self.assertTrue(sealed["sealed"])

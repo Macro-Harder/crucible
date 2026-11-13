@@ -222,24 +222,18 @@ def derivation_text_refusal(text):
 
 
 def validate_family_derivation_text(text):
-    """Return whether a derivation text may stand in a family record.
-
-    The boolean form stands for the content ground only: a barred
-    derivation form returns False here, and its full refusal, naming
-    the barred form, stands at derivation_text_refusal. A text with
-    no barred form is not validated by this check either; it stands
-    refused on the gate ground, and that refusal stands at
-    derivation_text_refusal in the recorded gated form,
-    DERIVATION-GATED, naming DQ7-02. The two refusals never return
-    the same result: the content refusal is the boolean False, and
-    the gate refusal is the gated refusal record.
-    """
+    """Return whether a derivation text may stand in a family
+    record, as the boolean its name promises: False on every
+    refusal ground (a barred derivation form, the DQ7-02 gate
+    ground, and a value that is not a text), and True only on a
+    text that validates. No refusal stands returned in a truthy
+    form, so no caller reading this function as a boolean can
+    read a refused text as passing. The full refusal record,
+    naming its ground on every ground in the F-LE-05 form, stands
+    at derivation_text_refusal, unchanged. DQ7-02 stands
+    unadopted and its gated refusal form stands."""
     refusal = derivation_text_refusal(text)
-    if refusal["ground"].startswith("barred derivation form"):
-        return False
-    if refusal["ground"] == "not a text":
-        return False
-    return refusal
+    return bool(refusal.get("valid"))
 
 
 def make_derivation_input(derivation_version=None, domain=None,
@@ -340,14 +334,26 @@ def run_record_derivation_fields(value):
     """
     if not isinstance(value, dict):
         return {"derivation_version": None, "parameter_values": {}}
+    carried = value.get("parameter_values") or {}
     return {
         "derivation_version": value.get("derivation_version"),
-        "parameter_values": dict(value.get("parameter_values") or {}),
+        "parameter_values": {
+            name: carried[name]
+            for name in sorted(carried, key=lambda item: str(item))
+        },
     }
 
 
 def gated_refusal(action):
-    """Return the named gated refusal every derivation path returns."""
+    """Return the named gated refusal every derivation path returns.
+
+    Beside its codes, the refusal states its ground in a plain
+    sentence and what stands next in words: no adoption record
+    stands for the gate, and nothing stands for the operator to
+    do, the block sitting with the decision on the adoption
+    record. The gate itself, its codes, and the nothing drawn
+    standing stand unchanged.
+    """
     return {
         "status": GATED,
         "gate": GATE_QUESTION,
@@ -355,6 +361,12 @@ def gated_refusal(action):
         "action": action,
         "failure": DERIVATION_GATED_FAILURE,
         "seed_drawn": False,
+        "ground_in_words": (
+            "No adoption record for the DQ7-02 gate stands, so no "
+            "seed can be derived and the gated act cannot proceed."),
+        "next_step": (
+            "Nothing stands for the operator to do here; the block "
+            "sits with the decision on the DQ7-02 adoption record."),
     }
 
 
@@ -413,9 +425,14 @@ def draw_from_stream(stream_class=None, position=None,
             position = state.get("position")
         if carried_positions is None:
             carried_positions = state.get("carried_positions")
-    if position is None or carried_positions is None:
-        raise ValueError("stream state lacks a position or its carried "
-                         "positions")
+    if position is None:
+        raise ValueError(
+            "stream state lacks a position: supply the position "
+            "the draw stands at")
+    if carried_positions is None:
+        raise ValueError(
+            "stream state lacks its carried positions: supply the "
+            "carried positions of the stream")
     if int(position) >= int(carried_positions):
         return {
             "failure": STREAM_EXHAUSTED_FAILURE,
@@ -424,6 +441,7 @@ def draw_from_stream(stream_class=None, position=None,
             "run_status": "failed",
             "partial_records_marked": True,
             "supports_claim": False,
+            "recovery_forms": _STREAM_RECOVERY_FORMS,
         }
     refusal = gated_refusal("draw from stream")
     refusal["stream_class"] = stream_class
@@ -458,7 +476,11 @@ def encode_candidate_input(values):
     for key in sorted(values, key=lambda item: str(item)):
         name = str(key)
         raw = values[key]
-        text = raw if isinstance(raw, str) else str(raw)
+        if not isinstance(raw, str):
+            raise ValueError(
+                "parameter value for " + name
+                + " is not a recorded string")
+        text = raw
         parts.append(
             str(len(name)) + ":" + name + "="
             + str(len(text)) + ":" + text)
@@ -497,14 +519,15 @@ def battery_verdict_state(inter_stream_element_recorded=False,
     """Return the standing of one battery verdict.
 
     A verdict recorded before the inter stream element result for
-    its family stands recorded is gated, never passed.
+    its family stands recorded is gated, never passed. A recorded
+    verdict outside the three states the battery result stands in
+    stands gated, never passed: no fourth state converts to a
+    pass in any state of the record.
     """
     if not inter_stream_element_recorded:
         return GATED
     if verdict in _BATTERY_RESULT_STATES:
         return verdict
-    if verdict_recorded:
-        return "passed"
     return GATED
 
 
@@ -535,7 +558,7 @@ def determinism_statement_permitted(battery_state=None,
 
 def _carried_generator_state(run_id, stream_classes=None):
     streams = {}
-    for name in stream_classes or ():
+    for name in sorted(stream_classes or (), key=lambda item: str(item)):
         streams[name] = {"position": 0}
     return {
         "run_id": run_id,

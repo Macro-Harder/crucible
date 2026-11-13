@@ -19,6 +19,8 @@ module carries the field and states the gap, and invents no value.
 
 import copy
 
+from . import mod01
+
 __all__ = [
     "CORE_INSTRUCTION_COUNT",
     "DQ_ARRIVAL_STANDINGS",
@@ -27,6 +29,9 @@ __all__ = [
     "PAUSE_CAP_B4",
     "RULING_TEXT_GAPS",
     "VERIFICATION_LIMIT",
+    "ExcludedSubpath",
+    "GuessedAnswer",
+    "UnnamedInstruction",
     "allowed_subpaths",
     "classify_instruction_refusal",
     "contested_entries_for",
@@ -102,6 +107,12 @@ class ExcludedSubpath(Exception):
     """A subpath or profile excluded on a DQ ground stays excluded."""
 
 
+class UnnamedInstruction(Exception):
+    """An instruction stands unnamed in the cited set of core
+    instructions: no exercised case stands for it, and it stands
+    refused as unnamed, not as an excluded subpath."""
+
+
 class GuessedAnswer(Exception):
     """No case encodes a guess at any item from DQ-5 to DQ-30."""
 
@@ -137,10 +148,31 @@ def ruling_text_gaps():
 # Escrow bearing results and the core only qualifier
 # ---------------------------------------------------------------------------
 
+def _payload_carries_barred(value):
+    """Screen a payload at any depth for the barred money and
+    anchor forms: a real money value, an amount and currency pair,
+    or a supplied anchor set, which DQ-162 and DQ-163 bar."""
+    if isinstance(value, dict):
+        keys = {str(key).lower() for key in value}
+        if "amount" in keys and "currency" in keys:
+            return True
+        for key, item in value.items():
+            lowered = str(key).lower()
+            if "anchor_set" in lowered or lowered.startswith("real_money"):
+                return True
+            if _payload_carries_barred(item):
+                return True
+    if isinstance(value, (list, tuple)):
+        return any(_payload_carries_barred(item) for item in value)
+    return False
+
+
 def escrow_result(kind, variant="B-4", payload=None, contract_state=None):
     """One escrow bearing result. Every such result carries the
     core only qualifier reading true, the K1 and L2 state carriage
     Shape 9 requires, and the verification limit statement."""
+    if _payload_carries_barred(payload):
+        raise ValueError("an escrow result payload carries no real money value and no supplied anchor set")
     state = contract_state if isinstance(contract_state, dict) else {}
     return {
         "kind": kind,
@@ -155,20 +187,38 @@ def escrow_result(kind, variant="B-4", payload=None, contract_state=None):
 
 
 def escrow_contract_state(contract_identifier, variant="B-4", lien_state="no lien in force",
-                          pause_state=None, lost_contact_clause_on=False):
-    """An EscrowContractState in Shape 9 form. The K1 and L2 state
-    stands carried as a field whose value set stands unstated at
+                          pause_state=None, lost_contact_clause_on=False,
+                          pair_identifiers=None, standard_or_profile_identifier=None,
+                          estimated_cost_value=None, pause_cap_value=None, window_n=None):
+    """An EscrowContractState in Shape 9 and Form 10 form, carrying
+    every Form 10 field group: the pair identifiers, the standard
+    or profile identifier, the estimated cost value, the pause
+    state with the pause cap value in force, and, where the lost
+    contact clause stands on, the clock state with the window
+    value N recorded as used. The variant and the lien state stand
+    validated against their closed sets. The K1 and L2 state stands
+    carried as a field whose value set stands unstated at
     OP-21 G-10, and no value is invented for it."""
+    if variant not in ("B-3", "B-4"):
+        raise ValueError("the escrow variant stands outside the B-3 and B-4 set: " + str(variant))
+    if lien_state not in mod01.LIEN_STATES:
+        raise ValueError("the lien state stands outside the closed four value set: " + str(lien_state))
     state = {
         "contract_identifier": contract_identifier,
+        "pair_identifiers": copy.deepcopy(pair_identifiers),
+        "standard_or_profile_identifier": standard_or_profile_identifier,
         "variant": variant,
         "lien_state": lien_state,
+        "estimated_cost_value": estimated_cost_value,
         "pause_state": pause_state,
+        "pause_cap_value": copy.deepcopy(pause_cap_value) if pause_cap_value is not None else pause_cap(variant)["per_variant_pause_value"],
         "k1_and_l2_state": "carried; value set open at OP-21 G-10",
         "lost_contact_clause_on": bool(lost_contact_clause_on),
     }
     if lost_contact_clause_on:
         state["lost_contact_clock_state"] = "contact clocks tracked"
+        state["lost_contact_window_n"] = window_n
+        state["lost_contact_clock_scope"] = "window value N recorded as used in the standard for that contract"
     return state
 
 
@@ -177,7 +227,9 @@ def validate_escrow_result(result):
     other than true, is not reportable as an escrow result."""
     if not isinstance(result, dict):
         return False
-    return result.get("core_only_qualifier") is True
+    if result.get("core_only_qualifier") is not True:
+        return False
+    return not _payload_carries_barred(result.get("payload"))
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +262,14 @@ def run_instruction(name, variant="B-4", context=None):
     presenting a treatment as a DQ answer, a floor under N, or a
     clock scope reading as an answer is refused as a guess.
     """
+    try:
+        return _run_instruction_act(name, variant=variant, context=context)
+    except (ExcludedSubpath, GuessedAnswer, ValueError) as error:
+        error.failure_class = classify_instruction_refusal()
+        raise
+
+
+def _run_instruction_act(name, variant="B-4", context=None):
     context = dict(context or {})
     if context.get("claims_dq_answer") or context.get("dq_answer") is not None:
         raise GuessedAnswer("no case encodes a guess at any DQ-5 to DQ-30 item")
@@ -218,7 +278,7 @@ def run_instruction(name, variant="B-4", context=None):
     if "pool" in str(name) or name == EXCLUDED_PROFILE or context.get("profile") == EXCLUDED_PROFILE:
         raise ExcludedSubpath("a construction excluded on a DQ ground stays excluded on that ground: " + str(name))
     if name not in _ALLOWED:
-        raise ExcludedSubpath("no exercised case stands for instruction: " + str(name))
+        raise UnnamedInstruction("instruction stands unnamed in the cited set of 12 core instructions, with no exercised case standing for it: " + str(name))
     item = _ALLOWED[name].split(",")[0]
     result_payload = {"instruction": name, "dq_item": _ALLOWED[name]}
     result_payload["contested_entries"] = contested_entries_for(item)
@@ -226,7 +286,7 @@ def run_instruction(name, variant="B-4", context=None):
     result_payload["traversal_claim"] = None
     if name == "replace_backup_key":
         if not context.get("backup_key_registered_at_setup"):
-            raise ValueError("replace_backup_key runs with backup key registration at setup")
+            raise ValueError("refused: replace_backup_key stands refused, because it runs only with backup key registration at setup")
         result_payload["backup_key_registered_at_setup"] = True
     if name == "open_request":
         additions = [key for key in ("countersigning", "bound", "verification") if context.get(key)]
@@ -236,6 +296,8 @@ def run_instruction(name, variant="B-4", context=None):
         true = context.get("true_cost")
         if stated is None or true is None:
             raise ValueError("open_request carries its self declared estimated cost in accuracy form")
+        if true == 0:
+            raise ValueError("open_request stands refused in named form: the true cost stands at zero, so no accuracy form stands")
         result_payload["lien_sized_from"] = "self declared estimated cost"
         result_payload["lien_size"] = stated
         result_payload["estimated_cost"] = {
@@ -278,6 +340,8 @@ def pause_cap(variant="B-4", stated_value=None):
     stated in the same per variant field form, and its text
     ambiguity, total or extension, stands unresolved: no reading
     is chosen for B-3 here or by any test."""
+    if variant not in ("B-3", "B-4"):
+        raise ValueError("the pause cap stands refused in named form for an unknown variant: " + str(variant))
     if variant == "B-4":
         return {
             "variant": "B-4",
@@ -307,7 +371,17 @@ def validate_pause_result(result):
         payload = result.get("payload")
         if isinstance(payload, dict):
             value = payload.get("per_variant_pause_value")
-    return value is not None
+    if value is None:
+        return False
+    variant = result.get("variant")
+    if variant is None and isinstance(result.get("payload"), dict):
+        variant = result["payload"].get("variant")
+    if variant == "B-4":
+        if not isinstance(value, dict):
+            return False
+        return (value.get("extension_percent") == PAUSE_CAP_B4["extension_percent"]
+                and value.get("total_percent") == PAUSE_CAP_B4["total_percent"])
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -468,6 +542,9 @@ def validate_dq_arrival_table(rows):
     if len(rows) != 26:
         return False
     expected = {row["item"]: row["standing"] for row in dq_arrival_table()}
+    seen = [row.get("item") for row in rows if isinstance(row, dict)]
+    if len(set(seen)) != 26 or set(seen) != set(expected):
+        return False
     for row in rows:
         if not isinstance(row, dict):
             return False

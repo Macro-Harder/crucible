@@ -154,8 +154,19 @@ def validate_proportion(record):
         return False
     if "numerator" not in record or "denominator" not in record:
         return False
-    if record["numerator"] is None or record["denominator"] is None:
+    numerator = record["numerator"]
+    denominator = record["denominator"]
+    for part in (numerator, denominator):
+        if isinstance(part, bool) or not isinstance(part, (int, float)):
+            return False
+    if denominator <= 0 or numerator < 0:
         return False
+    if "quotient" in record and record["quotient"] is not None:
+        quotient = record["quotient"]
+        if isinstance(quotient, bool) or not isinstance(quotient, (int, float)):
+            return False
+        if abs(quotient - numerator / denominator) > 1e-12:
+            return False
     return True
 
 
@@ -287,10 +298,10 @@ def component(edges, component_definition_version=None):
     Component size for the cap counts edges, not stake weight."""
     edges = list(edges)
     groups = _components(edges)
-    largest = max((g["edge_count"] for g in groups), default=0)
+    largest = max((len(g["members"]) for g in groups), default=0)
     return {
         "component_list": [
-            {"members": g["members"], "edge_count": g["edge_count"], "stake_total": g["stake_total"]}
+            {"members": g["members"], "member_count": len(g["members"]), "edge_count": g["edge_count"], "stake_total": g["stake_total"]}
             for g in groups
         ],
         "largest_mutually_vouching_component_size": largest,
@@ -349,6 +360,15 @@ def validate_graph_snapshot(snapshot, edges):
     if not isinstance(snapshot, dict):
         return False
     edges = list(edges)
+    if snapshot.get(COMPONENT_DEFINITION_VERSION_FIELD) is None:
+        return False
+    reference = snapshot.get("edge_list_reference")
+    if reference is None:
+        return False
+    if isinstance(reference, (list, tuple)) and list(reference) != edges:
+        return False
+    if snapshot.get("realised_degree_distribution") is None:
+        return False
     versions = {
         _get(edge, COMPONENT_DEFINITION_VERSION_FIELD)
         for edge in edges
@@ -364,6 +384,8 @@ def validate_graph_snapshot(snapshot, edges):
         snapshot.get("component_list") == expected["component_list"]
         and snapshot.get("largest_mutually_vouching_component_size")
         == expected["largest_mutually_vouching_component_size"]
+        and snapshot.get("realised_degree_distribution")
+        == expected["realised_degree_distribution"]
     )
 
 
@@ -392,10 +414,10 @@ def feeder_position(feeder, edges):
     groups = _components(list(edges))
     if not groups:
         return "neither"
-    largest_size = max(g["edge_count"] for g in groups)
+    largest_size = max(len(g["members"]) for g in groups)
     for group in groups:
         if feeder in group["members"]:
-            if group["edge_count"] == largest_size:
+            if len(group["members"]) == largest_size:
                 return "largest mutually vouching component"
             return "component list"
     return "neither"
@@ -499,9 +521,11 @@ def band_membership(score, bands, evaluation_order=None):
     if not validate_evaluation_order(order_record):
         raise ValueError("eligibility judgements require the evaluation order the record states, unstated or presented as ruled")
     chosen = None
+    chosen_minimum = None
     for name, minimum in bands:
-        if score >= minimum:
+        if score >= minimum and (chosen_minimum is None or minimum > chosen_minimum):
             chosen = name
+            chosen_minimum = minimum
     return {
         "band": chosen,
         "score": score,
@@ -523,8 +547,7 @@ def reputation_and_band_values(agents_scores, bands, viewer=None, evaluation_ord
     """The view edge supply: the reputation and band values this core
     already owns, supplied for assembly into a view by MOD-04,
     without MOD-04 taking over their computation."""
-    order_record = evaluation_order if isinstance(evaluation_order, dict) else evaluation_order_record(
-        evaluation_order if evaluation_order is not None else "O-1")
+    order_record = evaluation_order if isinstance(evaluation_order, dict) else evaluation_order_record(evaluation_order)
     values = {}
     for agent, score in agents_scores.items():
         values[agent] = band_membership(score, bands, evaluation_order=order_record)
@@ -685,6 +708,8 @@ def gate_passing_share(eligible, passing, epoch=None):
     """The gate passing share computed per epoch by this core, as a
     proportion stored with its numerator and denominator apart."""
     eligible = list(eligible)
+    if not eligible:
+        return UNKNOWN_SHARE
     passing_set = set(passing)
     numerator = sum(1 for item in eligible if item in passing_set)
     share = proportion_record(numerator, len(eligible))
@@ -735,6 +760,13 @@ def population_figure(envelope_value, shares, record_state=None):
     record state. A single application figure is not this figure."""
     if record_state is None:
         raise ValueError("the derivation names its record state")
+    if not shares:
+        return {
+            "per_epoch_corrected": [],
+            "population_average": UNKNOWN_SHARE,
+            "derivation": "double application, mean as the final step",
+            "record_state": record_state,
+        }
     corrected = []
     for share in shares:
         first = score_bearing_figure(envelope_value, share)
@@ -762,6 +794,15 @@ def cost_statement_valid(record):
     share_entry = record.get("assumption_share")
     if isinstance(share_entry, dict) and share_entry.get("fitted"):
         return False
+    share_log = record.get("share_log")
+    entries = []
+    if isinstance(share_log, (list, tuple)):
+        entries = list(share_log)
+    elif isinstance(share_log, dict) and "numerator" in share_log:
+        entries = [share_log]
+    for entry in entries:
+        if not validate_logged_share(entry):
+            return False
     return True
 
 
@@ -800,12 +841,14 @@ def recompute_share(logged_shares, recomputed_shares):
     It stands held in a separate store position from the logged
     share, its only lawful output is a divergence count, ownership
     of the share is unchanged, and no second owner is created."""
-    divergence = 0
-    for epoch, logged in logged_shares.items():
-        if recomputed_shares.get(epoch) != logged:
-            divergence += 1
+    divergent = []
+    for epoch in sorted(set(logged_shares) | set(recomputed_shares), key=str):
+        if epoch not in logged_shares or epoch not in recomputed_shares or logged_shares[epoch] != recomputed_shares[epoch]:
+            divergent.append(epoch)
+    divergence = len(divergent)
     return {
         "divergence_count": divergence,
+        "divergent_epochs": divergent,
         "store_position": "separate recomputation position",
         "owner_of_share": "MOD-05 Parley Core",
         "second_owner_created": False,
@@ -825,22 +868,56 @@ def validate_report_reading(divergence_count, resolved=False):
 # Challenge handling and behavioural adjudication, Shape 10
 # ---------------------------------------------------------------------------
 
+_PANEL_BARRED_KEYS = {
+    "membership", "label", "is_honest", "label_reference",
+    "membership_ground_truth",
+}
+
+
+def _panel_key_barred(key):
+    lowered = str(key).lower()
+    return "ground_truth" in lowered or lowered in _PANEL_BARRED_KEYS
+
+
+def _panel_clean(value):
+    if isinstance(value, dict):
+        return {
+            key: _panel_clean(item)
+            for key, item in value.items()
+            if not _panel_key_barred(key)
+        }
+    if isinstance(value, list):
+        return [_panel_clean(item) for item in value]
+    return _freeze(value)
+
+
+def _panel_carries_barred(value):
+    if isinstance(value, dict):
+        return any(
+            _panel_key_barred(key) or _panel_carries_barred(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(_panel_carries_barred(item) for item in value)
+    return False
+
+
 def panel_inputs(case):
     """The panel inputs of an adjudication case, with the ground
-    truth label reference held apart from them."""
-    excluded = {"ground_truth_label_reference", "ground_truth_label", "label_reference"}
-    return {key: _freeze(value) for key, value in dict(case).items() if key not in excluded}
+    truth label reference held apart from them. One barred key
+    rule stands for the former and the validator alike, read
+    recursively at every depth: ground truth keys, derived ground
+    truth keys, and the membership, label, and honesty keys never
+    stand in a formed panel set."""
+    return _panel_clean(dict(case))
 
 
 def validate_panel_inputs(inputs):
     """A panel input set containing the ground truth label, or a
-    field derived from it, fails."""
+    field derived from it, at any depth, fails."""
     if not isinstance(inputs, dict):
         return False
-    for key in inputs:
-        if "ground_truth" in str(key) or key in ("label_reference", "membership_ground_truth"):
-            return False
-    return True
+    return not _panel_carries_barred(inputs)
 
 
 def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
@@ -850,14 +927,27 @@ def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
     its assumption set and row reference, and the error direction
     named beside the value. The accuracy value may not be derived
     from panel size, band gates, or fee size."""
+    def fail(message):
+        error = ValueError(message)
+        error.failure_class = adjudication_input_failure_class()
+        raise error
     if derived_from in ("panel size", "band gates", "fee size"):
-        raise ValueError("the accuracy value may not be derived from panel size, band gates, or fee size")
+        fail("the accuracy value may not be derived from panel size, band gates, or fee size")
     if accuracy_value is None or assumption_set is None or row is None or error_direction is None:
-        raise ValueError("an outcome travels with its accuracy value, assumption set and row, and error direction")
+        fail("an outcome travels with its accuracy value, assumption set and row, and error direction")
+    if isinstance(accuracy_value, bool) or not isinstance(accuracy_value, (int, float)) or not 0 <= accuracy_value <= 1:
+        fail("the arbiter accuracy value stands outside its probability range")
     if outcome is None:
         outcome = "no determination"
     elif outcome not in ("slashable", "not slashable"):
-        outcome = outcome
+        fail("the adjudication outcome stands outside the stated vocabulary")
+    formed = panel_inputs(case)
+    remainder = {
+        key: value for key, value in dict(case).items()
+        if key not in ("ground_truth_label_reference", "ground_truth_label", "label_reference")
+    }
+    if _panel_carries_barred(remainder):
+        fail("the formed panel set carries a barred ground truth or membership key")
     return {
         "case_identifier": _get(case, "case_identifier"),
         "outcome": outcome,
@@ -865,7 +955,7 @@ def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
         "assumption_set_identifier": assumption_set,
         "row_identifier": row,
         "error_direction": error_direction,
-        "panel_inputs": panel_inputs(case),
+        "panel_inputs": formed,
         "ground_truth_label_reference": _get(case, "ground_truth_label_reference"),
         "excluded_class_counts_and_shares": _get(case, "excluded_class_counts_and_shares"),
         "form": "decision record level",
@@ -900,7 +990,7 @@ def excluded_class_counts(cases):
     return {
         name: {
             "count": counts[name],
-            "share": proportion_record(counts[name], total) if total else proportion_record(0, 0),
+            "share": proportion_record(counts[name], total) if total else UNKNOWN_SHARE,
         }
         for name in EXCLUDED_CLASSES
     }
@@ -925,15 +1015,25 @@ def validate_headline_adjudication_claim(family_record, run_record):
     if threshold is None:
         return False
     counts = run_record.get("excluded_class_counts_and_shares") or {}
+    if not isinstance(counts, dict) or not counts:
+        return False
+    if FORGED_VOUCH_BASIS_CLASS not in counts:
+        return False
     total_share = 0.0
     forged_share = 0.0
     for name, entry in counts.items():
         share = entry.get("share") if isinstance(entry, dict) else None
-        if isinstance(share, dict) and share.get("denominator"):
+        if isinstance(share, dict):
+            if not validate_proportion(share):
+                return False
             value = share["numerator"] / share["denominator"]
-            total_share += value
-            if name == FORGED_VOUCH_BASIS_CLASS:
-                forged_share = value
+        elif isinstance(share, (int, float)) and not isinstance(share, bool):
+            value = share
+        else:
+            return False
+        total_share += value
+        if name == FORGED_VOUCH_BASIS_CLASS:
+            forged_share = value
     if total_share > threshold:
         return False
     if forged_share > 0:

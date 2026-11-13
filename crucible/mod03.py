@@ -51,7 +51,58 @@ RULE_STATE_FIELDS = (
     "lien_state",
     "decided_effect",
 )
+BARRED_PROJECTION_KEYS = frozenset([
+    "ground_truth", "ground_truth_field", "membership",
+    "honest_membership", "farm_membership", "is_honest", "is_farm",
+    "canary", "canary_value", "membership_value", "sleeper",
+    "ground_truth_label", "label",
+])
+
+_BARRED_KEY_PARTS = (
+    "membership",
+    "ground_truth",
+    "groundtruth",
+    "canary",
+)
+
+
+def _is_barred_key(key):
+    """Return whether a key stands barred under the standing vocabulary.
+
+    The vocabulary is the one the projection applies one module
+    away: the thirteen projection names, read lowered, beside the
+    ground truth names this module has always barred, with lowered
+    substring matching on the membership, ground truth, and canary
+    parts, so capitalised and variant forms stand barred as well.
+    """
+    lowered = str(key).lower()
+    if lowered in GROUND_TRUTH_FIELDS:
+        return True
+    if lowered in BARRED_PROJECTION_KEYS:
+        return True
+    return any(part in lowered for part in _BARRED_KEY_PARTS)
+
+
 _GENERATOR_SIGNATURE = "behaviour(stream_state, labelled_assumptions)"
+
+TRAVERSAL_DEPTH_BOUND = 100
+
+
+class NamedGeneratorFailure(ValueError):
+    """A generator failure stated by name, with its ground and path."""
+
+
+def _traversal_guard(value, depth, seen, path):
+    if depth > TRAVERSAL_DEPTH_BOUND:
+        raise NamedGeneratorFailure(
+            "ground truth traversal bound reached at " + (path or "root")
+            + ": the value stands deeper than the stated bound of "
+            + str(TRAVERSAL_DEPTH_BOUND)
+        )
+    if id(value) in seen:
+        raise NamedGeneratorFailure(
+            "ground truth traversal found a cycle at " + (path or "root")
+        )
 
 
 AgentState = _mod01.AgentState
@@ -99,7 +150,18 @@ def archetype_catalogue(records=None):
     """
     entries = {}
     for record in records or ():
-        entries[record.get("archetype_id")] = {
+        identifier = record.get("archetype_id")
+        if identifier is None:
+            raise ValueError(
+                "catalogue rejected: an archetype record carries no "
+                "identifier"
+            )
+        if identifier in entries:
+            raise ValueError(
+                "catalogue rejected: a duplicate archetype identifier "
+                "stands in the record set: " + str(identifier)
+            )
+        entries[identifier] = {
             "generator_signature": record.get("generator_signature"),
             "parameter_rows": list(record.get("parameter_rows") or ()),
         }
@@ -200,12 +262,12 @@ def build_cast(point, archetype_records, stream_state=None,
 
     The point names the population and the archetype mix. The mix
     counts must sum to the population, and every archetype in the mix
-    must stand in the records supplied. The strategy class for the
-    run is fixed in advance: a cast with no strategy class stated
-    does not build. Cast order is a deterministic function of the
-    stream state values handed in: where cast values stand supplied,
-    one per agent, agents take their archetypes in the order those
-    values state, ties broken by agent identifier.
+    must stand in the records supplied. The strategy class for a run is
+    fixed in advance: a cast with no strategy class stated does not
+    build. Cast order is a deterministic function of the stream state
+    values handed in: where cast values stand supplied, one per agent,
+    agents take their archetypes in the order those values state, ties
+    broken by agent identifier.
     """
     if not strategy_class or not isinstance(strategy_class, str):
         raise ValueError("the strategy class for a run is fixed in "
@@ -216,6 +278,18 @@ def build_cast(point, archetype_records, stream_state=None,
     mix = point.get("archetype_mix") or {}
     if population is None:
         raise ValueError("the point states no population")
+    if isinstance(population, bool) or not isinstance(
+            population, int) or population < 0:
+        raise NamedGeneratorFailure(
+            "cast rejected: the population the point states is not "
+            "a non negative whole count: " + repr(population))
+    for mix_identifier, mix_count in mix.items():
+        if isinstance(mix_count, bool) or not isinstance(
+                mix_count, int) or mix_count < 0:
+            raise NamedGeneratorFailure(
+                "cast rejected: the mix count for "
+                + str(mix_identifier) + " is not a non negative "
+                "whole count: " + repr(mix_count))
     if sum(mix.values()) != population:
         raise ValueError("archetype mix counts do not sum to the "
                          "population the point names")
@@ -266,7 +340,10 @@ def build_cast(point, archetype_records, stream_state=None,
                 "member_ids": sorted(grouped[farm_id]),
             })
     edges = []
-    for edge in initial_edges or point.get("initial_edges") or ():
+    edge_source = initial_edges
+    if edge_source is None:
+        edge_source = point.get("initial_edges")
+    for edge in edge_source or ():
         if isinstance(edge, dict):
             edges.append({
                 "voucher": edge.get("voucher"),
@@ -287,7 +364,7 @@ def build_cast(point, archetype_records, stream_state=None,
         first = farm_of.get(edge["voucher"])
         if first is not None and first == farm_of.get(edge["vouchee"]):
             internal_counts[first] += 1
-    return {
+    cast_record = {
         "delivery_point": "before day one",
         "point_id": point.get("point_id", point.get("point_identifier")),
         "strategy_class": strategy_class,
@@ -300,6 +377,14 @@ def build_cast(point, archetype_records, stream_state=None,
         "deliveries_after_day_one": (
             "behaviour through the behaviour streams only"),
     }
+    if not farm_size and any(
+            by_id[agent["archetype_id"]].get("farm_member")
+            for agent in agents):
+        cast_record["farm_construction"] = (
+            "not built: no farm size stands stated in the point, "
+            "so no farms stand constructed over the farm members "
+            "the cast carries")
+    return cast_record
 
 
 def cast_agent_record(agent):
@@ -396,14 +481,19 @@ def zero_edge_society(point, archetype_records, stream_state=None,
                       strategy_class=None):
     """Construct the fixture F-03 zero edge society.
 
-    Attack edge count 0 and summed stake 0, with anchor scenario AN-1
-    in place. The cast builds with no initial edges, so every per
-    farm identity internal edge count stands at zero on the record.
+    The cast builds with no initial edges, so every per farm
+    identity internal edge count stands at zero on the record.
+    Both headline figures, the attack edge count and the summed
+    stake, are computed from the society as constructed, from its
+    initial graph, and stand at 0 because that graph is empty.
+    Anchor scenario AN-1 stands in place.
     """
     cast = build_cast(point, archetype_records, stream_state,
                       strategy_class, initial_edges=())
-    cast["attack_edge_count"] = 0
-    cast["summed_stake"] = 0
+    built_edges = cast["initial_graph"]["edges"]
+    cast["attack_edge_count"] = len(built_edges)
+    cast["summed_stake"] = sum(
+        edge.get("stake", 0) for edge in built_edges)
     cast["anchor_scenario"] = anchor_scenario(
         "AN-1", point.get("anchor_set_description", "scenario setting"))
     return cast
@@ -473,11 +563,46 @@ def generator_holds_rule_state():
     return False
 
 
+def _value_carries_rule_state(value, _seen=None):
+    """Return whether a value carries a rule state field at any depth.
+
+    Dicts are read by their keys and by every value they hold, and
+    lists, tuples, and sets are read by every item they hold, so a
+    decided effect nested inside another value still counts. A
+    container already under reading on this path is not read again.
+    """
+    if isinstance(value, dict):
+        seen = _seen if _seen is not None else set()
+        if id(value) in seen:
+            return False
+        seen.add(id(value))
+        try:
+            return any(
+                key in RULE_STATE_FIELDS
+                or _value_carries_rule_state(item, seen)
+                for key, item in value.items()
+            )
+        finally:
+            seen.discard(id(value))
+    if isinstance(value, (list, tuple, set, frozenset)):
+        seen = _seen if _seen is not None else set()
+        if id(value) in seen:
+            return False
+        seen.add(id(value))
+        try:
+            return any(
+                _value_carries_rule_state(item, seen) for item in value)
+        finally:
+            seen.discard(id(value))
+    return False
+
+
 def validate_generator_output(output):
     """Return True only where an output proposes and decides nothing.
 
     An output carrying a reputation, stake, band, or contract effect
-    as a decided effect fails this check. Ground truth carriage in a
+    as a decided effect fails this check, at any depth: the stated
+    rule carries no depth limit. Ground truth carriage in a
     cast delivery is scoring carriage, not an effect, and stands
     outside this check, which reads proposal outputs.
     """
@@ -485,13 +610,12 @@ def validate_generator_output(output):
     for item in items:
         if not isinstance(item, dict):
             return False
-        for field in RULE_STATE_FIELDS:
-            if field in item:
-                return False
+        if _value_carries_rule_state(item):
+            return False
     return True
 
 
-def _value_carries_ground_truth(value):
+def _value_carries_ground_truth(value, _depth=0, _seen=None, _path=""):
     """Return whether a value carries a ground truth field at any depth.
 
     Dicts are read by their keys and by every value they hold, and
@@ -499,14 +623,25 @@ def _value_carries_ground_truth(value):
     barred key nested inside a feature value, inside a rule record,
     or inside a container at any further depth still counts.
     """
-    if isinstance(value, dict):
-        return any(
-            key in GROUND_TRUTH_FIELDS
-            or _value_carries_ground_truth(item)
-            for key, item in value.items()
-        )
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return any(_value_carries_ground_truth(item) for item in value)
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        seen = _seen if _seen is not None else set()
+        _traversal_guard(value, _depth, seen, _path)
+        seen.add(id(value))
+        try:
+            if isinstance(value, dict):
+                return any(
+                    _is_barred_key(key)
+                    or _value_carries_ground_truth(
+                        item, _depth + 1, seen, _path + "/" + str(key))
+                    for key, item in value.items()
+                )
+            return any(
+                _value_carries_ground_truth(
+                    item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                for index, item in enumerate(value)
+            )
+        finally:
+            seen.discard(id(value))
     return False
 
 
@@ -520,7 +655,7 @@ def record_carries_ground_truth(record):
     return _value_carries_ground_truth(record)
 
 
-def _strip_ground_truth_value(value):
+def _strip_ground_truth_value(value, _depth=0, _seen=None, _path=""):
     """Return a value with every ground truth field removed at any depth.
 
     Dicts lose every barred key wherever it stands and keep their
@@ -528,16 +663,33 @@ def _strip_ground_truth_value(value):
     keep their form, with each item cleaned in the same way.
     Content that carries no barred key passes through unchanged.
     """
-    if isinstance(value, dict):
-        return {
-            key: _strip_ground_truth_value(item)
-            for key, item in value.items()
-            if key not in GROUND_TRUTH_FIELDS
-        }
-    if isinstance(value, list):
-        return [_strip_ground_truth_value(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_strip_ground_truth_value(item) for item in value)
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        seen = _seen if _seen is not None else set()
+        _traversal_guard(value, _depth, seen, _path)
+        seen.add(id(value))
+        try:
+            if isinstance(value, dict):
+                return {
+                    key: _strip_ground_truth_value(
+                        item, _depth + 1, seen, _path + "/" + str(key))
+                    for key, item in value.items()
+                    if not _is_barred_key(key)
+                }
+            if isinstance(value, list):
+                return [
+                    _strip_ground_truth_value(
+                        item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                    for index, item in enumerate(value)
+                ]
+            if isinstance(value, tuple):
+                return tuple(
+                    _strip_ground_truth_value(
+                        item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                    for index, item in enumerate(value)
+                )
+            return value
+        finally:
+            seen.discard(id(value))
     return value
 
 
@@ -558,8 +710,11 @@ def validate_detection_input(record):
     """Return True only where a detection input carries no ground truth.
 
     The bar holds at every level of nesting, inside feature values
-    and inside any container the record holds.
+    and inside any container the record holds. A value that is not
+    a record at all fails this check, before any barred key read.
     """
+    if not isinstance(record, dict):
+        return False
     return not record_carries_ground_truth(record)
 
 
@@ -569,8 +724,11 @@ def validate_adjudication_input(record):
     The bar holds at every level of nesting, inside rule records
     and inside any container the input holds. The ground truth
     label reference stands held apart from the panel inputs, in
-    the case record, and never inside them.
+    the case record, and never inside them. A value that is not
+    a record at all fails this check, before any barred key read.
     """
+    if not isinstance(record, dict):
+        return False
     return not record_carries_ground_truth(record)
 
 
@@ -678,11 +836,36 @@ def extend_catalogue(records, new_record, strategy_class=None):
                          "fixed strategy class for a run")
     before = archetype_catalogue(records)
     after = archetype_catalogue(list(records or ()) + [new_record])
+    added = new_record.get("archetype_id")
     return {
         "catalogue": after,
         "entries_before": len(before["entries"]),
         "entries_after": len(after["entries"]),
         "strategy_class": strategy_class,
+        "version_stamp": {
+            "entries_before": len(before["entries"]),
+            "entries_after": len(after["entries"]),
+            "added_archetype": added,
+            "strategy_class": strategy_class,
+            "standing": CATALOGUE_STANDING,
+        },
+        "family_labelling_before": list(before["entries"].keys()),
+        "family_labelling_after": list(after["entries"].keys()),
+        "generator_code_entry": {
+            "archetype_id": added,
+            "generator_signature": new_record.get("generator_signature"),
+            "parameter_rows": list(
+                new_record.get("parameter_rows") or ()),
+            "entry_form": "data and generator code at the edge",
+        },
+        "pricing_record": {
+            "priced_work": (
+                "the extension and labelling work of this addition"),
+            "basis": "priced as plan work per addition",
+            "figure": None,
+            "figure_standing": (
+                "no figure stated in the plan for this work"),
+        },
     }
 
 
@@ -693,7 +876,10 @@ __all__ = [
     "CANONICAL_SCALE_SET",
     "COLD_SOCIETY_PROVENANCE",
     "COLD_SOCIETY_FIRST_DAYS",
+    "NamedGeneratorFailure",
+    "TRAVERSAL_DEPTH_BOUND",
     "GROUND_TRUTH_FIELDS",
+    "BARRED_PROJECTION_KEYS",
     "RULE_STATE_FIELDS",
     "AgentState",
     "VouchEdge",

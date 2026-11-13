@@ -132,5 +132,41 @@ class TestTG031(unittest.TestCase):
             self.assertFalse(surface.validate_generator_output(poisoned), field)
 
 
+class TestStep15Fix1RecursionBounds(unittest.TestCase):
+    """Step 15 Round 1 fix pins: TA-03, on the MOD-03 barred key and cleaning surfaces."""
+
+    def test_cyclic_inputs_raise_the_module_named_failure(self):
+        require_surface(self, "TG-03.1", "cyclic inputs raise the module named failure, never a bare RecursionError")
+        surface = _surface_module
+        cyclic = {}
+        cyclic["self"] = cyclic
+        with self.assertRaises(surface.NamedGeneratorFailure):
+            surface.record_carries_ground_truth(cyclic)
+        with self.assertRaises(surface.NamedGeneratorFailure):
+            surface.strip_ground_truth({"wrap": cyclic})
+
+    def test_deep_inputs_raise_the_module_named_failure(self):
+        require_surface(self, "TG-03.1", "deep inputs raise the module named failure at the stated bound, with the path")
+        surface = _surface_module
+        deep = {"leaf": 1}
+        for _ in range(2000):
+            deep = {"nested": deep}
+        with self.assertRaises(surface.NamedGeneratorFailure) as caught:
+            surface.record_carries_ground_truth(deep)
+        self.assertIn("nested", str(caught.exception))
+        with self.assertRaises(surface.NamedGeneratorFailure):
+            surface.strip_ground_truth(deep)
+
+    def test_ordinary_nested_inputs_still_work(self):
+        require_surface(self, "TG-03.1", "ordinary nested inputs still read and strip as before")
+        surface = _surface_module
+        record = {"feature_values": {"nested": {"membership": "x", "activity": 1}}}
+        self.assertTrue(surface.record_carries_ground_truth(record))
+        self.assertEqual(
+            surface.strip_ground_truth(record),
+            {"feature_values": {"nested": {"activity": 1}}},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

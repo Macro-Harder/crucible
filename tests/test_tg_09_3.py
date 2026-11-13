@@ -348,7 +348,7 @@ class TestTG093(unittest.TestCase):
         }
         self.assertTrue(
             engine.write_simulation_state(
-                "TickEngine", {"event": "event-1", "activity": 14}
+                engine, {"event": "event-1", "activity": 14}
             )
         )
         engine.rule_core_delivery.record_interface_delivery(
@@ -361,7 +361,7 @@ class TestTG093(unittest.TestCase):
         )
         self.assertTrue(
             engine.write_simulation_state(
-                "TickEngine", {"event": "event-2", "activity": 19}
+                engine, {"event": "event-2", "activity": 19}
             )
         )
         engine.rule_core_delivery.record_interface_delivery(
@@ -419,6 +419,69 @@ class TestTG093(unittest.TestCase):
         with self.assertRaises(_module.GatedRun) as delivery_gate:
             engine.detection_delivery.deliver_running(first)
         self.assertIn("DQ7-02", str(delivery_gate.exception))
+
+
+class TestStep15Fix1Mod04Surfaces(unittest.TestCase):
+    """Step 15 Round 1 fix pins: TA-03 (MOD-04 limb), TA-47, TA-57, and TA-62."""
+
+    def test_projection_fails_on_a_value_that_is_not_agent_state(self):
+        for value in (None, 5, "text", [1, 2], {}):
+            with self.assertRaises(_module.NamedFailure):
+                _module.project_detection_input(value)
+
+    def test_projection_cleaning_bounds_depth_and_cycles(self):
+        cyclic = {}
+        cyclic["self"] = cyclic
+        state = {
+            "agent_identifier": "agent-deep",
+            "day": 1,
+            "feature_values": {"loop": cyclic},
+            "rule_records": [],
+        }
+        with self.assertRaises(_module.NamedFailure):
+            _module.project_detection_input(state)
+        deep = {"leaf": 1}
+        for _ in range(2000):
+            deep = {"nested": deep}
+        deep_state = {
+            "agent_identifier": "agent-deep",
+            "day": 1,
+            "feature_values": {"activity": 1},
+            "rule_records": [deep],
+        }
+        with self.assertRaises(_module.NamedFailure):
+            _module.project_detection_input(deep_state)
+
+    def test_canary_exercise_covers_the_nested_forms(self):
+        state = {
+            "agent_identifier": "agent-canary-2",
+            "day": 1,
+            "feature_values": {"nested": {"membership": _module.CANARY_VALUE}},
+            "rule_records": [{"detail": {"ground_truth": _module.CANARY_VALUE}}],
+        }
+        projected = _module.project_detection_input(state)
+        self.assertFalse(_module._value_appears(_module.CANARY_VALUE, projected))
+        original = _module._is_barred_key
+        _module._is_barred_key = lambda key: False
+        try:
+            self.assertTrue(_module.exercise_f09_canary())
+        finally:
+            _module._is_barred_key = original
+        self.assertFalse(_module.exercise_f09_canary())
+
+    def test_sole_writer_requires_the_engine_instance_itself(self):
+        engine = _module.TickEngine()
+        with self.assertRaises(_module.NamedFailure):
+            engine.write_simulation_state("TickEngine", {"event": "x"})
+        with self.assertRaises(_module.NamedFailure):
+            engine.write_simulation_state("mod04", {"event": "x"})
+        self.assertTrue(engine.write_simulation_state(engine, {"event": "x"}))
+        state = {"agent_identifier": "agent-w", "day": 1, "feature_values": {"activity": 1}}
+        event = {"feature_updates": {"activity": 2}}
+        with self.assertRaises(_module.NamedFailure):
+            _module.apply_event_to_state(state, event)
+        updated = _module.apply_event_to_state(state, event, engine=engine)
+        self.assertEqual(updated["feature_values"]["activity"], 2)
 
 
 if __name__ == "__main__":

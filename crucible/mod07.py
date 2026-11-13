@@ -272,7 +272,10 @@ def positive_control_record():
 def validate_tracer_passage_set(records, positive_control=None):
     """Return True only for a complete and valid tracer set: one
     record per open semantic item, each carrying its four stated
-    parts, and a positive control recorded as passing. A run whose
+    parts, and a positive control recorded as passing. The control
+    stands read in the record form this module itself produces:
+    its fixture, its path, and its passing result on the F-10
+    path each stand required, beside the passing mark. A run whose
     positive control does not pass has no valid tracer passage
     record."""
     if not isinstance(records, (list, tuple)):
@@ -294,6 +297,12 @@ def validate_tracer_passage_set(records, positive_control=None):
     control = positive_control
     if control is None:
         control = positive_control_record()
+    if not isinstance(control, dict):
+        return False
+    expected = positive_control_record()
+    for field in ("fixture", "path", "result"):
+        if control.get(field) != expected[field]:
+            return False
     return control.get("recorded_as_passing") is True
 
 
@@ -384,19 +393,51 @@ def validate_cross_seam_effect(effect):
     return mod01.validate_lien_state(state, cross_seam=True)
 
 
+def _wording_claims(lowered):
+    """Split lowered wording into its claims, at sentence and
+    clause boundaries, so each claim stands judged on its own."""
+    claims = [lowered]
+    for separator in (".", ";", "!", "?", ",", "\n"):
+        claims = [
+            part for claim in claims for part in claim.split(separator)]
+    claims = [
+        part for claim in claims for part in claim.split(" but ")]
+    return [claim.strip() for claim in claims if claim.strip()]
+
+
+def _claim_drifts(claim):
+    """Return True where one claim drifts toward settled wording.
+
+    A settled occurrence stands excused only where the word not
+    stands directly before it in the same claim. A released
+    occurrence stands excused only on that same ground, or where
+    the word computed stands in the same claim.
+    """
+    index = claim.find("settled")
+    while index != -1:
+        if not claim[:index].rstrip().endswith("not"):
+            return True
+        index = claim.find("settled", index + 1)
+    index = claim.find("released")
+    while index != -1:
+        if not claim[:index].rstrip().endswith("not"):
+            if "computed" not in claim:
+                return True
+        index = claim.find("released", index + 1)
+    return False
+
+
 def validate_seam_wording(text):
     """Return True only where report wording for a cross seam
-    effect holds the interim form. Wording that names a seam
-    effect as settled or released fails."""
+    effect holds the interim form. Wording is judged per claim:
+    an excusing word excuses only the claim it stands in, and a
+    claim that names a seam effect as settled or released fails
+    the whole wording."""
     if not isinstance(text, str):
         return False
     lowered = text.lower()
-    if "settled" in lowered and "not settled" not in lowered:
-        return False
-    if "released" in lowered and "not released" not in lowered:
-        if "computed" not in lowered:
-            return False
-    return True
+    return not any(
+        _claim_drifts(claim) for claim in _wording_claims(lowered))
 
 
 def slash_outcome_report(outcome):

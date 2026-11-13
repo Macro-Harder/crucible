@@ -58,6 +58,9 @@ def _gated_message(act):
     return (
         GATED_FAILURE_NAME + ": " + act + " stands gated on "
         + GATE_EXECUTABLE_RUNS
+        + ". No adoption record stands for this gate, so nothing was "
+        "started or drawn. Nothing stands for the operator to do; "
+        "the block sits with a decision elsewhere."
     )
 
 
@@ -181,17 +184,41 @@ def _is_barred_key(key):
     )
 
 
-def _clean_value(value):
-    if isinstance(value, dict):
-        return {
-            key: _clean_value(item)
-            for key, item in value.items()
-            if not _is_barred_key(key)
-        }
-    if isinstance(value, list):
-        return [_clean_value(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_clean_value(item) for item in value)
+CLEANING_DEPTH_BOUND = 100
+
+
+def _clean_value(value, _depth=0, _seen=None, _path=""):
+    if isinstance(value, (dict, list, tuple)):
+        if _depth > CLEANING_DEPTH_BOUND:
+            raise NamedFailure(
+                "projection cleaning bound reached at " + (_path or "root")
+                + ": the value stands deeper than the stated bound of "
+                + str(CLEANING_DEPTH_BOUND)
+            )
+        seen = _seen if _seen is not None else set()
+        if id(value) in seen:
+            raise NamedFailure(
+                "projection cleaning found a cycle at " + (_path or "root")
+            )
+        seen.add(id(value))
+        try:
+            if isinstance(value, dict):
+                return {
+                    key: _clean_value(item, _depth + 1, seen, _path + "/" + str(key))
+                    for key, item in value.items()
+                    if not _is_barred_key(key)
+                }
+            if isinstance(value, list):
+                return [
+                    _clean_value(item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                    for index, item in enumerate(value)
+                ]
+            return tuple(
+                _clean_value(item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                for index, item in enumerate(value)
+            )
+        finally:
+            seen.discard(id(value))
     return _freeze(value)
 
 
@@ -220,6 +247,16 @@ def project_detection_input(state):
     no ground truth field and no field derived from membership."""
     agent_id = _state_field(state, ["agent_identifier", "agent_id", "identifier"])
     day = _state_field(state, ["day", "simulated_day"])
+    if agent_id is None or day is None:
+        absent = []
+        if agent_id is None:
+            absent.append("agent identifier")
+        if day is None:
+            absent.append("day")
+        raise NamedFailure(
+            "projection requires an agent state carrying an agent identifier and a day: absent "
+            + " and ".join(absent)
+        )
     features = _state_field(state, ["feature_values", "features"], {})
     rule_records = _state_field(state, ["rule_records", "detection_records"], [])
     return {
@@ -230,15 +267,20 @@ def project_detection_input(state):
     }
 
 
-def _value_appears(value, node):
+def _value_appears(value, node, _seen=None):
+    if isinstance(node, (dict, list, tuple)):
+        seen = _seen if _seen is not None else set()
+        if id(node) in seen:
+            return False
+        seen.add(id(node))
     if node == value:
         return True
     if isinstance(node, dict):
-        return any(_value_appears(value, v) for v in node.values()) or any(
-            _value_appears(value, k) for k in node.keys()
+        return any(_value_appears(value, v, _seen) for v in node.values()) or any(
+            _value_appears(value, k, _seen) for k in node.keys()
         )
     if isinstance(node, (list, tuple)):
-        return any(_value_appears(value, item) for item in node)
+        return any(_value_appears(value, item, _seen) for item in node)
     if isinstance(node, str) and isinstance(value, str):
         return value in node
     return False
@@ -253,8 +295,13 @@ def exercise_f09_canary(canary_value=CANARY_VALUE):
         "agent_identifier": "agent-canary-1",
         "day": 1,
         "simulated_day": 1,
-        "feature_values": {"activity": 1},
-        "rule_records": [{"kind": "daily_record"}],
+        "feature_values": {
+            "activity": 1,
+            "nested": {"membership": canary_value},
+        },
+        "rule_records": [
+            {"kind": "daily_record", "detail": {"ground_truth": canary_value}},
+        ],
         "membership": canary_value,
         "ground_truth": canary_value,
     }
@@ -280,9 +327,10 @@ class TickEngine:
         self.state_writes = []
 
     def write_simulation_state(self, writer, change):
-        if writer not in ("TickEngine", "tick_engine", "mod04"):
+        if writer is not self:
             raise NamedFailure(
-                "direct state write from a second component is rejected: " + str(writer)
+                "direct state write from a second component is rejected: "
+                "the write path requires the engine instance itself, not a name"
             )
         self.state_writes.append(_freeze(change))
         return True
@@ -452,12 +500,17 @@ def measure_order_sensitivity(states_under_order_a, states_under_order_b):
     }
 
 
-def apply_event_to_state(state, event):
+def apply_event_to_state(state, event, engine=None):
     """Apply one event to simulation state. The engine is the sole
-    writer: the change is written through write_simulation_state
-    under the engine name, then the event feature updates land."""
-    engine = TickEngine()
-    engine.write_simulation_state("TickEngine", {"event": _freeze(event)})
+    writer: the change is written through write_simulation_state by
+    the engine instance handed in, then the event feature updates
+    land. With no engine instance handed in this act stands refused:
+    it is not a second open write path."""
+    if engine is None:
+        raise NamedFailure(
+            "applying an event to simulation state requires the TickEngine instance that owns the write"
+        )
+    engine.write_simulation_state(engine, {"event": _freeze(event)})
     updated = _freeze(state) if isinstance(state, dict) else {}
     updates = event.get("feature_updates") if isinstance(event, dict) else None
     if isinstance(updates, dict):
@@ -479,7 +532,7 @@ def process_day_events(state, events):
     current = _freeze(state) if isinstance(state, dict) else {}
     projections = []
     for event in events:
-        current = apply_event_to_state(current, event)
+        current = apply_event_to_state(current, event, engine=engine)
         engine.rule_core_delivery.record_interface_delivery(
             {"kind": "event", "form": "interface", "event": _freeze(event)}
         )
@@ -555,20 +608,51 @@ VIEW_EXCLUDED_CONTENT = (
 )
 
 
-def select_view_records(retained_records, viewer_id, as_of_day, delay=0):
-    """Select the records one viewer view contains: the viewer own
-    records that arrived under the delay the run applies, and no
-    record dated later than the view as of point. The selection
-    rule is delay, partition, and record arrival only."""
+def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
+                        as_of_position=None):
+    """Select the records one viewer view contains. A record stands
+    admitted only where it states a viewer match, under either
+    viewer field name in use, and a stated day: an unscoped record
+    and an undated record stand admitted to no view. Where an as of
+    position stands supplied, the ruling comparison applies on
+    first seen day and arising position: a record first seen before
+    the view day stands admitted, and a record first seen on the
+    view day stands admitted only where its arising position is at
+    or before the as of position."""
     selected = []
     for record in retained_records or ():
         if not isinstance(record, dict):
             continue
-        if record.get("viewer_id") not in (viewer_id, None):
+        viewer = record.get("viewer_id")
+        if viewer is None:
+            viewer = record.get("viewer_identifier")
+        if viewer != viewer_id:
             continue
-        day = record.get("day")
-        if day is not None and int(day) + int(delay) > int(as_of_day):
+        first_seen = record.get("first_seen_day")
+        if first_seen is None:
+            first_seen = record.get("day")
+        if first_seen is None:
             continue
+        try:
+            first_seen_day = int(first_seen)
+            view_day = int(as_of_day)
+            delay_days = int(delay)
+        except (TypeError, ValueError):
+            continue
+        if first_seen_day + delay_days > view_day:
+            continue
+        if as_of_position is not None:
+            if first_seen_day == view_day:
+                arising = record.get("arising_position")
+                if arising is None:
+                    arising = record.get("position")
+                if arising is None:
+                    continue
+                try:
+                    if int(arising) > int(as_of_position):
+                        continue
+                except (TypeError, ValueError):
+                    continue
         selected.append(_freeze(record))
     return selected
 
@@ -576,32 +660,62 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0):
 def build_view_record(run_id="run-under-test", viewer_id="viewer-1",
                       day=1, contents=None, reputation_and_band=None,
                       graph_position=None, completeness="complete",
-                      selection_rule_version="view-selection-1"):
+                      selection_rule_version="view-selection-1",
+                      position=None, run_record=None, rule_version_set=None):
     """Write one ViewRecord in its decided field groups: identity
     and scope, content as references into retained records and as
     values for reputation, band, and graph position, arrival and
     freshness with its completeness state, the exclusion group as
     a form statement, and provenance naming the building
     component, the delivering contract, and the selection rule
-    version."""
+    version. The record carries no position value of its own: its
+    scheduling position is the position the run record handed in
+    states for that day, and no position where none is handed in.
+    The arrival group is derived from the contents handed in, item
+    by item, and where an arrival value does not stand on a content
+    record the group carries an explicit not derived marker in its
+    place. A record carrying a barred field at any depth stands
+    refused at this writing act."""
     if completeness not in COMPLETENESS_STATES:
         raise NamedFailure("completeness state outside the closed vocabulary: " + str(completeness))
     contents = list(contents or ())
-    return {
+    stated_position = position
+    if stated_position is None and isinstance(run_record, dict):
+        stated_position = run_record.get("scheduling_position_identifier")
+        if stated_position is None:
+            stated_position = run_record.get("position")
+        if stated_position is None:
+            by_day = run_record.get("positions_by_day")
+            if isinstance(by_day, dict):
+                stated_position = by_day.get(str(day), by_day.get(day))
+    first_seen = {}
+    delays = {}
+    derived = bool(contents)
+    for index, item in enumerate(contents):
+        seen_day = None
+        applied = None
+        if isinstance(item, dict):
+            seen_day = item.get("first_seen_day", item.get("day"))
+            applied = item.get("delay", item.get("delay_applied"))
+        first_seen[str(index)] = seen_day
+        delays[str(index)] = applied
+        if seen_day is None or applied is None:
+            derived = False
+    record = {
         "run_identifier": run_id,
         "viewer_identifier": viewer_id,
         "simulated_day": day,
-        "scheduling_position_identifier": "position-1",
-        "rule_version_set": "rule-version-set-1",
+        "scheduling_position_identifier": stated_position,
+        "rule_version_set": rule_version_set,
         "view_contents": [_freeze(item) for item in contents],
         "reputation_and_band_values": _freeze(reputation_and_band or {}),
         "graph_position_as_seen": _freeze(graph_position or {}),
-        "first_seen_day_per_record": {
-            str(index): day for index, _item in enumerate(contents)
-        },
-        "delay_applied_per_record": {
-            str(index): 0 for index, _item in enumerate(contents)
-        },
+        "first_seen_day_per_record": first_seen,
+        "delay_applied_per_record": delays,
+        "arrival_group_form": (
+            "derived from contents" if derived
+            else "not derived: an arrival value does not stand on every content record"
+        ),
         "completeness_state": completeness,
         "building_component": "MOD-04 Tick Engine",
         "delivering_contract": "Contract K",
@@ -612,40 +726,128 @@ def build_view_record(run_id="run-under-test", viewer_id="viewer-1",
         },
         "form": "ViewRecord",
     }
+    if view_record_carries_barred_field(record):
+        raise NamedFailure(
+            "a view record may not be written carrying a barred field at any depth"
+        )
+    return record
 
 
 def view_record_carries_barred_field(view_record):
     """Return True where a ViewRecord carries a barred field at any
-    depth of its content group."""
+    depth of any of its groups, including the reputation and band
+    group and content wrapped in lists."""
     if not isinstance(view_record, dict):
         return True
-    contents = view_record.get("view_contents") or ()
-    for item in contents:
-        if isinstance(item, dict):
-            for key in item:
+    stack = [view_record]
+    visited = set()
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if id(node) in visited:
+                continue
+            visited.add(id(node))
+            for key, item in node.items():
                 if _is_barred_key(key):
                     return True
+                stack.append(item)
+        elif isinstance(node, (list, tuple, set, frozenset)):
+            if id(node) in visited:
+                continue
+            visited.add(id(node))
+            stack.extend(node)
     return False
 
 
 def hold_view(view_record):
     """Hold one view at the hold point inside the tick: the
     ViewRecord stands written before delivery, and the view is
-    released only after the Recorder field validation and timing
-    forms pass on it."""
+    released only after the Recorder leak check runner in MOD-10
+    runs its three forms together on it and passes it, as
+    release_view performs."""
     return {"view_record": _freeze(view_record), "held": True, "released": False}
 
 
-def release_view(held, field_validation_passed, timing_passed):
-    """Release a held view only where both Recorder check forms
-    pass. A view that fails either form is not delivered, and no
-    agent act inside the same simulated day rests on it."""
-    if not (field_validation_passed and timing_passed):
-        raise NamedFailure("view failed a leak check form and is not delivered")
+def release_view(held, field_validation_passed=None, timing_passed=None):
+    """Release a held view only where the Recorder leak check
+    runner passes on the held record: the runner in MOD-10 runs
+    all three forms together (canary, field validation, timing),
+    and its result, not a caller supplied boolean, governs the
+    release. The two boolean arguments stand accepted for the
+    standing call form and govern nothing. A view the runner
+    refuses is not delivered, and the refusal names the view, the
+    field, and the check form that failed, in the runner words.
+    No agent act inside the same simulated day rests on a view
+    that is not delivered."""
+    from crucible import mod10
+
+    view_record = held.get("view_record") if isinstance(held, dict) else None
+    try:
+        check = mod10.run_view_leak_check(view_record)
+    except ValueError as exc:
+        raise NamedFailure(str(exc)) from exc
     released = dict(held)
     released["held"] = False
     released["released"] = True
+    released["leak_check"] = check
     return released
+
+
+def write_checkpoint(manifest, agent_states=None,
+                     escrow_contract_states=None, detection_state=None,
+                     stream_positions_and_generator_states=None,
+                     simulation_clock_value=None):
+    """Write one checkpoint: the CheckpointState of Form 13A
+    beside its manifest, in the same act, so that manifest and
+    state describe one state or neither stands. The state carries
+    the run identifier and simulated day of its manifest and the
+    state parts as handed in; a state part standing unhanded, or
+    a state failing Form 13A validation, stands refused in named
+    form before any retention, and neither the manifest nor the
+    state stands retained. The pair stands retained through the
+    Recorder paired store in MOD-10, where the state reads back
+    beside the manifest."""
+    from crucible import mod01, mod10
+
+    if not isinstance(manifest, dict):
+        raise NamedFailure(
+            "checkpoint writing in named form: a checkpoint stands "
+            "on a manifest record, and no other form stands written")
+    run_id = manifest.get("run_identifier") or manifest.get("run_id")
+    day = manifest.get("simulated_day")
+    if run_id is None or day is None:
+        raise NamedFailure(
+            "checkpoint writing in named form: no run identifier or "
+            "no simulated day stands on the manifest, and no "
+            "checkpoint stands written under no identity")
+    state = {
+        "run_identifier": run_id,
+        "simulated_day": day,
+        "agent_states": _freeze(agent_states),
+        "escrow_contract_states": _freeze(escrow_contract_states),
+        "detection_state": _freeze(detection_state),
+        "stream_positions_and_generator_states": _freeze(
+            stream_positions_and_generator_states),
+        "simulation_clock_value": simulation_clock_value,
+    }
+    missing = [
+        field for field in mod01.form_fields("13A")
+        if state.get(field) is None
+    ]
+    if missing:
+        raise NamedFailure(
+            "checkpoint writing in named form: the CheckpointState "
+            "carries no " + ", ".join(missing)
+            + ", and neither the manifest nor the state stands written")
+    if not mod01.validate_record("13A", state):
+        raise NamedFailure(
+            "checkpoint writing in named form: the CheckpointState "
+            "fails Form 13A validation, and neither the manifest "
+            "nor the state stands written")
+    paired = _freeze(manifest)
+    paired["checkpoint_state"] = copy.deepcopy(state)
+    mod10.retain_checkpoint(paired)
+    return {"manifest": paired, "checkpoint_state": state}
 
 
 def per_viewer_components(run_id="run-under-test", viewers=None, components=None):
@@ -674,19 +876,53 @@ def divergence_companion(run_id="run-under-test", components=None):
     independent component records its coincidence as a nil
     divergence for that component, never as a singular value."""
     components = components if components is not None else per_viewer_components(run_id)
-    bands = {}
+    components = [item for item in components if isinstance(item, dict)]
+    viewers = set()
+    bands_by_identity = {}
+    viewers_by_identity = {}
+    completeness = set()
+    stated = bool(components)
     for component in components:
-        bands.setdefault(component.get("viewer_id"), set()).add(
-            tuple(component.get("component_values") or ())
-        )
-    differing = 0
-    total = max(len(bands), 1)
-    values = [item.get("component_values") for item in components]
-    if values and any(value != values[0] for value in values):
-        differing = total
-    share = differing / total if total else 0
+        viewer = component.get("viewer_id")
+        if viewer is None:
+            viewer = component.get("viewer_identifier")
+        if viewer is not None:
+            viewers.add(viewer)
+        identity = component.get("identity")
+        if identity is None:
+            identity = component.get("agent_identifier")
+        if identity is None:
+            identity = component.get("identity_identifier")
+        band = component.get("band")
+        if identity is None or band is None:
+            stated = False
+            continue
+        bands_by_identity.setdefault(identity, set()).add(band)
+        viewers_by_identity.setdefault(identity, set()).add(viewer)
+        if component.get("completeness_state") is not None:
+            completeness.add(component.get("completeness_state"))
+    identity_count = len(bands_by_identity)
+    differing = sum(
+        1 for bands in bands_by_identity.values() if len(bands) > 1
+    )
+    missing = sum(
+        len(viewers) - len(viewers_by_identity.get(identity, ()))
+        for identity in bands_by_identity
+    )
+    if stated and identity_count:
+        share = differing / identity_count
+        share_form = "share of identities whose band differs across viewers"
+    else:
+        share = None
+        share_form = "unknown: no band stands to compare for every identity"
     companion_entry = {
         "band_differing_share": share,
+        "share_form": share_form,
+        "differing_identity_count": differing if stated else None,
+        "identity_count": identity_count if stated else None,
+        "missing_count": missing if stated else None,
+        "viewer_count": len(viewers),
+        "completeness_states": sorted(completeness) if completeness else ["not stated"],
         "form": "divergence companion",
         "singular_vector_reported": False,
     }
@@ -695,6 +931,11 @@ def divergence_companion(run_id="run-under-test", components=None):
         "daily_aggregates": dict(companion_entry),
         "end_of_run": dict(companion_entry),
         "band_differing_share": share,
+        "differing_identity_count": companion_entry["differing_identity_count"],
+        "identity_count": companion_entry["identity_count"],
+        "missing_count": companion_entry["missing_count"],
+        "viewer_count": len(viewers),
+        "completeness_states": companion_entry["completeness_states"],
     }
 
 

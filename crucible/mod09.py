@@ -29,15 +29,7 @@ in this module in the forms the plan states for them.
 
 import copy
 
-try:
-    from crucible import mod01 as _mod01
-except Exception:
-    _mod01 = None
-
-try:
-    from crucible import mod03 as _mod03
-except Exception:
-    _mod03 = None
+from crucible import mod03 as _mod03
 
 __all__ = [
     "BOND_PARAMETERS",
@@ -78,13 +70,9 @@ __all__ = [
 
 UNITS = "simulated units only, test value only under DQ-162"
 
-CATALOGUE_STANDING = "open at OP-11"
+CATALOGUE_STANDING = _mod03.CATALOGUE_STANDING
 
-OP11_GAPS = (
-    "honest adaptive rewiring",
-    "a targeted linking adversary parameter",
-    "adaptive sleeper concealment",
-)
+OP11_GAPS = _mod03.OP11_GAPS
 
 LADDER_STANDING = (
     "enumerated only at the stopping rule level: rung 6 "
@@ -159,23 +147,14 @@ class NamedAttackerFailure(Exception):
 
 
 def mod03_catalogue_record(records=None):
-    """Return the catalogue record the Society Generator delivers,
-    where that surface stands, and None where it does not."""
-    if _mod03 is None:
-        return None
-    builder = getattr(_mod03, "catalogue_record", None)
-    if builder is None:
-        return None
-    return builder(records)
+    """Return the catalogue record the Society Generator delivers."""
+    return _mod03.catalogue_record(records)
 
 
 def catalogue_gaps():
-    """The OP-11 gaps, carried open by name."""
-    if _mod03 is not None:
-        gaps = getattr(_mod03, "catalogue_gaps", None)
-        if gaps is not None:
-            return tuple(gaps())
-    return OP11_GAPS
+    """The OP-11 gaps, carried open by name, from their single
+    owner in MOD-03."""
+    return tuple(_mod03.catalogue_gaps())
 
 
 def strategy_catalogue(extra_identifiers=None):
@@ -253,8 +232,29 @@ def conditional_briber_strategy(in_protocol_payoff=0,
 
 def attacker_payoff(strategy, external_profit_value):
     """An attacker payoff: its in protocol payoff plus its
-    external profit parameter, in simulated units only."""
-    return strategy["in_protocol_payoff"] + external_profit_value
+    external profit parameter, in simulated units only. A strategy
+    standing in no record form, or carrying no numeric in protocol
+    payoff, fails by name in this module failure form."""
+    if not isinstance(strategy, dict) or (
+            "in_protocol_payoff" not in strategy):
+        raise NamedAttackerFailure(
+            "attacker payoff rejected: the strategy stands in no "
+            "record form carrying an in protocol payoff"
+        )
+    in_protocol = strategy["in_protocol_payoff"]
+    if isinstance(in_protocol, bool) or not isinstance(
+            in_protocol, (int, float)):
+        raise NamedAttackerFailure(
+            "attacker payoff rejected: the in protocol payoff "
+            "stands in no numeric form: " + repr(in_protocol)
+        )
+    if isinstance(external_profit_value, bool) or not isinstance(
+            external_profit_value, (int, float)):
+        raise NamedAttackerFailure(
+            "attacker payoff rejected: the external profit value "
+            "stands in no numeric form: " + repr(external_profit_value)
+        )
+    return in_protocol + external_profit_value
 
 
 def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
@@ -310,6 +310,14 @@ def run_record_carriage(strategy_class, ladder_position,
     if ladder_position is None:
         raise NamedAttackerFailure(
             "run record rejected: no ladder position stands stated"
+        )
+    if isinstance(ladder_position, bool) or not isinstance(
+            ladder_position, int) or ladder_position < 0 or (
+            ladder_position > READOUT_POINT_RUNG):
+        raise NamedAttackerFailure(
+            "run record rejected: the ladder position stands outside "
+            "the whole rungs 0 to 6 of the search ladder: "
+            + repr(ladder_position)
         )
     if catalogue_version_or_hash is None:
         raise NamedAttackerFailure(
@@ -377,7 +385,7 @@ def validate_search_record(record, fixed_class=None):
     search = record.get("search_record", {})
     for field in SEARCH_RECORD_FIELDS:
         key = field.replace(" ", "_")
-        if key not in search:
+        if key not in search or search[key] is None:
             return False
     bond = record.get("bond_parameter_search")
     if not isinstance(bond, dict):
@@ -400,9 +408,9 @@ def stopping_rule_state(ladder_position):
     such a position is reported as established.
     """
     complete = (
-        isinstance(ladder_position, (int, float))
+        isinstance(ladder_position, int)
         and not isinstance(ladder_position, bool)
-        and ladder_position >= READOUT_POINT_RUNG
+        and ladder_position == READOUT_POINT_RUNG
     )
     state = {
         "ladder_position": ladder_position,
@@ -431,8 +439,19 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
     stands unscored. This search changes no bond parameter from
     its unsettled standing.
     """
+    if parameter_candidates is not None and not isinstance(
+            parameter_candidates, (list, tuple)):
+        raise NamedAttackerFailure(
+            "bond parameter search rejected: the candidate set "
+            "stands in no candidate list form"
+        )
     scored = []
     for candidate in parameter_candidates or []:
+        if not isinstance(candidate, dict):
+            raise NamedAttackerFailure(
+                "bond parameter search rejected: a candidate stands "
+                "in no record form: " + repr(candidate)
+            )
         params = candidate.get("parameter_set", candidate)
         if griefing_evaluator is not None:
             factor = griefing_evaluator(copy.deepcopy(params))
@@ -471,7 +490,8 @@ def build_search_record(run_carriage, points_tried,
                         griefing_evaluator=None, budget=None,
                         neighbourhood=None, starting_points=None,
                         order_of_search=None, adaptations=None,
-                        case_uses=None, mid_run_strategies=None):
+                        case_uses=None, mid_run_strategies=None,
+                        external_profit_swept_values=None):
     """Assemble one search bearing run record in full.
 
     The record carries the run record carriage, the R20-B search
@@ -504,6 +524,8 @@ def build_search_record(run_carriage, points_tried,
         "bond_parameter_search": bond_search(
             bond_candidates, griefing_evaluator),
         "case_uses": uses,
+        "external_profit_swept_values": list(
+            external_profit_swept_values or []),
         "mid_run_strategies": list(mid_run_strategies or []),
         "stopping_rule": stopping_rule_state(
             run_carriage.get("ladder_position")),
@@ -545,9 +567,12 @@ def readout(search_record, found_failure=True, wording="",
     parameter fixed at zero only, stands reported as an in
     protocol result only, never as an economic security result.
     """
-    carriage = search_record.get(
-        "run_record", search_record) if isinstance(
-        search_record, dict) else {}
+    if not isinstance(search_record, dict):
+        raise NamedAttackerFailure(
+            "readout rejected: no search record stands supplied for "
+            "the readout"
+        )
+    carriage = search_record.get("run_record", search_record)
     position = carriage.get("ladder_position")
     if established:
         raise NamedAttackerFailure(

@@ -67,14 +67,42 @@ class TestContractC11(unittest.TestCase):
         with self.assertRaises(mod10.LookupFailure):
             mod10.run_records_for_run("run-c11-absent")
 
-    def test_append_audit_and_position_check_gated_on_op18_remainder(self):
+    def test_position_check_free_limb(self):
         """
-        Fixture: no fixture stands for the gated remainder while its gate stands. Recorded state: gated, never passed. The landed lists stand: the EventLog, Form 36, carries 8 fields and the DailySnapshot, Form 37, carries 3 fields, as landed in plan section 3
-        Pins: when the gate opens: the append audit and the position check stated against the full field lists of Forms 36 and 37
-        Bar: the remainder of each form stands carried at OP-18 on the gaps in the OP-18 design act 11 exclusions, and no limb of this check rests on a gap the exclusions name while that gap stands; the Manager ruling at route M-FL1-1 allocates the gaps
-        Failure: a check resting on a gap the exclusions name while that gap stands fails this group; this test records the gated state and never passes while the gate stands
+        Fixture: Shape 12 journal field: the event log of one run with three retained entries, and checkpoint manifests whose journal positions stand inside and outside that retained log
+        Pins: the free limb of the C-11 position check, runnable on the landed Form 36 list under Manager ruling Entry 9 read with ruling Entry 1: a manifest journal position inside the retained log passes the check as reportable, and a manifest journal position outside the retained log, the position 99 probe over a three entry log, stands reported as a retention failure under C-09
+        Bar: only the barred limbs stand gated, each named item by item under ruling Entry 1: the stream position limb of the position check and the completeness limb of the append audit; no whole check stands gated
+        Failure: a position outside the retained log passing the check, or reported under any name other than a C-09 retention failure, fails this test; while the surface is absent the test fails naming this behaviour and C-11
         """
-        self.skipTest("Gated: the Manager ruling at route M-FL1-1 allocating the gaps in the OP-18 design act 11 exclusions")
+        self.require("checkpoint position check free limb on the landed Form 36 list", "mod10")
+        import crucible.mod10 as mod10
+        run_id = "run-c11-position"
+        for n in (1, 2, 3):
+            mod10.retain_event_log_entry({"run_identifier": run_id, "journal_position": n})
+        inside = mod10.checkpoint_position_check({"run_identifier": run_id, "journal_position": 2})
+        self.assertTrue(inside["reportable"])
+        outside = mod10.checkpoint_position_check({"run_identifier": run_id, "journal_position": 99})
+        self.assertFalse(outside["reportable"])
+        self.assertEqual(outside["failure_under"], "C-09")
+        self.assertIn("retention failure", outside["outcome"])
+
+    def test_position_check_stream_position_limb_gated(self):
+        """
+        Fixture: no fixture stands for the barred limb while its gate stands. Recorded state: gated, never passed
+        Pins: when the gate opens: the stream position limb of the position check, stated against the landed Form 36 list
+        Bar: the stream position limb stands barred item by item under Manager ruling Entry 1, read under ruling Entry 9, while OP-18 stands open on its 11 exclusions, and no act of this test rests on that limb while the bar stands
+        Failure: a check resting on the stream position limb while its bar stands fails this group; this test records the gated state and never passes while the gate stands
+        """
+        self.skipTest("Gated: the stream position limb of the C-11 position check stands barred item by item under Manager ruling Entry 1, read under ruling Entry 9")
+
+    def test_append_audit_completeness_limb_gated(self):
+        """
+        Fixture: no fixture stands for the barred limb while its gate stands. Recorded state: gated, never passed
+        Pins: when the gate opens: the completeness limb of the append audit, stated against the landed Form 36 and Form 37 lists
+        Bar: the completeness limb stands barred item by item under Manager ruling Entry 1, read under ruling Entry 9, while OP-18 stands open on its 11 exclusions, and no act of this test rests on that limb while the bar stands
+        Failure: a check resting on the append audit completeness limb while its bar stands fails this group; this test records the gated state and never passes while the gate stands
+        """
+        self.skipTest("Gated: the completeness limb of the C-11 append audit stands barred item by item under Manager ruling Entry 1, read under ruling Entry 9")
 
 
 if __name__ == "__main__":

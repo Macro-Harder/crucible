@@ -30,12 +30,10 @@ calibration claim, under decision D-13.
 """
 
 import copy
-from decimal import Decimal
+import math
+from decimal import Decimal, localcontext
 
-try:
-    from crucible import mod01 as _mod01
-except Exception:
-    _mod01 = None
+from crucible import mod01 as _mod01
 
 __all__ = [
     "CALIBRATION_STANDING",
@@ -110,6 +108,7 @@ _BARRED_EXACT_KEYS = frozenset([
     "contract_state",
     "lien_state",
     "is_honest",
+    "is_farm",
     "honest",
     "label",
     "sleeper",
@@ -212,18 +211,41 @@ def _is_barred_key(key):
     return any(part in lowered for part in _BARRED_KEY_PARTS)
 
 
-def _find_barred(node, path=""):
-    hits = []
-    if isinstance(node, dict):
-        for key, value in node.items():
-            here = path + "/" + str(key)
-            if _is_barred_key(key):
-                hits.append(here)
-            hits.extend(_find_barred(value, here))
-    elif isinstance(node, (list, tuple)):
-        for index, item in enumerate(node):
-            hits.extend(_find_barred(item, path + "[" + str(index) + "]"))
-    return hits
+BARRED_SEARCH_DEPTH_BOUND = 100
+
+
+def _find_barred(node, path="", _depth=0, _seen=None):
+    if isinstance(node, (dict, list, tuple)):
+        if _depth > BARRED_SEARCH_DEPTH_BOUND:
+            raise NamedDetectionFailure(
+                "delivery rejected: barred field search bound reached at "
+                + (path or "root")
+                + ": the value stands deeper than the stated bound of "
+                + str(BARRED_SEARCH_DEPTH_BOUND)
+            )
+        seen = _seen if _seen is not None else set()
+        if id(node) in seen:
+            raise NamedDetectionFailure(
+                "delivery rejected: barred field search found a cycle at "
+                + (path or "root")
+            )
+        seen.add(id(node))
+        try:
+            hits = []
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    here = path + "/" + str(key)
+                    if _is_barred_key(key):
+                        hits.append(here)
+                    hits.extend(_find_barred(value, here, _depth + 1, seen))
+            else:
+                for index, item in enumerate(node):
+                    hits.extend(_find_barred(
+                        item, path + "[" + str(index) + "]", _depth + 1, seen))
+            return hits
+        finally:
+            seen.discard(id(node))
+    return []
 
 
 def _record_values(record):
@@ -265,6 +287,19 @@ def accept_detection_input(record):
                 "delivery rejected: required DetectionInput field absent: "
                 + field
             )
+    if not isinstance(values["agent_identifier"], str) or not values[
+            "agent_identifier"]:
+        raise NamedDetectionFailure(
+            "delivery rejected: the agent identifier stands in no "
+            "identifier form"
+        )
+    day = values["day"]
+    if isinstance(day, bool) or not isinstance(day, int) or day < 0 or (
+            day >= 10 ** 6):
+        raise NamedDetectionFailure(
+            "delivery rejected: the day stands in no stated simulated "
+            "day form: " + repr(day)
+        )
     if not isinstance(values["feature_values"], dict):
         raise NamedDetectionFailure(
             "delivery rejected: feature values stand in no record form"
@@ -275,6 +310,19 @@ def accept_detection_input(record):
             "delivery rejected: barred field present in DetectionInput: "
             + ", ".join(barred)
         )
+    for feature_name, feature_value in values["feature_values"].items():
+        if isinstance(feature_value, bool) or not isinstance(
+                feature_value, (int, float)):
+            raise NamedDetectionFailure(
+                "delivery rejected: a feature value the rules cannot "
+                "consume stands in the record: " + str(feature_name)
+            )
+        if isinstance(feature_value, float) and not math.isfinite(
+                feature_value):
+            raise NamedDetectionFailure(
+                "delivery rejected: a feature value the rules cannot "
+                "consume stands in the record: " + str(feature_name)
+            )
     records = values.get(_RECORDS_KEY, values.get(_RECORDS_ALIAS, []))
     if records is None:
         records = []
@@ -293,19 +341,19 @@ def accept_detection_input(record):
 
 def _contributions(feature_values):
     contributions = []
-    total = Decimal("0")
-    for position, name in enumerate(sorted(feature_values.keys())):
-        value = feature_values[name]
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            continue
-        amount = Decimal(str(value))
-        total += amount
-        contributions.append({
-            "table_identifier": LR_TABLES[position % len(LR_TABLES)],
-            "table_version": "as recorded",
-            "feature": name,
-            "value": value,
-        })
+    with localcontext() as context:
+        context.prec = 28
+        total = Decimal("0")
+        for position, name in enumerate(sorted(feature_values.keys())):
+            value = feature_values[name]
+            amount = Decimal(str(value))
+            total += amount
+            contributions.append({
+                "table_identifier": LR_TABLES[position % len(LR_TABLES)],
+                "table_version": "as recorded",
+                "feature": name,
+                "value": value,
+            })
     return contributions, total
 
 
@@ -329,6 +377,10 @@ def _score_one(accepted):
         "likelihood_ratio_contributions": contributions,
         "accumulator_values": {"total_feature_value": str(total)},
         "accumulator_update": {"total_feature_value": str(total)},
+        "accumulator_standing": (
+            "gated form: accumulator values stand carried under the "
+            "TG-07.5 reconciliation standing, which stands open; no "
+            "accumulator representation stands reconciled"),
         "verdict_state": verdict,
         PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
     }
@@ -344,8 +396,18 @@ def _score_one(accepted):
     return state_record, output
 
 
+THRESHOLD_FORMULA_TABLE_IDENTIFIER = "threshold formula table"
+
+THRESHOLD_FORMULA_TABLE_VERSION = (
+    "the threshold set carriage of this module, as recorded")
+
+DETECTION_STANDING_STATEMENT = (
+    "figures are self consistency only, no calibration claim "
+    "stands, and no verdict rule at OP-16 stands fixed")
+
+
 def score_day(records, society_state=None, mode="conformance",
-              uses=None):
+              uses=None, run_identifier=None):
     """Run one daily scoring pass over DetectionInput records.
 
     Returns verdict states and accumulator updates by agent and day,
@@ -358,6 +420,11 @@ def score_day(records, society_state=None, mode="conformance",
     difference outside the detection state marks the run invalid
     for detection reporting in the returned record.
     """
+    if not isinstance(records, (list, tuple)):
+        raise NamedDetectionFailure(
+            "delivery rejected: the records for one day stand in "
+            "no record list form"
+        )
     if mode not in USES:
         raise NamedDetectionFailure(
             "scoring mode stands unnamed: " + str(mode)
@@ -377,26 +444,39 @@ def score_day(records, society_state=None, mode="conformance",
         states.append(state_record)
         outputs.append(output)
     changed = society_state is not None and society_state != before
+    combined = [
+        {
+            "agent_identifier": o["agent_identifier"],
+            "day": o["day"],
+            "verdict_state": o["verdict_state"],
+            "accumulator_update": copy.deepcopy(o["accumulator_update"]),
+            "likelihood_ratio_contributions": copy.deepcopy(
+                o["likelihood_ratio_contributions"]),
+        }
+        for o in outputs
+    ]
     detection_output = {
-        "run_identifier": None,
+        "run_identifier": run_identifier,
         "scoring_day_range": sorted({o["day"] for o in outputs}),
-        "verdict_states_by_agent_and_day": copy.deepcopy(outputs),
-        "accumulator_updates_by_agent_and_day": [
-            {
-                "agent_identifier": o["agent_identifier"],
-                "day": o["day"],
-                "accumulator_update": copy.deepcopy(
-                    o["accumulator_update"]),
-            }
-            for o in outputs
-        ],
+        "verdict_states_and_accumulator_updates": combined,
         PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
-        "score_verdict": None,
+        "threshold_formula_table_identifier": (
+            THRESHOLD_FORMULA_TABLE_IDENTIFIER),
+        "threshold_formula_table_version": (
+            THRESHOLD_FORMULA_TABLE_VERSION),
+        "standing_statement": DETECTION_STANDING_STATEMENT,
     }
     return {
         "verdict_states": outputs,
-        "accumulator_updates": detection_output[
-            "accumulator_updates_by_agent_and_day"],
+        "accumulator_updates": [
+            {
+                "agent_identifier": entry["agent_identifier"],
+                "day": entry["day"],
+                "accumulator_update": copy.deepcopy(
+                    entry["accumulator_update"]),
+            }
+            for entry in combined
+        ],
         "detection_states": states,
         "detection_output": detection_output,
         "uses_named": named_uses,
@@ -409,8 +489,13 @@ def score_day(records, society_state=None, mode="conformance",
 
 
 def score(record_or_records, society_state=None, mode="conformance",
-          uses=None):
+          uses=None, run_identifier=None):
     """Score one DetectionInput record or one day of records."""
+    if record_or_records is None:
+        raise NamedDetectionFailure(
+            "delivery rejected: the record is not a DetectionInput "
+            "record"
+        )
     if isinstance(record_or_records, dict) or _record_values(
             record_or_records) is not None and not isinstance(
             record_or_records, (list, tuple)):
@@ -418,7 +503,7 @@ def score(record_or_records, society_state=None, mode="conformance",
     else:
         records = list(record_or_records)
     return score_day(records, society_state=society_state, mode=mode,
-                     uses=uses)
+                     uses=uses, run_identifier=run_identifier)
 
 
 def detection_state_record(record):
@@ -440,11 +525,30 @@ def validate_output(output):
         return False
     if output.get(PROFILE_BOUND_LABEL_FIELD) != PROFILE_LABEL_CARRIAGE:
         return False
-    verdict = output.get("score_verdict")
-    if isinstance(verdict, str) and verdict.strip().lower() in (
-            "pass", "passed", "fail", "failed"):
+    return not _carries_barred_verdict(output)
+
+
+_BARRED_VERDICT_VALUES = ("pass", "passed", "fail", "failed")
+
+_VERDICT_POSITION_KEYS = (
+    "score_verdict", "verdict", "result", "outcome", "score_result",
+)
+
+
+def _carries_barred_verdict(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            lowered = str(key).lower()
+            if lowered in _VERDICT_POSITION_KEYS or "verdict" in lowered:
+                if isinstance(value, str) and value.strip().lower() in (
+                        _BARRED_VERDICT_VALUES):
+                    return True
+            if _carries_barred_verdict(value):
+                return True
         return False
-    return True
+    if isinstance(node, (list, tuple)):
+        return any(_carries_barred_verdict(item) for item in node)
+    return False
 
 
 def oracle_control_bracket():
@@ -460,6 +564,8 @@ def oracle_control_bracket():
         "point_sets": list(F06_PROFILES),
         "calibration": CALIBRATION_STANDING,
         "outside_classes_adopted": [],
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
     }
 
 
@@ -477,6 +583,8 @@ def null_control_bracket():
         "point_sets": list(F06_PROFILES),
         "calibration": CALIBRATION_STANDING,
         "outside_classes_adopted": [],
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
     }
 
 
@@ -640,6 +748,8 @@ def create_sealed_set():
             "subject to the adoption decisions at NQ-51 and NQ-63"),
         "profile_set_result_on_sealed_classes": (
             "no result stated or implied"),
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
     }
 
 
@@ -744,8 +854,18 @@ def compare_verdict_determinism(material_a, material_b=None):
     in hash entry or in resume comparison.
     """
     second = material_b if material_b is not None else material_a
-    first = score_day(list(material_a))
-    other = score_day(list(second))
+
+    def _canonical(records):
+        return sorted(
+            (copy.deepcopy(record) for record in records),
+            key=lambda record: (
+                str(_record_values(record).get("agent_identifier")),
+                _record_values(record).get("day"),
+            ),
+        )
+
+    first = score_day(_canonical(material_a))
+    other = score_day(_canonical(second))
     same = (
         first["verdict_states"] == other["verdict_states"]
         and first["detection_states"] == other["detection_states"]

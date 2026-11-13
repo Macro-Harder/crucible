@@ -107,5 +107,62 @@ class TestTG141(unittest.TestCase):
         self.skipTest("Gated: the reconciliation act for Plan Amendment (Step 11, reconciliation), the DQ7-01 reliance gate at TG-14.1")
 
 
+class TestStep15Fix1TA01(unittest.TestCase):
+    """Step 15 Round 1 fix pins for TA-01: a check must not pass on absence."""
+
+    def _fields(self):
+        import crucible.mod01 as mod01
+        return list(mod01.state_hash_field_list())
+
+    def test_replay_check_fails_on_absent_fields(self):
+        require_surface(self, "TG-14.1", "replay check names missing AC-1 fields as divergence")
+        import crucible.mod13 as surface
+        fields = self._fields()
+        for first, second in (({}, {}), (None, None), ({"a": 1}, {"b": 2})):
+            check = surface.replay_check(first, second)
+            self.assertFalse(check["deterministic"])
+            self.assertTrue(check["marked_non_deterministic"])
+            self.assertEqual(check["missing_fields"], fields)
+            for field in fields:
+                self.assertIn(field, check["differing_fields"])
+
+    def test_replay_check_partial_record_fails(self):
+        require_surface(self, "TG-14.1", "replay check fails on a partial AC-1 record")
+        import crucible.mod13 as surface
+        fields = self._fields()
+        facts = {field: "value for " + field for field in fields}
+        facts["headline_unit"] = {"unit": "unit-1"}
+        partial = {fields[0]: facts[fields[0]], "headline_unit": {"unit": "unit-1"}}
+        check = surface.replay_check(facts, partial)
+        self.assertFalse(check["deterministic"])
+        self.assertEqual(check["missing_fields"], fields[1:])
+
+    def test_resume_check_fails_on_absent_fields(self):
+        require_surface(self, "TG-14.1", "resume check names missing AC-1 fields, promotes, and bars witness use")
+        import crucible.mod13 as surface
+        fields = self._fields()
+        for original, resumed in (({}, {}), (None, None), ({"a": 1}, {"b": 2})):
+            check = surface.resume_check(original, resumed)
+            self.assertFalse(check["equal_in_scope"])
+            self.assertTrue(check["promoted_to_full_retention"])
+            self.assertTrue(check["witness_use_barred"])
+            self.assertEqual(check["missing_fields"], fields)
+            self.assertIsNotNone(check["divergence_record"])
+
+    def test_genuine_records_still_agree(self):
+        require_surface(self, "TG-14.1", "genuine AC-1 records still return equality")
+        import crucible.mod13 as surface
+        fields = self._fields()
+        facts = {field: "value for " + field for field in fields}
+        facts["headline_unit"] = {"unit": "unit-1"}
+        self.assertTrue(surface.replay_check(facts, dict(facts))["deterministic"])
+        verdicts = {"first verdict state after resume": "verdict-a", "run close": "verdict-b"}
+        original = dict(facts)
+        original["detection_verdicts"] = dict(verdicts)
+        resumed = dict(facts)
+        resumed["detection_verdicts"] = dict(verdicts)
+        self.assertTrue(surface.resume_check(original, resumed)["equal_in_scope"])
+
+
 if __name__ == "__main__":
     unittest.main()

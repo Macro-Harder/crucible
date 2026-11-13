@@ -69,12 +69,12 @@ class TestContractC07(unittest.TestCase):
         """
         self.require("run record mismatching the sealed family version or hash fails validation", "mod01", "mod10")
         import crucible.mod01 as mod01
-        manifest = {"family_version": "v1", "manifest_hash": "hash-1"}
-        matching = {"family_version": "v1", "manifest_hash": "hash-1"}
+        manifest = {"family_version": "v1", "sealed_family_record_hash": "hash-1"}
+        matching = {"family_version": "v1", "family_manifest_hash": "hash-1"}
         self.assertTrue(mod01.validate_family_seal_match(manifest, matching))
-        mismatched = {"family_version": "v2", "manifest_hash": "hash-1"}
+        mismatched = {"family_version": "v2", "family_manifest_hash": "hash-1"}
         self.assertFalse(mod01.validate_family_seal_match(manifest, mismatched))
-        mismatched_hash = {"family_version": "v1", "manifest_hash": "hash-2"}
+        mismatched_hash = {"family_version": "v1", "family_manifest_hash": "hash-2"}
         self.assertFalse(mod01.validate_family_seal_match(manifest, mismatched_hash))
 
     def test_reconciliation_claim_limb_gated(self):

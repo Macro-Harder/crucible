@@ -60,13 +60,26 @@ def replay_check(first, second):
     claimed over the detection state: summary record fields
     written or amended after run close stand outside the list,
     because the comparison is a statement about end of run
-    state."""
+    state. A field missing on either side is a stated divergence
+    named in missing_fields, never agreement."""
     fields = ac1_field_list()
+    first_record = first if isinstance(first, dict) else {}
+    second_record = second if isinstance(second, dict) else {}
+    missing = [
+        field for field in fields
+        if field not in first_record or field not in second_record
+    ]
     differing = []
     for field in fields:
-        if (first or {}).get(field) != (second or {}).get(field):
+        if field in missing:
             differing.append(field)
-    unit_differs = (first or {}).get("headline_unit") != (second or {}).get("headline_unit")
+        elif first_record.get(field) != second_record.get(field):
+            differing.append(field)
+    unit_differs = (
+        "headline_unit" not in first_record
+        or "headline_unit" not in second_record
+        or first_record.get("headline_unit") != second_record.get("headline_unit")
+    )
     if unit_differs:
         differing.append("headline_unit")
     deterministic = not differing
@@ -74,6 +87,7 @@ def replay_check(first, second):
         "field_list": fields,
         "order": list(fields),
         "differing_fields": differing,
+        "missing_fields": missing,
         "identical_headline_unit": not unit_differs,
         "deterministic": deterministic,
         "marked_non_deterministic": not deterministic,
@@ -168,16 +182,26 @@ def resume_check(original, resumed):
     level only, at the two points detection_comparison_points
     names. A resume check failure promotes the run to full
     retention and bars its use as a witness until the difference
-    is explained, and records the first divergence."""
+    is explained, and records the first divergence. A field
+    missing on either side is a divergence of that kind, named in
+    missing_fields, and it promotes and bars in the same form."""
     fields = ac1_field_list()
+    original_record = original if isinstance(original, dict) else {}
+    resumed_record = resumed if isinstance(resumed, dict) else {}
+    missing = [
+        field for field in fields
+        if field not in original_record or field not in resumed_record
+    ]
     differing = []
     for field in fields:
-        if (original or {}).get(field) != (resumed or {}).get(field):
+        if field in missing:
+            differing.append(field)
+        elif original_record.get(field) != resumed_record.get(field):
             differing.append(field)
     verdict_points = detection_comparison_points()
     verdict_differing = []
-    original_verdicts = (original or {}).get("detection_verdicts") or {}
-    resumed_verdicts = (resumed or {}).get("detection_verdicts") or {}
+    original_verdicts = original_record.get("detection_verdicts") or {}
+    resumed_verdicts = resumed_record.get("detection_verdicts") or {}
     for point in verdict_points:
         if original_verdicts.get(point) != resumed_verdicts.get(point):
             verdict_differing.append(point)
@@ -187,12 +211,12 @@ def resume_check(original, resumed):
     if failed:
         divergence_record = {
             "field": first,
-            "tick": (resumed or {}).get("tick"),
-            "day": (resumed or {}).get("simulated_day"),
-            "agent_identifier": (resumed or {}).get("agent_identifier"),
+            "tick": resumed_record.get("tick"),
+            "day": resumed_record.get("simulated_day"),
+            "agent_identifier": resumed_record.get("agent_identifier"),
             "values_compared": [
-                (original or {}).get(first) if first in differing else original_verdicts.get(first),
-                (resumed or {}).get(first) if first in differing else resumed_verdicts.get(first),
+                original_record.get(first) if first in differing else original_verdicts.get(first),
+                resumed_record.get(first) if first in differing else resumed_verdicts.get(first),
             ],
             "hash_limb_ran": False,
             "compared_form": "record level and verdict level values, no hash equality",
@@ -201,6 +225,7 @@ def resume_check(original, resumed):
         "equal_in_scope": not failed,
         "scope": "non detection state, plus detection verdicts at two points only",
         "differing_fields": differing,
+        "missing_fields": missing,
         "first_divergence": first,
         "divergence_record": divergence_record,
         "detection_comparison_points": verdict_points,
@@ -233,6 +258,10 @@ def verdict_record(claim_id, standard="exact replay alone", outcome="rests"):
     claim identifier, the standard applied, and the rests or does
     not rest outcome. A record naming the distributional standard
     while the OP-20 quantities stand unfixed does not stand."""
+    if not claim_id:
+        raise NamedReplicationFailure(
+            "verdict record requires a claim identifier: no claim identifier stands supplied"
+        )
     if standard not in STANDARDS:
         raise NamedReplicationFailure("unknown replication standard: " + str(standard))
     if outcome not in ("rests", "does not rest"):
@@ -333,37 +362,80 @@ def scoring_harness_position():
     }
 
 
+PROFILE_BOUND_LABEL = "profile bound label attached (value set open at OP-16)"
+
+
+def _is_detection_output(record):
+    """Return True only for a checkable DetectionOutput form: a
+    record carrying its run identifier, its scoring day range, and
+    its verdict states and accumulator updates, in the combined
+    Form 27 field or in the split fields MOD-08 builds."""
+    if not isinstance(record, dict):
+        return False
+    if not record.get("run_identifier"):
+        return False
+    if "scoring_day_range" not in record:
+        return False
+    return (
+        "verdict_states_and_accumulator_updates" in record
+        or "verdict_states_by_agent_and_day" in record
+    )
+
+
 def score_detection_outputs(outputs, authored_by=None, knowledge=None,
                             records_position=None):
     """Score retained DetectionOutput records after a run, under
     the three separations. The record states who authored the
     profiles, what they could know, and where the records sit, as
-    record properties. While OP-16 stands open, no score stands
-    reported as a pass or a fail: outputs carry their profile
-    bound label in carriage form."""
+    record properties supplied by the caller: this act supplies
+    none of them itself, and it counts only records in a checkable
+    DetectionOutput form. While OP-16 stands open, no score stands
+    reported as a pass or a fail: the record carries its profile
+    bound label in the stated carriage value, as the product own
+    carriage, never as a value taken from an input."""
+    if not isinstance(outputs, (list, tuple)):
+        raise NamedReplicationFailure(
+            "scoring requires a list of DetectionOutput records: the input stands in no list form"
+        )
+    supplied = {
+        "authorship": authored_by,
+        "knowledge": knowledge,
+        "record separation": records_position,
+    }
+    missing = [name for name, value in supplied.items() if not value]
+    if missing:
+        raise NamedReplicationFailure(
+            "scoring requires the three separations as record properties, supplied and not defaulted: missing "
+            + ", ".join(missing)
+        )
+    for index, record in enumerate(outputs):
+        if not _is_detection_output(record):
+            raise NamedReplicationFailure(
+                "scoring counts only checkable DetectionOutput records: input at position "
+                + str(index) + " stands in no DetectionOutput form"
+            )
     return {
-        "outputs_scored": len(list(outputs or ())),
-        "separations": {
-            "authorship": authored_by or "profile authors, named on the record",
-            "knowledge": knowledge or "no ground truth and no membership",
-            "record separation": records_position or "records held outside the run",
-        },
+        "outputs_scored": len(outputs),
+        "separations": supplied,
         "inside_run_boundary": False,
         "value_returned_into_run": None,
         "score_reported_as": "neither pass nor fail, OP-16 open",
-        "profile_bound_label": "carriage form, value set open at OP-16",
+        "profile_bound_label": PROFILE_BOUND_LABEL,
     }
 
 
 def validate_scoring_record(record):
     """Return True only for a scoring record standing outside the
     run boundary under all three separations, returning no value
-    into the run."""
+    into the run, and carrying its profile bound label in the
+    stated carriage value."""
     if not isinstance(record, dict):
         return False
     if record.get("inside_run_boundary"):
         return False
     if record.get("value_returned_into_run") is not None:
+        return False
+    if record.get("profile_bound_label") != PROFILE_BOUND_LABEL:
         return False
     separations = record.get("separations") or {}
     return all(separations.get(name) for name in SCORING_SEPARATIONS)
@@ -412,11 +484,33 @@ def extend_history(history, segment):
     seed derivation limb of an extension stands gated on DQ7-02
     wherever it would consume derived seeds, and stands in no
     part of this act."""
-    segments = [_freeze(item) for item in (history or ())]
-    if not segments:
+    if not isinstance(history, (list, tuple)) or not history:
         raise NamedReplicationFailure("a history extension extends an existing segment")
+    if not isinstance(segment, dict):
+        raise NamedReplicationFailure(
+            "a history extension appends a segment record: the appended value stands in no record form"
+        )
+    segments = [_freeze(item) for item in history]
     first = segments[0]
+    if not isinstance(first, dict) or not first.get("rule_set_version"):
+        raise NamedReplicationFailure(
+            "a history extension stands under the same rule set version as the segment it extends: no rule set version stands on that segment"
+        )
+    if not first.get("run_id"):
+        raise NamedReplicationFailure(
+            "a history extension links by run identifier: no run identifier stands on the segment it extends"
+        )
     appended = _freeze(segment)
+    stated_version = appended.get("rule_set_version")
+    if stated_version is not None and stated_version != first.get("rule_set_version"):
+        raise NamedReplicationFailure(
+            "a history extension stands under the same rule set version as the segment it extends: the appended segment states another version"
+        )
+    stated_link = appended.get("linked_run")
+    if stated_link is not None and stated_link != first.get("run_id"):
+        raise NamedReplicationFailure(
+            "a history extension links to the segment it extends: the appended segment states another linked run"
+        )
     appended["linked_run"] = first.get("run_id")
     appended["segment_order"] = len(segments) + 1
     appended["rule_set_version"] = first.get("rule_set_version")
@@ -462,6 +556,7 @@ __all__ = [
     "probe_record",
     "validate_probe_claim",
     "SCORING_SEPARATIONS",
+    "PROFILE_BOUND_LABEL",
     "scoring_harness_position",
     "score_detection_outputs",
     "validate_scoring_record",

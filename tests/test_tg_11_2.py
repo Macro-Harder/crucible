@@ -123,5 +123,92 @@ class TestRecordEnforcedScope(unittest.TestCase):
         self.assertFalse(mod05.validate_view_wording({"description": "record enforced", "scope": "all views", "fixture_label": "record enforced for all views"}))
 
 
+class TestStep15Fix1ViewEdge(unittest.TestCase):
+    """Step 15 Round 1 fix pins: TA-02, TA-45, C-28, and C-29, on the MOD-04 view edge."""
+
+    def test_barred_field_check_reads_every_group_at_any_depth(self):
+        mod04 = require_surface(self, "barred field check reads every group recursively", "mod04", "view_record_carries_barred_field")
+        top = {"view_contents": [{"membership": "x"}]}
+        self.assertTrue(mod04.view_record_carries_barred_field(top))
+        nested = {"view_contents": [{"outer": {"inner": {"ground_truth": "x"}}}]}
+        self.assertTrue(mod04.view_record_carries_barred_field(nested))
+        listed = {"view_contents": [[{"label": "x"}]]}
+        self.assertTrue(mod04.view_record_carries_barred_field(listed))
+        grouped = {"view_contents": [], "reputation_and_band_values": {"deep": {"membership": "x"}}}
+        self.assertTrue(mod04.view_record_carries_barred_field(grouped))
+        clean = {"view_contents": [{"kind": "daily_record"}], "reputation_and_band_values": {"score": 1}}
+        self.assertFalse(mod04.view_record_carries_barred_field(clean))
+        with self.assertRaises(mod04.NamedFailure):
+            mod04.build_view_record(contents=[{"outer": {"ground_truth": "x"}}])
+
+    def test_selection_requires_a_stated_viewer_match_and_a_stated_day(self):
+        mod04 = require_surface(self, "selection requires a stated viewer match and a stated day", "mod04", "select_view_records")
+        records = [
+            {"viewer_id": "viewer-1", "day": 3, "kind": "own"},
+            {"day": 3, "kind": "unscoped"},
+            {"viewer_id": "viewer-1", "kind": "undated"},
+            {"viewer_id": "viewer-2", "day": 3, "kind": "cross viewer"},
+            {"viewer_identifier": "viewer-1", "day": 3, "kind": "view field name"},
+            {"viewer_identifier": "viewer-2", "day": 3, "kind": "view field name cross"},
+        ]
+        selected = mod04.select_view_records(records, "viewer-1", 5)
+        self.assertEqual([item["kind"] for item in selected], ["own", "view field name"])
+
+    def test_selection_applies_the_ruling_entry_5_position_rule(self):
+        mod04 = require_surface(self, "selection applies the first seen day and arising position rule", "mod04", "select_view_records")
+        records = [
+            {"viewer_id": "viewer-1", "first_seen_day": 5, "arising_position": 9, "kind": "same day late"},
+            {"viewer_id": "viewer-1", "first_seen_day": 5, "arising_position": 2, "kind": "same day early"},
+            {"viewer_id": "viewer-1", "first_seen_day": 3, "arising_position": 99, "kind": "earlier day"},
+            {"viewer_id": "viewer-1", "first_seen_day": 4, "kind": "day before"},
+        ]
+        selected = mod04.select_view_records(records, "viewer-1", 5, as_of_position=5)
+        self.assertEqual(
+            [item["kind"] for item in selected],
+            ["same day early", "earlier day", "day before"],
+        )
+
+    def test_builder_stamps_the_handed_in_position_and_arrival_values(self):
+        mod04 = require_surface(self, "the ViewRecord builder stamps handed in position and per item arrival values", "mod04", "build_view_record")
+        contents = [
+            {"kind": "a", "first_seen_day": 3, "delay": 2},
+            {"kind": "b", "first_seen_day": 5, "delay": 0},
+        ]
+        record = mod04.build_view_record(
+            day=5, contents=contents,
+            run_record={"scheduling_position_identifier": "position-9"},
+        )
+        self.assertEqual(record["scheduling_position_identifier"], "position-9")
+        self.assertEqual(record["first_seen_day_per_record"], {"0": 3, "1": 5})
+        self.assertEqual(record["delay_applied_per_record"], {"0": 2, "1": 0})
+        self.assertEqual(record["arrival_group_form"], "derived from contents")
+        bare = mod04.build_view_record(day=5, contents=[{"kind": "a"}])
+        self.assertIsNone(bare["scheduling_position_identifier"])
+        self.assertEqual(bare["first_seen_day_per_record"], {"0": None})
+        self.assertIn("not derived", bare["arrival_group_form"])
+
+    def test_divergence_companion_computes_over_identities_and_bands(self):
+        mod04 = require_surface(self, "the divergence companion computes the share of identities whose band differs across viewers", "mod04", "divergence_companion")
+        components = []
+        bands = {"id-1": ("high", "high"), "id-2": ("low", "high"), "id-3": ("mid", "mid")}
+        for identity, pair in bands.items():
+            for viewer, band in zip(("viewer-1", "viewer-2"), pair):
+                components.append({"identity": identity, "viewer_id": viewer, "band": band})
+        companion = mod04.divergence_companion(components=components)
+        self.assertAlmostEqual(companion["band_differing_share"], 1 / 3)
+        self.assertEqual(companion["differing_identity_count"], 1)
+        self.assertEqual(companion["identity_count"], 3)
+        self.assertEqual(companion["viewer_count"], 2)
+        agreeing = [dict(item, band="same") for item in components]
+        self.assertEqual(mod04.divergence_companion(components=agreeing)["band_differing_share"], 0)
+        differing = []
+        for identity in bands:
+            differing.append({"identity": identity, "viewer_id": "viewer-1", "band": "low"})
+            differing.append({"identity": identity, "viewer_id": "viewer-2", "band": "high"})
+        self.assertEqual(mod04.divergence_companion(components=differing)["band_differing_share"], 1)
+        no_band = mod04.divergence_companion(components=[{"viewer_id": "viewer-1", "component_values": [1]}])
+        self.assertIsNone(no_band["band_differing_share"])
+
+
 if __name__ == "__main__":
     unittest.main()

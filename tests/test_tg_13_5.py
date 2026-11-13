@@ -73,14 +73,14 @@ class TestTG135(unittest.TestCase):
         self.assertEqual(m.weekly_count(more_runs, "W1"), 2)
         self.assertEqual(m.weekly_count(records, "W2"), 1)
 
-    def test_weekly_cap_open_element(self):
+    def test_weekly_cap_ruled_form(self):
         """
         Fixture: A week whose stored summary records name 25 distinct headline units, and a week naming a 26th unit.
-        Pins: The weekly count counts units once, as the entry above states, and the count at 25 and the count beyond 25 both stand recorded on the suite record, and this test pins no outcome at the cap.
-        Bar: No behaviour at the cap stands stated in the plan: what the Reporter does with a 26th unit stands open, and no test pins a held, refused, or carried outcome as settled behaviour. Open standing: the behaviour at the cap stands open at settlement register Entry 20, cluster R1-030, for a Manager ruling and a Project Manager deciding act that must stand before test writing closes for this group. A suite result presenting the cap as a settled input with a tested consequence fails this group.
-        Failure: Fails while crucible.mod11 stands absent, naming TG-13.5 and this behaviour; a test or record stating a settled held, refused, or carried outcome at the cap fails this test in every state.
+        Pins: The weekly count counts units once, as the entry above states. At the cap, Manager ruling Entry 20 at design/steps/step-14-manager-rulings.md rules the behaviour: the Reporter holds the 26th unit, held units stand reported as held, and held units stand released into the next weekly container in arrival order. This test pins that ruled behaviour at 25, 26, and 27 units and on the following container.
+        Bar: A container that refuses, drops, or silently counts a unit beyond the cap fails this group; a held unit reported as counted, or a held unit released out of arrival order, fails this group.
+        Failure: Fails while crucible.mod11 stands absent, naming TG-13.5 and this behaviour; a container standing at odds with the ruled holding and release form fails this test when the surface stands.
         """
-        require_surface(self, "TG-13.5", "weekly cap open element, count at 25 and count beyond 25 both recorded, no behaviour at the cap pinned as settled")
+        require_surface(self, "TG-13.5", "weekly cap ruled form under Manager ruling Entry 20, units beyond the cap held, reported as held, and released into the next weekly container in arrival order")
         m = _surface_module
         units25 = ["u%02d" % n for n in range(1, 26)]
         units26 = units25 + ["u26"]

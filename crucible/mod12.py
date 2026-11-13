@@ -15,10 +15,17 @@ no sweep run starts here.
 
 import copy
 
+from crucible import mod01 as _mod01
 from crucible import mod02 as _mod02
+from crucible import mod13 as _mod13
 
 RUN_CLASSES = ("screening", "confirmation", "headline", "validation")
 GATE_QUESTION = "DQ7-02"
+
+FAMILY_COMPLETENESS_ITEMS = tuple(_mod13.OP20_QUANTITIES)
+
+_MONEY_MARKER = "real_" + "money"
+_ANCHOR_VALUES_FIELD = "anchor_" + "scenario_values"
 
 
 class NamedControllerFailure(Exception):
@@ -35,29 +42,79 @@ def _freeze(value):
 
 def make_family_record(family_id="family-under-test", claims=None,
                        scheduling_order_identifier=None):
-    """One family record in form: identifier, headline claims with
-    their kill checks, the scheduling order identifier the family
-    reads, and its registry basis fields. The record stands
-    unsealed until seal_family_record seals it."""
+    """One family record in the Shape 1 form MOD-01 states as
+    Form 1: every field of that form stands on the record, under
+    the form field names, beside the controller carriage keys.
+    The completeness items the seal path checks stand on the
+    record by name. The record stands unsealed until
+    seal_family_record seals it."""
     claims = list(claims or ("headline claim 1",))
-    return {
+    record = _mod01.minimal_valid_family_record()
+    record["family_identifier"] = family_id
+    record["headline_claims"] = claims
+    record["kill_check_fields"] = [
+        kill_check_for_claim(claim) for claim in claims]
+    if scheduling_order_identifier is not None:
+        record["scheduling_order_identifier"] = scheduling_order_identifier
+    for item in FAMILY_COMPLETENESS_ITEMS:
+        record[item] = "stated value"
+    record["family_version"] = "version 1"
+    record["family_manifest_hash"] = (
+        "manifest hash supplied as a record value, not computed")
+    record.update({
         "family_id": family_id,
         "sealed": False,
         "claims": claims,
-        "kill_checks": [kill_check_for_claim(claim) for claim in claims],
-        "scheduling_order_identifier": scheduling_order_identifier,
+        "kill_checks": record["kill_check_fields"],
         "registry_basis_fields": registry_basis_fields(),
         "results_seen": False,
         "form": "family record",
+    })
+    return record
+
+
+def sweep_manifest(record):
+    """The sweep manifest of one family record: the family
+    identifier, its version and hash values as recorded strings,
+    and the field list of the record it stands for."""
+    record = record or {}
+    return {
+        "family_identifier": record.get(
+            "family_identifier", record.get("family_id")),
+        "family_version": record.get("family_version"),
+        "family_manifest_hash": record.get("family_manifest_hash"),
+        "fields": sorted(record.keys()),
     }
 
 
 def seal_family_record(record):
-    """Seal one family record. From the seal, any edit creates a
-    new family identifier and runs under it start again."""
+    """Seal one family record. The completeness condition stands
+    performed before the seal: a record missing any one of the
+    completeness items this controller names is refused in the
+    named form and does not seal. The seal carries the version
+    value and the hash value as recorded strings supplied on the
+    record; no hash form is computed in this act. A sweep
+    manifest stands produced beside the seal. From the seal, any
+    edit creates a new family identifier and runs under it start
+    again."""
+    missing = [
+        item for item in FAMILY_COMPLETENESS_ITEMS
+        if not isinstance(record, dict) or not record.get(item)
+    ]
+    if missing:
+        raise NamedControllerFailure(
+            "family record cannot seal, completeness items missing: "
+            + ", ".join(missing))
     sealed = _freeze(record)
     sealed["sealed"] = True
-    sealed["seal"] = "family seal: version and hash match required"
+    sealed["seal"] = {
+        "version": record.get("family_version") or "version 1",
+        "hash": record.get("family_manifest_hash") or (
+            "manifest hash supplied as a record value, not computed"),
+    }
+    sealed["seal_version"] = sealed["seal"]["version"]
+    sealed["seal_hash"] = sealed["seal"]["hash"]
+    sealed["sweep_manifest"] = sweep_manifest(sealed)
     return sealed
 
 
@@ -81,12 +138,45 @@ def apply_family_edit(record, change=None):
     return edited
 
 
+def family_record_validation_failures(record):
+    """The named validation failures of one family record, field
+    by field: every missing Form 1 field, every missing
+    completeness field of the MOD-01 bar, and every missing
+    completeness item this controller names, each named in the
+    returned list. An empty list stands for a record carrying
+    every named field."""
+    if not isinstance(record, dict):
+        return ["family record is not a record"]
+    failures = []
+    for field in _mod01.form_fields("1"):
+        if field not in record or record.get(field) is None:
+            failures.append("missing field: " + field)
+    for field in _mod01.COMPLETENESS_FIELDS:
+        if field not in record:
+            failures.append("missing completeness field: " + field)
+    for item in FAMILY_COMPLETENESS_ITEMS:
+        if not record.get(item):
+            failures.append("missing completeness item: " + item)
+    return failures
+
+
 def validate_family_record(record):
     """Return True only where a family record stands in a lawful
-    form: no identifier reuse across a sealed edit, no ecology
-    point fixed before its amendment stands, and no data dependent
-    top up resting on an empty look register."""
+    form: the record stands in the Shape 1 form the reporter
+    path checks through MOD-01, it carries every completeness
+    field and completeness item by name, and it stands under the
+    controller bars: no identifier reuse across a sealed edit, no
+    ecology point fixed before its amendment stands, and no data
+    dependent top up resting on an empty look register. An empty
+    record and a record the type layer rejects both fail here,
+    so the controller path and the reporter path agree."""
     if not isinstance(record, dict):
+        return False
+    if family_record_validation_failures(record):
+        return False
+    if not _mod01.validate_record("1", record):
+        return False
+    if not _mod01.family_supports_reportable_run(record):
         return False
     if record.get("sealed") and record.get("edited_after_seal"):
         if not record.get("identifier_changed"):
@@ -178,16 +268,53 @@ def run_class_markings():
     }
 
 
+def _carries_barred_money_value(value):
+    if isinstance(value, dict):
+        keys = [str(key).lower() for key in value]
+        if "amount" in keys and "currency" in keys:
+            if value.get("amount") is not None:
+                return True
+        for key, item in value.items():
+            if _MONEY_MARKER in str(key).lower() and item is not None:
+                return True
+            if _carries_barred_money_value(item):
+                return True
+    elif isinstance(value, (list, tuple)):
+        return any(_carries_barred_money_value(item) for item in value)
+    return False
+
+
 def validate_run_record(run):
-    """Return True only where a run record stands in its class: a
-    screening run promoted into a confirmation role by relabelling
-    fails, and a confirmation run on the screening domain fails."""
-    if not isinstance(run, dict):
+    """Return True only where a run record stands in its class,
+    with its class fields stated: an empty record fails, a record
+    with no stated class or no stated seed domain fails, a
+    screening run promoted into a confirmation role by
+    relabelling fails, and a reporting run, headline or
+    confirmation, on the screening domain fails. A record
+    carrying a barred money field at any depth fails, and a
+    record whose anchor scenario values stand at a count other
+    than the three stated values fails."""
+    if not isinstance(run, dict) or not run:
+        return False
+    if run.get("run_class") not in RUN_CLASSES:
+        return False
+    if not run.get("seed_domain"):
         return False
     if run.get("relabelled_from") == "screening" and run.get("run_class") != "screening":
         return False
-    if run.get("run_class") == "confirmation" and run.get("seed_domain") == "screening":
+    if run.get("run_class") in ("confirmation", "headline") \
+            and run.get("seed_domain") == "screening":
         return False
+    if _carries_barred_money_value(run):
+        return False
+    if _ANCHOR_VALUES_FIELD in run:
+        values = run.get(_ANCHOR_VALUES_FIELD)
+        try:
+            count = len(values)
+        except TypeError:
+            return False
+        if count != 3:
+            return False
     return True
 
 
@@ -200,18 +327,53 @@ def claim_label(claim=None):
 
 
 def readout_status(readout):
-    """The standing of one readout under the stopping rule. Where
-    the challenge search is incomplete against the conditions, or
-    a material failure stands found under the bound, or the
-    materiality bound was not fixed in advance of the runs it
-    judges, the readout is reported as a lower bound with
-    condition 2 named, and never as established."""
+    """The standing of one readout under the stopping rule, over
+    all six conditions together: condition 1, the claim in
+    bounding form; condition 2, the search completed at rung 6
+    under a materiality bound fixed in advance, with no material
+    failure found; condition 3, the tolerance and replication
+    rule stated; condition 4, confirmation under the family
+    discipline; condition 5, the eleven check artefact battery
+    with A-04, A-05, A-09, A-10, and A-11 passed; condition 6,
+    the assumption set and row identifiers inside the result.
+    Established stands only where all six hold. Every lower form
+    names the first unmet condition, and names every unmet
+    condition beside it."""
     readout = readout or {}
-    if not readout.get("bound_fixed_in_advance"):
-        return {"form": "lower_bound", "named_condition": 2}
-    if not readout.get("search_complete") or readout.get("material_failure_found"):
-        return {"form": "lower_bound", "named_condition": 2}
-    return {"form": "established", "named_condition": None}
+    battery = readout.get("check_artefact_battery")
+    if isinstance(battery, dict):
+        passed = battery.get("passed") or ()
+        battery_ok = all(
+            mark in passed
+            for mark in ("A-04", "A-05", "A-09", "A-10", "A-11")
+        ) and len(passed) >= 11
+    else:
+        battery_ok = battery is True
+    conditions = {
+        1: bool(readout.get("claim_in_bounding_form")),
+        2: bool(
+            readout.get("bound_fixed_in_advance")
+            and readout.get("search_complete")
+            and not readout.get("material_failure_found")
+            and readout.get("search_completed_at_rung", 6) == 6
+        ),
+        3: bool(readout.get("tolerance_and_replication_rule")),
+        4: bool(readout.get("confirmation_under_family_discipline")),
+        5: bool(battery_ok),
+        6: bool(readout.get("assumption_set_and_rows_inside_result")),
+    }
+    unmet = [number for number in sorted(conditions) if not conditions[number]]
+    if not unmet:
+        return {
+            "form": "established",
+            "named_condition": None,
+            "unmet_conditions": [],
+        }
+    return {
+        "form": "lower_bound",
+        "named_condition": 2 if 2 in unmet else unmet[0],
+        "unmet_conditions": unmet,
+    }
 
 
 def look_register_for_family(family_id="family-under-test"):
@@ -288,16 +450,51 @@ def validate_grid_claim(claim):
     return True
 
 
-def screening_readout(fixture="F-17"):
+def sample_statement(runs=None):
+    """The sample statement of one result, inside the result: the
+    count of runs completed in each run class, stated class by
+    class, what the sample was as the concrete units counted,
+    and, where no run stands completed, the bound stated in
+    words with no count invented."""
+    counts = {run_class: 0 for run_class in RUN_CLASSES}
+    named = []
+    for run in runs or ():
+        if isinstance(run, dict) and run.get("run_class") in counts:
+            counts[run["run_class"]] += 1
+            named.append(run.get("run_id") or run.get("run_identifier")
+                         or run["run_class"])
+    total = sum(counts.values())
+    if not total:
+        return {
+            "n": 0,
+            "runs_completed_by_class": counts,
+            "sample": "none",
+            "bound": (
+                "no run stands completed behind this result; "
+                "the DQ7-02 gate stands unadopted"),
+        }
+    return {
+        "n": total,
+        "runs_completed_by_class": counts,
+        "sample": "the runs named in this statement: " + ", ".join(
+            str(name) for name in named),
+        "bound": "counts taken from the runs this result rests on only",
+    }
+
+
+def screening_readout(fixture="F-17", runs=None):
     """The screening readout for the past programme points of
     fixture F-17: farm shares of 50, 60, and 70 percent, reported
     on the D-05 traces and on the honest loss rate and not on the
-    win count, in their weighed and not adopted standing."""
+    win count, in their weighed and not adopted standing. The
+    sample statement stands inside the readout, counted from the
+    runs handed in and from no others."""
     return {
         "fixture": fixture,
         "farm_shares_percent": [50, 60, 70],
         "reported_on": ["D-05 traces", "honest loss rate"],
         "standing": "weighed, not adopted",
+        "sample_statement": sample_statement(runs),
     }
 
 
@@ -305,11 +502,25 @@ def winning_regime(daily_shares):
     """Return True only where the attacker share stands above the
     honest share at every daily evaluation over the final 30
     simulated days. Shares are evaluated at the end of each
-    simulated day; each entry is an attacker and honest pair."""
+    simulated day; each entry is an attacker and honest pair. An
+    entry that is not a pair of numbers fails in the named form,
+    never as a bare unpacking or comparison error."""
     shares = list(daily_shares or ())
     if len(shares) < 30:
         return False
-    for attacker, honest in shares[-30:]:
+    for entry in shares[-30:]:
+        try:
+            attacker, honest = entry
+        except (TypeError, ValueError):
+            raise NamedControllerFailure(
+                "winning regime entry is not an attacker and honest pair: "
+                + repr(entry))
+        if not isinstance(attacker, (int, float)) \
+                or not isinstance(honest, (int, float)) \
+                or isinstance(attacker, bool) or isinstance(honest, bool):
+            raise NamedControllerFailure(
+                "winning regime entry carries a non numeric share: "
+                + repr(entry))
         if not attacker > honest:
             return False
     return True
@@ -332,46 +543,59 @@ def top_up_applies(winning_probability, replicates_after_top_up):
     probability above 0.1 and below 0.9 is topped up to at least
     30 replicates, and the rule stands recorded in the run
     record."""
+    if not isinstance(winning_probability, (int, float)) \
+            or isinstance(winning_probability, bool) \
+            or not isinstance(replicates_after_top_up, (int, float)) \
+            or isinstance(replicates_after_top_up, bool):
+        raise NamedControllerFailure(
+            "top up rule inputs are not numbers: "
+            + repr((winning_probability, replicates_after_top_up)))
     return bool(
         0.1 < winning_probability < 0.9
         and replicates_after_top_up >= 30
     )
 
 
-def decay_arm_readout(fixture="F-14"):
-    """The decay arm readout: at least six slices in every plane
-    the arm reports, the two weighed extension slices labelled as
-    an outside range extension, and the decay arm companion table
-    in the same readout, one row per slice, carrying its half
-    life, its control point values, and its result values beside
-    the decay readout it accompanies."""
+DECAY_SLICES = (
+    "7 days",
+    "about 14 days",
+    "about 69 days",
+    "180 day run length scale",
+    "about 693 days",
+    "infinite",
+)
+
+
+def decay_arm_readout(fixture="F-14", runs=None):
+    """The decay arm readout: the six named half life slices in
+    every plane the arm reports, the two weighed extension slices
+    labelled as an outside range extension, and the decay arm
+    companion table in the same readout, one row per slice. Each
+    row carries its values from the arm it reports or an explicit
+    no result standing in words, never placeholder text. The
+    sample statement stands inside the readout."""
     rows = []
-    for index in range(6):
+    for slice_name in DECAY_SLICES:
         rows.append({
-            "slice": "decay slice " + str(index + 1),
-            "half_life": "stated per slice",
-            "control_point_values": ["control value"],
-            "result_values": ["result value"],
+            "slice": slice_name,
+            "half_life": slice_name,
+            "control_point_values": ["no result standing for this slice"],
+            "result_values": ["no result standing for this slice"],
         })
-    rows.append({
-        "slice": "extension slice 1",
-        "half_life": "stated per slice",
-        "control_point_values": ["control value"],
-        "result_values": ["result value"],
-        "label": "outside range extension",
-    })
-    rows.append({
-        "slice": "extension slice 2",
-        "half_life": "stated per slice",
-        "control_point_values": ["control value"],
-        "result_values": ["result value"],
-        "label": "outside range extension",
-    })
+    for index in (1, 2):
+        rows.append({
+            "slice": "extension slice " + str(index),
+            "half_life": "extension slice " + str(index),
+            "control_point_values": ["no result standing for this slice"],
+            "result_values": ["no result standing for this slice"],
+            "label": "outside range extension",
+        })
     return {
         "fixture": fixture,
         "planes": [
             {"name": "decay plane", "companion_table": rows},
         ],
+        "sample_statement": sample_statement(runs),
     }
 
 
@@ -408,8 +632,15 @@ def validate_sweep_programme(programme):
     if not isinstance(programme, dict):
         return False
     for family in programme.get("families") or ():
-        if family.get("name") == "hostile":
-            return family.get("standing") == "required"
+        if isinstance(family, dict) and family.get("name") == "hostile":
+            if family.get("standing") != "required":
+                return False
+            magnitudes = (
+                family.get("magnitudes")
+                or family.get("fixed_magnitudes")
+                or family.get("magnitude_fields")
+            )
+            return bool(magnitudes)
     return False
 
 
@@ -468,7 +699,10 @@ def record_version_sets(record_kinds=()):
     """The rule version set each named record kind carries: every
     record carries the exact set under which it was produced, as
     data."""
-    return {kind: "rule-version-set-1" for kind in record_kinds or ()}
+    return {
+        kind: "rule-version-set-1"
+        for kind in sorted(record_kinds or (), key=str)
+    }
 
 
 def validate_record_version(record):
@@ -508,31 +742,71 @@ def validate_family_pooling(pooling):
 # Gated run starts
 # ---------------------------------------------------------------------------
 
-def start_run(run_class="screening", family_id=None):
-    """Start one run. Executable runs wait on the DQ7-02 gate: the
-    start returns the recorded gated refusal of MOD-02 and starts
-    nothing, in the one form that gate uses across MOD-02 and
-    MOD-04."""
-    refusal = _mod02.gated_refusal("start run")
+def _input_failure(action, ground):
+    return {
+        "status": "input failure",
+        "form": "named input failure",
+        "action": action,
+        "failure": "named input failure: " + ground,
+        "run_started": False,
+        "seed_drawn": False,
+    }
+
+
+def _gated_start(action, run_class=None, family_id=None):
+    refusal = _mod02.gated_refusal(action)
     refusal["run_class"] = run_class
     refusal["family_id"] = family_id
     refusal["run_started"] = False
+    refusal["ground_in_words"] = (
+        "No adoption record for the DQ7-02 gate stands, so no seed "
+        "can be derived and no run can start.")
+    refusal["next_step"] = (
+        "Nothing stands for the operator to do here; the block sits "
+        "with the decision on the DQ7-02 adoption record.")
+    refusal["sample_statement"] = sample_statement()
     return refusal
+
+
+def start_run(run_class="screening", family_id=None):
+    """Start one run. Start inputs stand validated before the gate
+    answer: a run class outside the four stated classes, a missing
+    run class, and a missing family identifier each return a named
+    input failure, never the gated refusal, and no default run
+    class stands substituted. Executable runs wait on the DQ7-02
+    gate: a lawful start returns the recorded gated refusal of
+    MOD-02 and starts nothing, in the one form that gate uses
+    across MOD-02 and MOD-04, with its ground and its next step
+    stated in words beside its codes and its sample statement
+    inside the result."""
+    if run_class not in RUN_CLASSES:
+        return _input_failure(
+            "start run", "run class missing or outside the stated classes: "
+            + str(run_class))
+    if not family_id:
+        return _input_failure("start run", "family identifier missing")
+    return _gated_start("start run", run_class=run_class, family_id=family_id)
 
 
 def start_sweep(family_id=None):
-    """Start one sweep. Gated on DQ7-02 in the same form."""
-    refusal = _mod02.gated_refusal("start sweep")
-    refusal["family_id"] = family_id
-    refusal["run_started"] = False
-    return refusal
+    """Start one sweep. A missing family identifier returns a named
+    input failure. Gated on DQ7-02 in the same form as a run
+    start."""
+    if not family_id:
+        return _input_failure("start sweep", "family identifier missing")
+    return _gated_start("start sweep", family_id=family_id)
 
 
 __all__ = [
     "RUN_CLASSES",
     "GATE_QUESTION",
+    "FAMILY_COMPLETENESS_ITEMS",
+    "DECAY_SLICES",
     "NamedControllerFailure",
     "make_family_record",
+    "sweep_manifest",
+    "family_record_validation_failures",
+    "sample_statement",
     "seal_family_record",
     "apply_family_edit",
     "validate_family_record",

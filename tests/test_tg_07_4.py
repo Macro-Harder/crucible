@@ -153,7 +153,7 @@ class TestTG074(unittest.TestCase):
             "records_for_agent_and_day": [],
         }])
         self.assertIsNone(result["score_verdict"])
-        self.assertIsNone(result["detection_output"]["score_verdict"])
+        self.assertNotIn("score_verdict", result["detection_output"])
         for output in result["verdict_states"]:
             self.assertIsNone(output["score_verdict"])
             self.assertIn(output["verdict_state"],

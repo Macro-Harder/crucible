@@ -48,11 +48,12 @@ class TestContractC01(unittest.TestCase):
         held = [item for item in mod10.checkpoints_for_run("run-c01-a") if item.get("simulated_day") == 3]
         self.assertEqual(len(held), 1)
         same = mod10.checkpoint_integrity_check(manifest, dict(manifest))
-        self.assertFalse(same["alteration_detected"])
+        self.assertEqual(same["alteration"], "not computable")
+        self.assertEqual(same["outcome"], "not computable")
         self.assertFalse(same["state_hash_equality_claimed"])
         differing = dict(manifest)
         differing["state_reference"] = "state-2"
-        self.assertTrue(mod10.checkpoint_integrity_check(manifest, differing)["alteration_detected"])
+        self.assertEqual(mod10.checkpoint_integrity_check(manifest, differing)["alteration"], "not computable")
         store = mod10.RecorderStore(store_kind="sweep")
         store.retain_run_record({"run_id": "run-c01-a"})
         rejected = []

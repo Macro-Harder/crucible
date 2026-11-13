@@ -33,7 +33,18 @@ class TestTG143(unittest.TestCase):
         position = surface.scoring_harness_position()
         self.assertEqual(position["position"], "outside the run boundary")
         self.assertFalse(position["inside_detection_module"])
-        record = surface.score_detection_outputs([{"output": 1}, {"output": 2}])
+        genuine = {
+            "run_identifier": "run-tg143",
+            "scoring_day_range": [1],
+            "verdict_states_and_accumulator_updates": [],
+            "profile_bound_label": "profile bound label attached (value set open at OP-16)",
+        }
+        record = surface.score_detection_outputs(
+            [dict(genuine), dict(genuine)],
+            authored_by="profile authors, named on the record",
+            knowledge="no ground truth and no membership",
+            records_position="records held outside the run",
+        )
         self.assertTrue(surface.validate_scoring_record(record))
         self.assertEqual(set(record["separations"].keys()), {"authorship", "knowledge", "record separation"})
         self.assertFalse(record["inside_run_boundary"])
@@ -91,6 +102,87 @@ class TestTG143(unittest.TestCase):
         Failure: Gated form only; this test never passes while the DQ7-02 adoption record does not stand.
         """
         self.skipTest("Gated: the DQ7-02 adoption record for the seed derivation form, TG-02.1, register question NQ-24")
+
+
+class TestStep15Fix1Mod13ScoringAndHistory(unittest.TestCase):
+    """Step 15 Round 1 fix pins: TA-36, TA-38, TB-51, C-58, and the MOD-13 limb of TA-30."""
+
+    SEPARATIONS = {
+        "authored_by": "profile authors, named on the record",
+        "knowledge": "no ground truth and no membership",
+        "records_position": "records held outside the run",
+    }
+    LABEL = "profile bound label attached (value set open at OP-16)"
+
+    def _genuine_output(self):
+        return {
+            "run_identifier": "run-fix1",
+            "scoring_day_range": [1],
+            "verdict_states_and_accumulator_updates": [],
+            "profile_bound_label": self.LABEL,
+        }
+
+    def test_extend_history_fails_where_version_or_link_stands_absent(self):
+        require_surface(self, "TG-14.3", "history extension fails in named form where the rule set version does not stand on the record")
+        import crucible.mod13 as surface
+        no_version = [{"run_id": "run-1", "segment_order": 1, "content": "first"}]
+        with self.assertRaises(surface.NamedReplicationFailure):
+            surface.extend_history(no_version, {"content": "second"})
+        no_link = [{"segment_order": 1, "rule_set_version": "rules-1", "content": "first"}]
+        with self.assertRaises(surface.NamedReplicationFailure):
+            surface.extend_history(no_link, {"content": "second"})
+        history = [{"run_id": "run-1", "segment_order": 1, "rule_set_version": "rules-1", "content": "first"}]
+        extended = surface.extend_history(history, {"content": "second"})
+        self.assertEqual(extended[1]["rule_set_version"], "rules-1")
+        self.assertEqual(extended[1]["linked_run"], "run-1")
+        stated = surface.extend_history(history, {"content": "second", "rule_set_version": "rules-1"})
+        self.assertEqual(stated[1]["rule_set_version"], "rules-1")
+
+    def test_score_detection_outputs_refuses_a_non_list_input(self):
+        require_surface(self, "TG-14.3", "scoring refuses a non list input in the named failure form")
+        import crucible.mod13 as surface
+        with self.assertRaises(surface.NamedReplicationFailure):
+            surface.score_detection_outputs("0123456789", **self.SEPARATIONS)
+
+    def test_score_detection_outputs_requires_supplied_separations(self):
+        require_surface(self, "TG-14.3", "scoring requires the three separations as record properties and supplies none itself")
+        import crucible.mod13 as surface
+        with self.assertRaises(surface.NamedReplicationFailure):
+            surface.score_detection_outputs([self._genuine_output()])
+
+    def test_score_detection_outputs_refuses_non_record_inputs(self):
+        require_surface(self, "TG-14.3", "scoring counts only checkable DetectionOutput records")
+        import crucible.mod13 as surface
+        with self.assertRaises(surface.NamedReplicationFailure):
+            surface.score_detection_outputs([{}, None], **self.SEPARATIONS)
+        with self.assertRaises(surface.NamedReplicationFailure):
+            surface.score_detection_outputs([{"output": 1}], **self.SEPARATIONS)
+
+    def test_scoring_record_carries_the_stated_label(self):
+        require_surface(self, "TG-14.3", "the Contract F scoring record carries the label in its stated carriage value and its validator checks it")
+        import crucible.mod13 as surface
+        record = surface.score_detection_outputs([self._genuine_output()], **self.SEPARATIONS)
+        self.assertEqual(record["outputs_scored"], 1)
+        self.assertEqual(record["profile_bound_label"], self.LABEL)
+        self.assertEqual(record["separations"]["authorship"], self.SEPARATIONS["authored_by"])
+        self.assertTrue(surface.validate_scoring_record(record))
+        unlabelled_input = self._genuine_output()
+        del unlabelled_input["profile_bound_label"]
+        carried = surface.score_detection_outputs([unlabelled_input], **self.SEPARATIONS)
+        self.assertEqual(carried["profile_bound_label"], self.LABEL)
+        missing_label = dict(record)
+        del missing_label["profile_bound_label"]
+        self.assertFalse(surface.validate_scoring_record(missing_label))
+        paraphrase = dict(record)
+        paraphrase["profile_bound_label"] = "carriage form, value set open at OP-16"
+        self.assertFalse(surface.validate_scoring_record(paraphrase))
+
+    def test_verdict_record_on_no_claim_names_the_actual_defect(self):
+        require_surface(self, "TG-14.3", "verdict record on no claim identifier names that defect")
+        import crucible.mod13 as surface
+        with self.assertRaises(surface.NamedReplicationFailure) as caught:
+            surface.verdict_record(None)
+        self.assertIn("claim identifier", str(caught.exception))
 
 
 if __name__ == "__main__":
