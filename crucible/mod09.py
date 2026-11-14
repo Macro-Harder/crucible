@@ -154,6 +154,43 @@ def _stands_numeric(value):
         value, bool)
 
 
+def _base_dict_get(mapping, key, default=None):
+    """Return the value a handed mapping stores under a key,
+    read through the base dict get, never through a get reading
+    the mapping itself supplies. A handed value in no mapping
+    form stores nothing under any key."""
+    if isinstance(mapping, dict):
+        return dict.get(mapping, key, default)
+    return default
+
+
+def _base_dict_contains(mapping, key):
+    """Return whether a handed mapping stores a key, read
+    through the base dict contains, never through a contains
+    reading the mapping itself supplies."""
+    return isinstance(mapping, dict) and dict.__contains__(
+        mapping, key)
+
+
+def _base_length(value):
+    """Return the length a handed container or text value
+    stores, read through the base length of its form, never
+    through a length reading the value itself supplies."""
+    if isinstance(value, str):
+        return str.__len__(value)
+    if isinstance(value, list):
+        return list.__len__(value)
+    if isinstance(value, tuple):
+        return tuple.__len__(value)
+    if isinstance(value, dict):
+        return dict.__len__(value)
+    if isinstance(value, frozenset):
+        return frozenset.__len__(value)
+    if isinstance(value, set):
+        return set.__len__(value)
+    return len(value)
+
+
 def mod03_catalogue_record(records=None):
     """Return the catalogue record the Society Generator delivers."""
     return _mod03.catalogue_record(records)
@@ -398,7 +435,7 @@ def run_record_carriage(strategy_class, ladder_position,
     for strategy in strategies or []:
         name = strategy
         if isinstance(strategy, dict):
-            name = strategy.get("strategy_identifier")
+            name = dict.get(strategy, "strategy_identifier")
         if name not in strategy_class:
             raise NamedAttackerFailure(
                 "strategy outside the fixed class stands rejected: "
@@ -426,51 +463,64 @@ def validate_search_record(record, fixed_class=None):
     absent, where the search record field list stands incomplete,
     where the bond parameter search limb stands absent, or where
     the F-26 case stands in any use other than a search point.
+    Every reading of a handed record in this act runs through
+    base dict readings, never through a get, contains, or item
+    reading the handed record itself supplies, and the hostile
+    kind coverage act below reads its handed records the same
+    way.
     """
     if not isinstance(record, dict):
         return False
-    carriage = record.get("run_record", record)
-    if record.get("mid_run_strategies"):
+    missing = object()
+    carriage = _base_dict_get(record, "run_record", missing)
+    if carriage is missing:
+        carriage = record
+    if _base_dict_get(record, "mid_run_strategies"):
         return False
     try:
         run_record_carriage(
-            carriage.get("strategy_class"),
-            carriage.get("ladder_position"),
-            carriage.get("catalogue_version_or_hash"),
-            carriage.get("ladder_definition_pointer"),
-            carriage.get("ladder_definition_version"),
-            strategies=carriage.get("strategies_exercised", []),
+            _base_dict_get(carriage, "strategy_class"),
+            _base_dict_get(carriage, "ladder_position"),
+            _base_dict_get(carriage, "catalogue_version_or_hash"),
+            _base_dict_get(carriage, "ladder_definition_pointer"),
+            _base_dict_get(carriage, "ladder_definition_version"),
+            strategies=_base_dict_get(
+                carriage, "strategies_exercised", []),
         )
     except NamedAttackerFailure:
         return False
     if fixed_class is not None and list(
-            carriage.get("strategy_class", [])) != list(fixed_class):
+            _base_dict_get(carriage, "strategy_class", [])) != list(
+            fixed_class):
         return False
-    search = record.get("search_record", {})
+    search = _base_dict_get(record, "search_record", {})
     if not isinstance(search, dict):
         return False
     for field in SEARCH_RECORD_FIELDS:
         key = field.replace(" ", "_")
-        if key not in search or search[key] is None:
+        if not _base_dict_contains(search, key) or _base_dict_get(
+                search, key) is None:
             return False
+        stored = _base_dict_get(search, key)
         if key != "every_adaptation" and isinstance(
-                search[key], (str, list, tuple, dict, set)) and len(
-                search[key]) == 0:
+                stored, (str, list, tuple, dict, set)) and (
+                _base_length(stored) == 0):
             return False
-    bond = record.get("bond_parameter_search")
+    bond = _base_dict_get(record, "bond_parameter_search")
     if not isinstance(bond, dict):
         return False
-    if bond.get("worst_griefing_factor") is None or not bond.get(
-            "parameter_set"):
+    if _base_dict_get(bond, "worst_griefing_factor") is None or (
+            not _base_dict_get(bond, "parameter_set")):
         return False
-    case_uses = record.get("case_uses", [])
+    case_uses = _base_dict_get(record, "case_uses", [])
     if not isinstance(case_uses, (list, tuple)):
         return False
     for use in case_uses:
         if not isinstance(use, dict):
             return False
-        if use.get("fixture") == "F-26" and use.get(
-                "use") != "strategy search point only":
+        if _base_dict_get(use, "fixture") == "F-26" and (
+                _base_dict_get(use, "use")
+                != "strategy search point only"):
             return False
     return True
 
@@ -760,15 +810,15 @@ def search_record_covers_hostile_kinds(record, family_record_kinds):
     not count as run.
     """
     covered = {}
-    runs = record.get("hostile_kind_runs", {}) if isinstance(
-        record, dict) else {}
+    runs = _base_dict_get(record, "hostile_kind_runs", {}) if (
+        isinstance(record, dict)) else {}
     if not isinstance(runs, dict):
         runs = {}
     family = family_record_kinds if isinstance(
         family_record_kinds, dict) else {}
     for kind in HOSTILE_INPUT_KINDS:
-        fixed = family.get(kind)
-        ran = runs.get(kind)
+        fixed = _base_dict_get(family, kind)
+        ran = _base_dict_get(runs, kind)
         if not _stands_numeric(fixed) or not _stands_numeric(ran):
             covered[kind] = False
         else:

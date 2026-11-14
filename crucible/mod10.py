@@ -227,10 +227,366 @@ def _stored_text(value):
     itself supplies. A value that is not a text form stores
     no text, so no name stands judged from a string reading
     a non text value itself supplies, and its stored text
-    stands as the empty text."""
+    stands as the empty text. A bytes, bytearray, or
+    memoryview value stands judged on its stored bytes,
+    decoded as UTF-8 with undecodable bytes dropped, never
+    through a string reading a bytes subclass itself
+    supplies, so a bytes form keeps the standing its stored
+    name carries, in the form the cured sister helpers at
+    MOD-03, MOD-05, MOD-06, and MOD-08 state and the
+    condition limb of this module already states."""
     if isinstance(value, str):
         return str.__str__(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
     return ""
+
+
+_CONTAINER_KEY_FORMS = (tuple, list, set, frozenset)
+
+
+def _container_parts(key):
+    """The parts a container key stores, read through the
+    base iteration of its own form, never through an
+    iteration reading the container itself supplies."""
+    if isinstance(key, list):
+        return list(list.__iter__(key))
+    if isinstance(key, tuple):
+        return list(tuple.__iter__(key))
+    if isinstance(key, frozenset):
+        return list(frozenset.__iter__(key))
+    return list(set.__iter__(key))
+
+
+def _joined_stored_text(key):
+    """The stored text parts of a container key joined in
+    order, with no separator added, each part read on its
+    own stored text at any depth. A bare value reads as its
+    own stored text. The walk is iterative and keeps a
+    visited set, so a shared or cyclic part cannot loop it."""
+    pieces = []
+    stack = [key]
+    seen = set()
+    while stack:
+        node = stack.pop()
+        if isinstance(node, _CONTAINER_KEY_FORMS):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            stack.extend(reversed(_container_parts(node)))
+        elif isinstance(node, dict):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            stack.extend(reversed(list(dict.keys(node))))
+        else:
+            pieces.append(_stored_text(node))
+    return "".join(pieces)
+
+
+
+_UNORDERED_JOIN_PART_BOUND = 7
+
+_JOIN_CANDIDATE_BOUND = 5040
+
+
+def _join_container_parts(node):
+    """The parts a container stores, read through base class
+    operations only, in the iteration order the container
+    stands in for this process."""
+    if isinstance(node, dict):
+        return list(dict.keys(node))
+    return _container_parts(node)
+
+
+def _has_unordered_split(value):
+    """Whether a key carries a set or frozenset part holding
+    two or more parts, found on an iterative walk, so no
+    recursion stands spent on a key that carries none."""
+    seen = set()
+    stack = [value]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (dict, list, tuple, set, frozenset)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            parts = _join_container_parts(node)
+            if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+                return True
+            stack.extend(parts)
+    return False
+
+
+def _joined_text_candidates(value, _active=None):
+    """Every joined stored text a container key can stand in.
+
+    An ordered container (tuple, list, or a dict read by its
+    keys) contributes the join of its parts in their stored
+    order, exactly as the standing joined reading reads it. An
+    unordered container (set or frozenset) stores no order, so
+    its iteration order, which the hash seed governs, is no
+    reading of it: the candidates are the joins under every
+    ordering of its direct parts, each part contributing every
+    candidate of its own in the same form, so a barred name
+    split across the parts of an unordered container stands
+    among the candidates in every iteration order. The form is
+    complete for an unordered container holding at most
+    _UNORDERED_JOIN_PART_BOUND direct parts and while the
+    distinct candidates of one container stand at or under
+    _JOIN_CANDIDATE_BOUND. Past either bound the container
+    contributes its iteration order join alone, beside the
+    standing per part readings, as the paper for this cure
+    states. A part already on the walk path contributes the
+    empty text, so a cyclic part cannot loop the read."""
+    if not isinstance(value, (dict, list, tuple, set, frozenset)):
+        return (_stored_text(value),)
+    if _active is None:
+        _active = set()
+    if id(value) in _active:
+        return ("",)
+    _active.add(id(value))
+    try:
+        parts = _join_container_parts(value)
+        child = [
+            _joined_text_candidates(part, _active) for part in parts
+        ]
+    finally:
+        _active.discard(id(value))
+    if (
+        isinstance(value, (set, frozenset))
+        and 2 <= len(parts) <= _UNORDERED_JOIN_PART_BOUND
+    ):
+        orders = list(itertools.permutations(range(len(parts))))
+    else:
+        orders = [tuple(range(len(parts)))]
+    out = []
+    seen = set()
+    for order in orders:
+        total = 1
+        for index in order:
+            total *= len(child[index])
+        if total > _JOIN_CANDIDATE_BOUND:
+            text = "".join(
+                child[index][0] for index in range(len(parts)))
+            if text not in seen:
+                seen.add(text)
+                out.append(text)
+            continue
+        for combo in itertools.product(
+                *(child[index] for index in order)):
+            text = "".join(combo)
+            if text not in seen:
+                seen.add(text)
+                out.append(text)
+                if len(out) >= _JOIN_CANDIDATE_BOUND:
+                    return tuple(out)
+    return tuple(out)
+
+
+def _seg_tiles_exact(options, target):
+    """Whether the parts can stand in some order so that their
+    joined reading, in the reading space the options stand in,
+    stands exactly as the target. The judgement runs as a
+    segmentation of the target over the parts: a state is a
+    position in the target beside the set of parts already
+    placed, a step places one unused part whose reading stands
+    as the next segment of the target, and a part whose
+    readings carry the empty text may stand placed without
+    advancing the position, so it is checked at the end rather
+    than placed. No ordering of the parts is ever listed, and
+    the state count stands at most at the target length plus
+    one times two to the number of parts that can contribute a
+    segment of the target, in place of the factorial count of
+    orderings. A failed state is never searched twice."""
+    count = len(options)
+    usable = []
+    for opts in options:
+        matching = sorted({o for o in opts if o and o in target})
+        if not matching and "" not in opts:
+            return False
+        usable.append(matching)
+
+    def remaining_can_vanish(mask):
+        return all(
+            "" in options[i]
+            for i in range(count) if not (mask >> i) & 1)
+
+    failed = set()
+    stack = [[0, 0, None, 0]]
+    while stack:
+        frame = stack[-1]
+        pos, mask = frame[0], frame[1]
+        if pos == len(target):
+            if remaining_can_vanish(mask):
+                return True
+            failed.add((pos, mask))
+            stack.pop()
+            continue
+        if frame[2] is None:
+            if (pos, mask) in failed:
+                stack.pop()
+                continue
+            frame[2] = [
+                (i, o) for i in range(count)
+                if not (mask >> i) & 1
+                for o in usable[i] if target.startswith(o, pos)]
+        if frame[3] < len(frame[2]):
+            i, o = frame[2][frame[3]]
+            frame[3] += 1
+            stack.append([pos + len(o), mask | (1 << i), None, 0])
+        else:
+            failed.add((pos, mask))
+            stack.pop()
+    return False
+
+
+def _seg_tiles_carrying(options, pattern):
+    """The set of parts that can stand as one unbroken block,
+    in some order, so that their joined reading carries the
+    pattern inside it, or None where no such block stands. The
+    block is found as a segmentation of the pattern: its first
+    part contributes a suffix of its reading, each middle part
+    contributes its whole reading as one segment of the
+    pattern, and its last part contributes a prefix of its
+    reading, each part used at most once. Parts outside the
+    block stand free on either side of it, so the block alone
+    decides the carrying. No ordering of the parts is ever
+    listed, and the state count stands at most at the pattern
+    length plus one times two to the number of parts that can
+    contribute a segment of the pattern."""
+    if not pattern:
+        return None
+    count = len(options)
+    opts_list = [sorted({o for o in opts if o}) for opts in options]
+    failed = set()
+    stack = [[0, 0, None, 0]]
+    while stack:
+        frame = stack[-1]
+        pos, mask = frame[0], frame[1]
+        if frame[2] is None:
+            if (pos, mask) in failed:
+                stack.pop()
+                continue
+            moves = []
+            for i in range(count):
+                if (mask >> i) & 1:
+                    continue
+                for o in opts_list[i]:
+                    if mask == 0:
+                        if pattern in o:
+                            return 1 << i
+                        for j in range(
+                                1, min(len(o), len(pattern)) + 1):
+                            if o.endswith(pattern[:j]):
+                                if j == len(pattern):
+                                    return 1 << i
+                                moves.append((j, i))
+                    elif pos + len(o) <= len(pattern):
+                        if o == pattern[pos:pos + len(o)]:
+                            if pos + len(o) == len(pattern):
+                                return mask | (1 << i)
+                            moves.append((pos + len(o), i))
+                    elif o.startswith(pattern[pos:]):
+                        return mask | (1 << i)
+            frame[2] = moves
+        if frame[3] < len(frame[2]):
+            npos, i = frame[2][frame[3]]
+            frame[3] += 1
+            stack.append([npos, mask | (1 << i), None, 0])
+        else:
+            failed.add((pos, mask))
+            stack.pop()
+    return None
+
+
+def _seg_unordered_nodes(key):
+    """Every set or frozenset standing inside a key, at any
+    depth, found on an iterative walk through base readings,
+    each beside the parts it directly stores."""
+    seen = set()
+    stack = [key]
+    nodes = []
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (dict, list, tuple, set, frozenset)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            parts = _join_container_parts(node)
+            if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+                nodes.append((node, parts))
+            stack.extend(parts)
+    return nodes
+
+
+def _seg_plain_options(parts):
+    """The plain readings of the direct parts of one unordered
+    container: for each part, the lowered texts of every joined
+    candidate the part itself stands in."""
+    return [
+        {text.lower() for text in _joined_text_candidates(part)}
+        for part in parts]
+
+
+def _seg_folded_options(parts):
+    """The folded readings of the direct parts of one unordered
+    container: for each part, every folded reading of every
+    joined candidate the part itself stands in, under this
+    module folded reading act."""
+    options = []
+    for part in parts:
+        readings = set()
+        for text in _joined_text_candidates(part):
+            readings.update(_fold_variants(text))
+        if not readings:
+            readings = {""}
+        options.append(readings)
+    return options
+
+
+def _seg_unordered_barred(key):
+    """Whether an unordered container standing inside a key
+    joins, in some order of its direct parts, to a barred name
+    under the view barred judgement, judged by segmentation
+    beside the kept candidate readings. The folded exact names
+    and folded barred parts of the scalar judgement stand
+    tiled over the folded readings of the parts."""
+    for node, parts in _seg_unordered_nodes(key):
+        folded = _seg_folded_options(parts)
+        for target in tuple(_VIEW_BARRED_KEYS_FOLDED):
+            if _seg_tiles_exact(folded, target):
+                return True
+        for pattern in tuple(_VIEW_BARRED_KEY_PARTS_FOLDED):
+            if _seg_tiles_carrying(folded, pattern) is not None:
+                return True
+    return False
+
+
+def _seg_exact(key, target):
+    """Whether an unordered container standing inside a key
+    joins, in some order of its direct parts, to a reading
+    standing exactly as the target, judged by segmentation of
+    the target over the folded readings of the parts, beside
+    the kept candidate readings."""
+    for node, parts in _seg_unordered_nodes(key):
+        if _seg_tiles_exact(_seg_folded_options(parts), target):
+            return True
+    return False
+
+
+def _seg_carrying(key, pattern):
+    """Whether an unordered container standing inside a key
+    joins, in some order of its direct parts, to a reading
+    carrying the pattern, judged by segmentation of the
+    pattern over the folded readings of the parts, beside the
+    kept candidate readings."""
+    for node, parts in _seg_unordered_nodes(key):
+        if _seg_tiles_carrying(
+                _seg_folded_options(parts), pattern) is not None:
+            return True
+    return False
+
 
 
 def _plain_number(value):
@@ -250,6 +606,110 @@ def _plain_number(value):
     if isinstance(value, complex):
         return complex.__new__(complex, value)
     return None
+
+
+def _stored_form(value):
+    """The stored form of one value, as one sortable text built
+    from base readings only: a type tag for the form the value
+    stands in, beside the value it stores read through its base
+    class form. Two values take one stored form only where the
+    forms they stand in and the values they store agree, so a
+    stored form keeps distinct stored values distinct, and a
+    text value stands in it by its stored characters, never by
+    a reading the value itself supplies."""
+    if value is None:
+        return "none"
+    if isinstance(value, bool):
+        return "bool:" + str(int.__int__(value))
+    if isinstance(value, int):
+        return "int:" + str(int.__int__(value))
+    if isinstance(value, float):
+        return "float:" + repr(float.__float__(value))
+    if isinstance(value, str):
+        text = str.__str__(value)
+        return "str:" + str(len(text)) + ":" + text
+    if isinstance(value, bytes):
+        return "bytes:" + bytes(value).hex()
+    if isinstance(value, bytearray):
+        return "bytearray:" + bytes(value).hex()
+    if isinstance(value, memoryview):
+        return "memoryview:" + bytes(value).hex()
+    plain = _plain_number(value)
+    if plain is not None:
+        return type(value).__name__ + ":" + repr(plain)
+    if isinstance(value, (list, tuple)):
+        items = (
+            list.__iter__(value) if isinstance(value, list)
+            else tuple.__iter__(value))
+        return type(value).__name__ + ":[" + ",".join(
+            _stored_form(item) for item in items) + "]"
+    if isinstance(value, (set, frozenset)):
+        return type(value).__name__ + ":{" + ",".join(sorted(
+            _stored_form(item) for item in _base_iter(value))) + "}"
+    if isinstance(value, dict):
+        return "dict:{" + ",".join(sorted(
+            _stored_form(key) + "=" + _stored_form(
+                dict.__getitem__(value, key))
+            for key in dict.__iter__(value))) + "}"
+    return "other:" + type(value).__name__
+
+
+def _record_identity(run_id, day, viewer):
+    """The identity of one aggregate record, built from the
+    stored forms of its run, its day, and its viewer, each part
+    carried at its stated length, so the identity keeps
+    distinct stored pairs distinct and no part stands in it
+    through a plain string reading or a bare separator the
+    values themselves can contain."""
+    parts = []
+    for value in (run_id, day, viewer):
+        form = _stored_form(value)
+        parts.append(str(len(form)) + ":" + form)
+    return "record:" + "|".join(parts)
+
+
+def _day_match_form(value):
+    """The form under which one checkpoint day stands matched:
+    a whole day in integer form or in digit text form stands
+    as the integer it states, a text day stands as its stored
+    text, and every other form stands as its own stored form,
+    so a float day and a bool day never stand as the integer
+    day they happen to equal in number."""
+    if isinstance(value, bool):
+        return ("bool", int.__int__(value))
+    if isinstance(value, int):
+        return ("int", int.__int__(value))
+    if isinstance(value, float):
+        return ("float", float.__float__(value))
+    if isinstance(value, str):
+        whole = _whole_day(str.__str__(value))
+        if isinstance(whole, int) and not isinstance(whole, bool):
+            return ("int", whole)
+        return ("str", str.__str__(value))
+    if isinstance(value, Decimal):
+        if value.is_finite() and value == value.to_integral_value():
+            return ("int", int(value))
+        return ("other", _stored_form(value))
+    if isinstance(value, Fraction):
+        if value.denominator == 1:
+            return ("int", value.numerator)
+        return ("other", _stored_form(value))
+    return ("other", _stored_form(value))
+
+
+def _same_day_form(left, right):
+    return _day_match_form(left) == _day_match_form(right)
+
+
+def _comparison_day(value):
+    """The day value a resume comparison judges: the integer a
+    whole day form states, the stored text of a text day, or
+    the stored form of any other day, so a float day and a
+    bool day never compare equal to an integer day."""
+    form = _day_match_form(value)
+    if form[0] in ("int", "str"):
+        return form[1]
+    return _stored_form(value)
 
 
 def _base_value_eq(left, right):
@@ -314,8 +774,12 @@ def _base_value_eq(left, right):
         if left_number is None or right_number is None:
             return False
         return left_number == right_number
-    if isinstance(left, bytes) and isinstance(right, bytes):
-        return bytes.__eq__(left, right) is True
+    if isinstance(left, (bytes, bytearray, memoryview)) or isinstance(
+            right, (bytes, bytearray, memoryview)):
+        if not isinstance(left, (bytes, bytearray, memoryview)) or not isinstance(
+                right, (bytes, bytearray, memoryview)):
+            return False
+        return bytes.__eq__(bytes(left), bytes(right)) is True
     return left is right
 
 
@@ -547,7 +1011,28 @@ def _money_key_matches(key, target):
     """Whether a key reads as one money name, by the folded
     variants or by the position by position reading above, so
     the judgement stands the same inside the enumeration bound
-    of the variants and past it, in the sister form."""
+    of the variants and past it, in the sister form. A key in
+    container dress stands judged as its parts stand judged,
+    each part on its own stored text, and as the stored text
+    parts joined in order stand judged, so a name split
+    across the parts of one container key reads as the one
+    name, and a single part container carries the reading of
+    its one part."""
+    if isinstance(key, _CONTAINER_KEY_FORMS):
+        if any(
+                _money_key_matches(part, target)
+                for part in _container_parts(key)):
+            return True
+        if _has_unordered_split(key):
+            for candidate in _joined_text_candidates(key):
+                if candidate and _money_key_matches(candidate, target):
+                    return True
+        if _seg_exact(key, target):
+            return True
+        joined = _joined_stored_text(key)
+        if joined:
+            return _money_key_matches(joined, target)
+        return False
     if target in _fold_variants(key):
         return True
     return _money_segments_match(_money_segments_by_character(key), target)
@@ -556,7 +1041,25 @@ def _money_key_matches(key, target):
 def _money_key_carries(key, marker):
     """Whether a key carries the money marker, by the folded
     variants or by the position by position reading above,
-    beside the recorded transliterated spelling correction."""
+    beside the recorded transliterated spelling correction.
+    A key in container dress stands judged as at
+    _money_key_matches: by each part on its own stored text
+    and by the stored text parts joined in order."""
+    if isinstance(key, _CONTAINER_KEY_FORMS):
+        if any(
+                _money_key_carries(part, marker)
+                for part in _container_parts(key)):
+            return True
+        if _has_unordered_split(key):
+            for candidate in _joined_text_candidates(key):
+                if candidate and _money_key_carries(candidate, marker):
+                    return True
+        if _seg_carrying(key, marker) or _seg_carrying(key, "realmani"):
+            return True
+        joined = _joined_stored_text(key)
+        if joined:
+            return _money_key_carries(joined, marker)
+        return False
     if any(marker in variant for variant in _fold_variants(key)):
         return True
     segments = _money_segments_by_character(key)
@@ -566,6 +1069,8 @@ def _money_key_carries(key, marker):
 
 
 def _folded_money_key(key):
+    if isinstance(key, _CONTAINER_KEY_FORMS):
+        key = _joined_stored_text(key)
     return "".join(
         _LEET_DIGITS.get(character, character)
         for character in _canonical_text(key, _TRANSLITERATION_MAP)
@@ -997,9 +1502,23 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
                     "form, and no delivery stands retained for it")
     stored = _AGGREGATE_DELIVERIES.setdefault(run_id, {})
     for delivery in deliveries:
-        key = (delivery.get("simulated_day"), delivery.get("viewer_id"))
+        key = (
+            _retention_day_key(delivery.get("simulated_day")),
+            _stored_form(delivery.get("viewer_id")))
         stored[key] = copy.deepcopy(delivery)
     return len(stored)
+
+
+def _retention_day_key(day):
+    """The retention key of one delivery day: the whole day the
+    day stands as, in its stored form, so a day stated in digit
+    text beside the same day stated as an integer stands
+    retained once, as one delivery per run per day per viewer,
+    while a day in a form the whole day reading does not state,
+    such as a float day or a bool day, keeps its own form."""
+    if isinstance(day, str):
+        day = str.__str__(day)
+    return _stored_form(_whole_day(day))
 
 
 def _delivery_complete(delivery):
@@ -1022,36 +1541,52 @@ def _day_sort_key(item):
 
     The ordering, in plain terms. Numbered days first, in number
     order: an integer day counts as itself, and a day in digit
-    text counts as the number its stored digits state. Records
-    on the same numbered day stand ordered by the stored text
-    of the viewer. Every other day stands after all numbered
-    days. Among those later records, the order runs by the
-    stored text of the day, character by character, and then by
-    the stored text of the viewer, with the day and the viewer
-    kept as separate parts of the key, so two records whose day
-    and viewer texts differ never take one key from a joining of
-    the two texts. A day that carries no stored text, such as
-    None or a decimal number, stands at the head of the later
-    group, and records that still share one key keep the order
-    in which their deliveries were retained. So the text minus
-    1, whose first character is not a digit, stands in the later
-    group after day 100, while the integer minus 1 stands first
-    among the numbered days; the text plus 2 stands in the later
-    group on the same ground; and a circled digit, whose stored
-    text states a digit the number conversion cannot read,
-    stands in the later group ordered by its character, after
-    the plain letter and digit texts."""
+    text counts as the number its stored digits state, so the
+    numeric day value itself never splits by form. Beside that
+    number the key carries the stored form of the day as a tie
+    breaker, so distinct stored forms of one numbered day keep
+    a stable order of their own instead of standing in
+    retention order, and only then do records stand ordered by
+    the stored text of the viewer, with the stored form of the
+    viewer carried beside that text on the same ground. Every
+    other day stands after all numbered days. Among those later
+    records, the order runs by the stored text of the day,
+    character by character, then by the stored form of the day,
+    and then by the stored text of the viewer and its stored
+    form, with the day and the viewer kept as separate parts of
+    the key, so two records whose day and viewer texts differ
+    never take one key from a joining of the two texts, and two
+    records whose days or viewers differ only in stored form,
+    such as a viewer standing as no value against a viewer
+    standing as the empty text or as a number, never take one
+    key either. A day that carries no stored text, such as None
+    or a decimal number, stands in the later group ordered by
+    its stored form among the days carrying no stored text, and
+    records that still share one key keep the order in which
+    their deliveries were retained. So the text minus 1, whose
+    first character is not a digit, stands in the later group
+    after day 100, while the integer minus 1 stands first among
+    the numbered days; the text plus 2 stands in the later group
+    on the same ground; and a circled digit, whose stored text
+    states a digit the number conversion cannot read, stands in
+    the later group ordered by its character, after the plain
+    letter and digit texts."""
     day, viewer = item
     viewer_text = _stored_text(viewer)
+    viewer_form = _stored_form(viewer)
     if isinstance(day, int) and not isinstance(day, bool):
-        return (0, int.__int__(day), viewer_text)
+        return (0, int.__int__(day), _stored_form(day),
+                viewer_text, viewer_form)
     day_text = _stored_text(day)
     if day_text.isdigit():
         try:
-            return (0, int(day_text), viewer_text)
+            return (0, int(day_text), _stored_form(day),
+                    viewer_text, viewer_form)
         except ValueError:
-            return (1, 0, day_text, viewer_text)
-    return (1, 0, day_text, viewer_text)
+            return (1, 0, day_text, _stored_form(day),
+                    viewer_text, viewer_form)
+    return (1, 0, day_text, _stored_form(day),
+            viewer_text, viewer_form)
 
 
 def _aggregates_from_deliveries(run_id):
@@ -1059,8 +1594,12 @@ def _aggregates_from_deliveries(run_id):
     if not stored:
         return None
     records = []
-    for key in sorted(stored, key=_day_sort_key):
-        delivery = stored[key]
+    ordered = sorted(
+        stored.values(),
+        key=lambda delivery: _day_sort_key((
+            delivery.get("simulated_day"),
+            delivery.get("viewer_id"))))
+    for delivery in ordered:
         day = delivery.get("simulated_day")
         viewer = delivery.get("viewer_id")
         base = {
@@ -1069,8 +1608,7 @@ def _aggregates_from_deliveries(run_id):
             "simulated_day": day,
             "viewer_id": viewer,
             "viewer_identifier": viewer,
-            "record_identity": (
-                str(run_id) + ":" + str(day) + ":" + str(viewer)),
+            "record_identity": _record_identity(run_id, day, viewer),
             "writer": "Recorder",
             "amendment_standing": (
                 delivery.get("amendment_standing")
@@ -1114,7 +1652,8 @@ def _aggregates_from_deliveries(run_id):
 
 def aggregate_manifest_for_run(run_id):
     """Return the aggregate manifest of one run: for each aggregate
-    record the aggregation act writes, its identity, its writer, and
+    record the aggregation act writes, its identity, its day, its
+    viewer, its writer, and
     its amendment standing, in the ruling Entry 12 form. The entries
     stand in the day order stated at _day_sort_key: numbered days
     first in number order, then every other day by its stored day
@@ -1127,6 +1666,8 @@ def aggregate_manifest_for_run(run_id):
     return [
         {
             "record_identity": record.get("record_identity"),
+            "simulated_day": record.get("simulated_day"),
+            "viewer_id": record.get("viewer_id"),
             "writer": record.get("writer"),
             "amendment_standing": record.get("amendment_standing"),
             "amending_act": record.get("amending_act"),
@@ -1518,9 +2059,19 @@ def rejected_checkpoint_writes(run_id=None):
 def checkpoint_state_at(run_id, simulated_day, store_kind="sweep"):
     """Read the CheckpointState standing beside a retained
     checkpoint manifest, where one was written with it. Reading
-    never writes: no state beside the manifest returns None."""
+    never writes: no state beside the manifest returns None. A
+    day queried in a float or bool form stands matched only
+    against a retained day in that same form, never against the
+    integer day it happens to equal in number."""
     if _store_kind_stands(store_kind):
         store_kind = _canonical_store_kind(store_kind)
+    if isinstance(simulated_day, (bool, float)):
+        for (kind_key, run_key, day_key), state in _CHECKPOINT_STATES.items():
+            if kind_key != store_kind or run_key != run_id:
+                continue
+            if _same_day_form(day_key, simulated_day):
+                return copy.deepcopy(state)
+        return None
     return copy.deepcopy(
         _CHECKPOINT_STATES.get(
             (store_kind, run_id, _whole_day(simulated_day))))
@@ -2176,7 +2727,7 @@ def _resolve_actor_word(word):
     of two letters as well, so a drop from a three letter word
     still resolves. A word of one letter stands read through
     the drop limbs only where exactly one vocabulary word
-    drops to it. Past those forms the resolver also reads added letters composed with replacements or with one transposition, where the differing positions left after the added letters stand struck number at most five and the total of the added count and the remaining changes stands at most seven, a transposed pair among the differing positions counting as one change in place of the two positions it stands on. The resolver also reads one transposed pair standing at any two positions of the word, including the two edge positions, composed with three further replaced letters. Three transpositions beside one replaced letter also resolve, in the same composed form, the total standing past three. A word that stands as itself under the composition forms, in particular a word built from a candidate by two disjoint transposed pairs beside one replaced letter, does not fall through to the mixed added reading of a shorter candidate. Any other word stands as itself."""
+    drops to it. Past those forms the resolver also reads added letters composed with replacements or with one transposition, where the differing positions left after the added letters stand struck number at most five and the total of the added count and the remaining changes stands at most seven, a transposed pair among the differing positions counting as one change in place of the two positions it stands on. The resolver also reads one transposed pair standing at any two positions of the word, including the two edge positions, composed with three further replaced letters. Three transpositions beside one replaced letter also resolve, in the same composed form, the total standing past three. A word that stands as itself under the composition forms, in particular a word built from a candidate by two disjoint transposed pairs beside one replaced letter, does not fall through to the mixed added reading of a shorter candidate. Five letters dropped from a vocabulary word also resolve, in the form the MOD-14 resolver states, so a two letter word that stands as a subsequence of a seven letter vocabulary word with five letters dropped resolves to that word at this resolver as it does at the MOD-14 resolver. Any other word stands as itself."""
     if word in _ACTOR_VOCABULARY:
         return word
     if _actor_segments_into_vocabulary(word, _ACTOR_VOCABULARY):
@@ -2221,7 +2772,7 @@ def _resolve_actor_word(word):
                     + candidate[cut] + candidate[cut + 2:])
                 if swapped == word:
                     return candidate
-        for drops in (2, 3, 4):
+        for drops in (2, 3, 4, 5):
             for candidate in _ACTOR_VOCABULARY_ORDERED:
                 if len(candidate) == len(word) + drops:
                     for cuts in itertools.combinations(
@@ -2862,7 +3413,18 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
     comparison stands judged through _base_value_eq, the base
     reading equality on stored contents, at every level of the
     compared forms, never through plain dict equality running
-    equality readings the handed values supply."""
+    equality readings the handed values supply. The day stands
+    matched under its day match form, so a float day and a bool
+    day never stand as the integer day they happen to equal in
+    number: where a retained checkpoint stands for the run
+    under that loose number reading and the handed day stands
+    in a float or bool form, the resume stands refused in the
+    checkpoint integrity refusal form. Where the handed
+    checkpoint matches a retained checkpoint, the resumed form
+    stands returned as a copy of the retained checkpoint, in
+    the retained day form, carrying a field the retained
+    checkpoint carries beside the compared form only where the
+    handed checkpoint carried that field as well."""
     if not isinstance(checkpoint, dict):
         raise ValueError(
             "identity less checkpoint: a resume stands on a checkpoint "
@@ -2887,10 +3449,27 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
         if kind is not None and bucket_kind != kind:
             continue
         for retained in bucket:
-            if _whole_day(dict.get(retained, "simulated_day")) == _whole_day(
+            if _same_day_form(
+                    dict.get(retained, "simulated_day"),
                     dict.get(checkpoint, "simulated_day")):
                 candidates.append(retained)
     if not candidates:
+        handed_day = dict.get(checkpoint, "simulated_day")
+        if isinstance(handed_day, (bool, float)):
+            for (bucket_kind, bucket_run), bucket in _CHECKPOINTS.items():
+                if bucket_run != run_id:
+                    continue
+                if kind is not None and bucket_kind != kind:
+                    continue
+                for retained in bucket:
+                    if _whole_day(
+                            dict.get(retained, "simulated_day")) == _whole_day(
+                            handed_day):
+                        raise ValueError(
+                            "checkpoint integrity refusal: the handed "
+                            "checkpoint states its day in a form no "
+                            "surface states as that day, and no resume "
+                            "stands performed from it")
         if kind is not None:
             raise ValueError(
                 "checkpoint integrity refusal: the handed "
@@ -2902,7 +3481,7 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
     def _comparison_form(form):
         compared = dict(form)
         if "simulated_day" in compared:
-            compared["simulated_day"] = _whole_day(
+            compared["simulated_day"] = _comparison_day(
                 compared["simulated_day"])
         return compared
 
@@ -2914,7 +3493,12 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
         }
         if _base_value_eq(
                 _comparison_form(retained_form), handed_compared):
-            return copy.deepcopy(checkpoint)
+            resumed = copy.deepcopy(retained)
+            for field in (
+                    "journal_event_count_at_checkpoint", "store_kind"):
+                if field not in dict.__iter__(checkpoint):
+                    resumed.pop(field, None)
+            return resumed
     raise ValueError(
         "checkpoint integrity refusal: the handed "
         "checkpoint differs from the retained checkpoint "
@@ -3270,7 +3854,11 @@ def _combined_view_key_barred(key):
     forms judged are the forms _is_barred_view_key judges on
     an enumerated variant: a variant standing in the folded
     barred key set, and a variant carrying a folded barred
-    part."""
+    part. A key in container dress stands judged as at
+    _is_barred_view_key, by its parts and by its joined
+    stored text."""
+    if isinstance(key, _CONTAINER_KEY_FORMS):
+        return _is_barred_view_key(key)
     segments_by_character = _view_segments_by_character(key)
     for target in _VIEW_BARRED_KEYS_FOLDED:
         if _money_segments_match(segments_by_character, target):
@@ -3289,7 +3877,30 @@ def _is_barred_view_key(key):
     its marker word, or dressed in a letter or digit dress the
     fold covers, reads as its marker. The plain word label stands
     barred as an exact folded name only, never as a part, as on
-    the standing surfaces."""
+    the standing surfaces. A key in container dress stands
+    barred where a part it stores stands barred, judged on the
+    stored parts through their base readings at any depth, or
+    where the stored text parts joined in order, with no
+    separator added, spell a barred name, in the MOD-04 barred
+    key form, and a single part container carries the reading
+    of its one part. A bytes part inside a container key stands
+    read on its decoded stored bytes, as a bare bytes key
+    stands read."""
+    if isinstance(key, _CONTAINER_KEY_FORMS):
+        if any(
+                _is_barred_view_key(part)
+                for part in _container_parts(key)):
+            return True
+        if _has_unordered_split(key):
+            for candidate in _joined_text_candidates(key):
+                if candidate and _is_barred_view_key(candidate):
+                    return True
+        if _seg_unordered_barred(key):
+            return True
+        joined = _joined_stored_text(key)
+        if joined:
+            return _is_barred_view_key(joined)
+        return False
     for variant in _fold_variants(key):
         if variant in _VIEW_BARRED_KEYS_FOLDED:
             return True
@@ -3317,6 +3928,7 @@ def _carries_barred_key(value):
             for key, item in dict.items(node):
                 if _is_barred_view_key(key):
                     return True
+                stack.append(key)
                 stack.append(item)
         elif isinstance(node, (list, tuple, set, frozenset)):
             if id(node) in visited:
@@ -3361,7 +3973,7 @@ def run_view_leak_check(view_record):
                 view_record.get(field)):
             raise ValueError(
                 "view leak check failure: form canary, view "
-                + view_name + ", field " + field
+                + view_name + ", field " + str(field)
                 + " carries a barred key")
     for field in mod01.ViewRecord.FIELDS:
         if field in ("scheduling_position_identifier",

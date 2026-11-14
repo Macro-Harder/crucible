@@ -339,9 +339,17 @@ class TestR7011NonTextKeyFold(unittest.TestCase):
         instance["control_values"] = {"note": 10, "unit": "USD"}
         self.assertTrue(mod01.validate_record("4", instance))
 
-    def test_carries_real_money_bytes_keys_is_false_control(self):
+    def test_carries_real_money_bytes_keys_is_true_restated(self):
+        # Restated as a charged act in fix wave 10 under the
+        # governing stored text settlement, section 2 of the
+        # Round 10 register, item (b) and limb 5. The old form of
+        # this pin asserted the bytes amount and currency pair at
+        # MOD-01 as not carried, with assertFalse on the value
+        # below. The new form asserts the same pair as carried,
+        # with assertTrue, in agreement with the MOD-06 standing
+        # on the same handed pair.
         value = {b"amount": 10, b"currency": "USD"}
-        self.assertFalse(mod01._carries_real_money_value(value))
+        self.assertTrue(mod01._carries_real_money_value(value))
 
 
 if __name__ == "__main__":

@@ -346,10 +346,16 @@ _PASSAGE_HANGUL_FILLER_CHARS = frozenset(("\u1160", "\u3164", "\uffa0"))
 def _stored_text(value):
     """The text a value stores, read through the base class
     string form, never through a string reading the value
-    itself supplies. A value that is not a text form stores
-    no text, so its stored text stands as the empty text."""
+    itself supplies. A bytes, bytearray, or memoryview value
+    stands read as its stored bytes, decoded as UTF-8 with
+    undecodable bytes dropped, read through the base bytes
+    form, never through a reading the value itself supplies.
+    A value that is not a text form stores no text, so its
+    stored text stands as the empty text."""
     if isinstance(value, str):
         return str.__str__(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
     return ""
 
 
@@ -419,10 +425,10 @@ def validate_tracer_passage_set(records, positive_control=None):
         if not isinstance(record, dict):
             return False
         for field in _TRACER_FIELDS:
-            if record.get(field) is None:
+            if dict.get(record, field) is None:
                 return False
             if field in ("what_in_fact_passed", "point_in_run"):
-                field_value = record.get(field)
+                field_value = dict.get(record, field)
                 if _passage_field_is_blank(field_value):
                     return False
                 if isinstance(field_value, bool) \
@@ -434,11 +440,11 @@ def validate_tracer_passage_set(records, positive_control=None):
                          bytes, bytearray)) \
                         and len(field_value) == 0:
                     return False
-        if not isinstance(record.get("open_semantic_item"), str):
+        if not isinstance(dict.get(record, "open_semantic_item"), str):
             return False
-        if record.get("result") not in TRACER_RESULTS:
+        if dict.get(record, "result") not in TRACER_RESULTS:
             return False
-        items.append(record.get("open_semantic_item"))
+        items.append(dict.get(record, "open_semantic_item"))
     if tuple(sorted(items)) != tuple(sorted(OPEN_SEMANTIC_ITEMS)):
         return False
     control = positive_control
@@ -448,9 +454,9 @@ def validate_tracer_passage_set(records, positive_control=None):
         return False
     expected = positive_control_record()
     for field in ("fixture", "path", "result"):
-        if control.get(field) != expected[field]:
+        if dict.get(control, field) != expected[field]:
             return False
-    return control.get("recorded_as_passing") is True
+    return dict.get(control, "recorded_as_passing") is True
 
 
 def _stored_entries(run, keys):

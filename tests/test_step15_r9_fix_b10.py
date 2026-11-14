@@ -228,6 +228,19 @@ class TestR8023StatedCondition(unittest.TestCase):
         self.assertEqual(promoted["retention_tier"], "Tier 3")
 
 
+# Restatement note, fix wave 10, charged under Amendment 2 of the
+# Round 10 governing stored text settlement: the day key methods
+# in TestR8025DaySortKey below that asserted the old separate
+# segment key forms stand restated to the tie breaker form. The
+# numeric day value itself does not split: an integer day and
+# its digit text still share the numbered segment and its
+# number, and the key now carries the stored form of the day
+# beside that number, and the stored form of the viewer beside
+# its text, with the fallback key carrying the stored forms in
+# the same way. The old and new forms of every restated method
+# stand stated in the open in the Builder 10 fix wave 10 paper.
+
+
 class TestR8025DaySortKey(unittest.TestCase):
     def setUp(self):
         mod10.reset_stores()
@@ -239,7 +252,9 @@ class TestR8025DaySortKey(unittest.TestCase):
         for char in ("\u2075", "\u00b2", "\u00b3", "\u2460"):
             with self.subTest(code=hex(ord(char))):
                 key = mod10._day_sort_key((char, "viewer1"))
-                self.assertEqual(key, (1, 0, char, "viewer1"))
+                self.assertEqual(
+                    key, (1, 0, char, "str:1:" + char,
+                          "viewer1", "str:7:viewer1"))
 
     def test_defect_aggregate_acts_no_bare_value_error(self):
         delivery = {
@@ -259,17 +274,25 @@ class TestR8025DaySortKey(unittest.TestCase):
         self.assertEqual(len(manifest), 1)
 
     def test_control_plain_digit_text_sorts_as_day(self):
-        self.assertEqual(mod10._day_sort_key(("5", "viewer1")), (0, 5, "viewer1"))
+        self.assertEqual(
+            mod10._day_sort_key(("5", "viewer1")),
+            (0, 5, "str:1:5", "viewer1", "str:7:viewer1"))
 
     def test_control_int_day_sorts_as_day(self):
-        self.assertEqual(mod10._day_sort_key((5, "viewer1")), (0, 5, "viewer1"))
+        self.assertEqual(
+            mod10._day_sort_key((5, "viewer1")),
+            (0, 5, "int:5", "viewer1", "str:7:viewer1"))
 
     def test_control_parseable_unicode_digit_sorts_as_day(self):
-        self.assertEqual(mod10._day_sort_key(("\u0665", "viewer1")), (0, 5, "viewer1"))
+        self.assertEqual(
+            mod10._day_sort_key(("\u0665", "viewer1")),
+            (0, 5, "str:1:\u0665", "viewer1", "str:7:viewer1"))
 
     def test_control_nondigit_text_fallback(self):
         self.assertEqual(
-            mod10._day_sort_key(("later", "viewer1")), (1, 0, "later", "viewer1"))
+            mod10._day_sort_key(("later", "viewer1")),
+            (1, 0, "later", "str:5:later",
+             "viewer1", "str:7:viewer1"))
 
     def test_control_plain_digit_day_aggregates(self):
         delivery = {

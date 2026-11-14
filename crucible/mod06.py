@@ -17,6 +17,7 @@ value sets at G-10 and the pause arithmetic form at G-8, this
 module carries the field and states the gap, and invents no value.
 """
 
+import itertools
 import copy
 import unicodedata
 
@@ -281,10 +282,14 @@ def _stored_text(value):
     bytes value stands judged on its stored bytes, decoded
     as UTF-8 with undecodable bytes dropped, never through
     a string reading a bytes subclass itself supplies, so a
-    bytes form keeps the standing its stored name carries."""
+    bytes form keeps the standing its stored name carries. A
+    bytearray value and a memoryview value stand judged the
+    same way, on the bytes they store or view decoded the
+    same way, in the helper form limb 6 of the Round 10
+    settlement states."""
     if isinstance(value, str):
         return str.__str__(value)
-    if isinstance(value, bytes):
+    if isinstance(value, (bytes, bytearray, memoryview)):
         return bytes.decode(bytes(value), "utf-8", "ignore")
     return ""
 
@@ -552,6 +557,37 @@ def _key_matches_multi_reading(key, target):
 
 
 def _key_reads_as(key, folded_name):
+    if isinstance(key, (dict, list, tuple, set, frozenset)):
+        if _has_unordered_split(key):
+            for candidate in _joined_text_candidates(key):
+                if candidate and _key_reads_as(candidate, folded_name):
+                    return True
+        if _seg_exact(key, folded_name):
+            return True
+        joined = _joined_stored_text(key)
+        if joined and _key_reads_as(joined, folded_name):
+            return True
+        seen = set()
+        stack = [key]
+        while stack:
+            part = stack.pop()
+            if isinstance(part, (dict, list, tuple, set, frozenset)):
+                if id(part) in seen:
+                    continue
+                seen.add(id(part))
+                if isinstance(part, dict):
+                    stack.extend(dict.keys(part))
+                elif isinstance(part, list):
+                    stack.extend(list.__iter__(part))
+                elif isinstance(part, tuple):
+                    stack.extend(tuple.__iter__(part))
+                elif isinstance(part, frozenset):
+                    stack.extend(frozenset.__iter__(part))
+                else:
+                    stack.extend(set.__iter__(part))
+            elif _key_reads_as(part, folded_name):
+                return True
+        return False
     return (
         folded_name in _folded_readings(key)
         or _key_matches_multi_reading(key, folded_name))
@@ -636,6 +672,354 @@ def _undirected_copy(value, _memo=None):
     return value
 
 
+def _joined_stored_text(key):
+    """The stored text parts of a container key joined in
+    order, with no separator added, read leaf by leaf through
+    _stored_text at any depth, on an explicit stack, in the
+    joined reading limb 3 of the Round 10 settlement states
+    on the MOD-04 model text. A container part already visited
+    on this walk contributes its text once, so a cyclic part
+    adds nothing on a revisit."""
+    texts = []
+    seen = set()
+    stack = [key]
+    while stack:
+        part = stack.pop()
+        if isinstance(part, (dict, list, tuple, set, frozenset)):
+            if id(part) in seen:
+                continue
+            seen.add(id(part))
+            if isinstance(part, dict):
+                parts = list(dict.keys(part))
+            elif isinstance(part, list):
+                parts = list(list.__iter__(part))
+            elif isinstance(part, tuple):
+                parts = list(tuple.__iter__(part))
+            elif isinstance(part, frozenset):
+                parts = list(frozenset.__iter__(part))
+            else:
+                parts = list(set.__iter__(part))
+            stack.extend(reversed(parts))
+        else:
+            texts.append(_stored_text(part))
+    return "".join(texts)
+
+
+
+_UNORDERED_JOIN_PART_BOUND = 7
+
+_JOIN_CANDIDATE_BOUND = 5040
+
+
+def _join_container_parts(node):
+    """The parts a container stores, read through base class
+    operations only, in the iteration order the container
+    stands in for this process."""
+    if isinstance(node, dict):
+        return list(dict.keys(node))
+    if isinstance(node, list):
+        return list(list.__iter__(node))
+    if isinstance(node, tuple):
+        return list(tuple.__iter__(node))
+    if isinstance(node, frozenset):
+        return list(frozenset.__iter__(node))
+    return list(set.__iter__(node))
+
+
+def _has_unordered_split(value):
+    """Whether a key carries a set or frozenset part holding
+    two or more parts, found on an iterative walk, so no
+    recursion stands spent on a key that carries none."""
+    seen = set()
+    stack = [value]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (dict, list, tuple, set, frozenset)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            parts = _join_container_parts(node)
+            if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+                return True
+            stack.extend(parts)
+    return False
+
+
+def _joined_text_candidates(value, _active=None):
+    """Every joined stored text a container key can stand in.
+
+    An ordered container (tuple, list, or a dict read by its
+    keys) contributes the join of its parts in their stored
+    order, exactly as the standing joined reading reads it. An
+    unordered container (set or frozenset) stores no order, so
+    its iteration order, which the hash seed governs, is no
+    reading of it: the candidates are the joins under every
+    ordering of its direct parts, each part contributing every
+    candidate of its own in the same form, so a barred name
+    split across the parts of an unordered container stands
+    among the candidates in every iteration order. The form is
+    complete for an unordered container holding at most
+    _UNORDERED_JOIN_PART_BOUND direct parts and while the
+    distinct candidates of one container stand at or under
+    _JOIN_CANDIDATE_BOUND. Past either bound the container
+    contributes its iteration order join alone, beside the
+    standing per part readings, as the paper for this cure
+    states. A part already on the walk path contributes the
+    empty text, so a cyclic part cannot loop the read."""
+    if not isinstance(value, (dict, list, tuple, set, frozenset)):
+        return (_stored_text(value),)
+    if _active is None:
+        _active = set()
+    if id(value) in _active:
+        return ("",)
+    _active.add(id(value))
+    try:
+        parts = _join_container_parts(value)
+        child = [
+            _joined_text_candidates(part, _active) for part in parts
+        ]
+    finally:
+        _active.discard(id(value))
+    if (
+        isinstance(value, (set, frozenset))
+        and 2 <= len(parts) <= _UNORDERED_JOIN_PART_BOUND
+    ):
+        orders = list(itertools.permutations(range(len(parts))))
+    else:
+        orders = [tuple(range(len(parts)))]
+    out = []
+    seen = set()
+    for order in orders:
+        total = 1
+        for index in order:
+            total *= len(child[index])
+        if total > _JOIN_CANDIDATE_BOUND:
+            text = "".join(
+                child[index][0] for index in range(len(parts)))
+            if text not in seen:
+                seen.add(text)
+                out.append(text)
+            continue
+        for combo in itertools.product(
+                *(child[index] for index in order)):
+            text = "".join(combo)
+            if text not in seen:
+                seen.add(text)
+                out.append(text)
+                if len(out) >= _JOIN_CANDIDATE_BOUND:
+                    return tuple(out)
+    return tuple(out)
+
+
+def _seg_tiles_exact(options, target):
+    """Whether the parts can stand in some order so that their
+    joined reading, in the reading space the options stand in,
+    stands exactly as the target. The judgement runs as a
+    segmentation of the target over the parts: a state is a
+    position in the target beside the set of parts already
+    placed, a step places one unused part whose reading stands
+    as the next segment of the target, and a part whose
+    readings carry the empty text may stand placed without
+    advancing the position, so it is checked at the end rather
+    than placed. No ordering of the parts is ever listed, and
+    the state count stands at most at the target length plus
+    one times two to the number of parts that can contribute a
+    segment of the target, in place of the factorial count of
+    orderings. A failed state is never searched twice."""
+    count = len(options)
+    usable = []
+    for opts in options:
+        matching = sorted({o for o in opts if o and o in target})
+        if not matching and "" not in opts:
+            return False
+        usable.append(matching)
+
+    def remaining_can_vanish(mask):
+        return all(
+            "" in options[i]
+            for i in range(count) if not (mask >> i) & 1)
+
+    failed = set()
+    stack = [[0, 0, None, 0]]
+    while stack:
+        frame = stack[-1]
+        pos, mask = frame[0], frame[1]
+        if pos == len(target):
+            if remaining_can_vanish(mask):
+                return True
+            failed.add((pos, mask))
+            stack.pop()
+            continue
+        if frame[2] is None:
+            if (pos, mask) in failed:
+                stack.pop()
+                continue
+            frame[2] = [
+                (i, o) for i in range(count)
+                if not (mask >> i) & 1
+                for o in usable[i] if target.startswith(o, pos)]
+        if frame[3] < len(frame[2]):
+            i, o = frame[2][frame[3]]
+            frame[3] += 1
+            stack.append([pos + len(o), mask | (1 << i), None, 0])
+        else:
+            failed.add((pos, mask))
+            stack.pop()
+    return False
+
+
+def _seg_tiles_carrying(options, pattern):
+    """The set of parts that can stand as one unbroken block,
+    in some order, so that their joined reading carries the
+    pattern inside it, or None where no such block stands. The
+    block is found as a segmentation of the pattern: its first
+    part contributes a suffix of its reading, each middle part
+    contributes its whole reading as one segment of the
+    pattern, and its last part contributes a prefix of its
+    reading, each part used at most once. Parts outside the
+    block stand free on either side of it, so the block alone
+    decides the carrying. No ordering of the parts is ever
+    listed, and the state count stands at most at the pattern
+    length plus one times two to the number of parts that can
+    contribute a segment of the pattern."""
+    if not pattern:
+        return None
+    count = len(options)
+    opts_list = [sorted({o for o in opts if o}) for opts in options]
+    failed = set()
+    stack = [[0, 0, None, 0]]
+    while stack:
+        frame = stack[-1]
+        pos, mask = frame[0], frame[1]
+        if frame[2] is None:
+            if (pos, mask) in failed:
+                stack.pop()
+                continue
+            moves = []
+            for i in range(count):
+                if (mask >> i) & 1:
+                    continue
+                for o in opts_list[i]:
+                    if mask == 0:
+                        if pattern in o:
+                            return 1 << i
+                        for j in range(
+                                1, min(len(o), len(pattern)) + 1):
+                            if o.endswith(pattern[:j]):
+                                if j == len(pattern):
+                                    return 1 << i
+                                moves.append((j, i))
+                    elif pos + len(o) <= len(pattern):
+                        if o == pattern[pos:pos + len(o)]:
+                            if pos + len(o) == len(pattern):
+                                return mask | (1 << i)
+                            moves.append((pos + len(o), i))
+                    elif o.startswith(pattern[pos:]):
+                        return mask | (1 << i)
+            frame[2] = moves
+        if frame[3] < len(frame[2]):
+            npos, i = frame[2][frame[3]]
+            frame[3] += 1
+            stack.append([npos, mask | (1 << i), None, 0])
+        else:
+            failed.add((pos, mask))
+            stack.pop()
+    return None
+
+
+def _seg_unordered_nodes(key):
+    """Every set or frozenset standing inside a key, at any
+    depth, found on an iterative walk through base readings,
+    each beside the parts it directly stores."""
+    seen = set()
+    stack = [key]
+    nodes = []
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (dict, list, tuple, set, frozenset)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            parts = _join_container_parts(node)
+            if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+                nodes.append((node, parts))
+            stack.extend(parts)
+    return nodes
+
+
+def _seg_plain_options(parts):
+    """The plain readings of the direct parts of one unordered
+    container: for each part, the lowered texts of every joined
+    candidate the part itself stands in."""
+    return [
+        {text.lower() for text in _joined_text_candidates(part)}
+        for part in parts]
+
+
+def _seg_folded_options(parts):
+    """The folded readings of the direct parts of one unordered
+    container: for each part, every folded reading of every
+    joined candidate the part itself stands in, under this
+    module folded reading act."""
+    options = []
+    for part in parts:
+        readings = set()
+        for text in _joined_text_candidates(part):
+            readings.update(_folded_readings(text))
+        if not readings:
+            readings = {""}
+        options.append(readings)
+    return options
+
+
+def _seg_exact(key, target):
+    """Whether an unordered container standing inside a key
+    joins, in some order of its direct parts, to a reading
+    standing exactly as the target, judged by segmentation of
+    the target over the folded readings of the parts, beside
+    the kept candidate readings."""
+    for node, parts in _seg_unordered_nodes(key):
+        if _seg_tiles_exact(_seg_folded_options(parts), target):
+            return True
+    return False
+
+
+def _seg_payload_key(key, item_present):
+    """Whether a key carrying an unordered container stands
+    barred at the payload walk on its joined reading past the
+    candidate bound: an anchor set marker or a real money
+    marker tiled over the parts of the container in the plain
+    reading or in the folded reading, or the amount and
+    currency names tiled as two blocks over disjoint parts of
+    the one container in either reading, in the joined pair
+    form the walk states."""
+    for node, parts in _seg_unordered_nodes(key):
+        plain = _seg_plain_options(parts)
+        folded = _seg_folded_options(parts)
+        if _seg_tiles_carrying(plain, "anchor_set") is not None:
+            return True
+        if _seg_tiles_carrying(folded, "anchorset") is not None:
+            return True
+        if item_present:
+            if _seg_tiles_carrying(plain, "real_money") is not None:
+                return True
+            if _seg_tiles_carrying(folded, "realmoney") is not None:
+                return True
+        for options in (plain, folded):
+            for first, second in (
+                    ("amount", "currency"), ("currency", "amount")):
+                block = _seg_tiles_carrying(options, first)
+                if block is None:
+                    continue
+                rest = [
+                    set() if (block >> i) & 1 else options[i]
+                    for i in range(len(options))]
+                if _seg_tiles_carrying(rest, second) is not None:
+                    return True
+    return False
+
+
+
 def _key_and_parts(key):
     """One key beside every part standing inside it, where the
     key stands in a container form: a container key stands
@@ -644,7 +1028,13 @@ def _key_and_parts(key):
     the container itself. The walk stands iterative, so a
     key chain at any depth stands read on the same terms as
     the payload walk that carries it, and a container part
-    already visited stands visited once."""
+    already visited stands visited once. Beside the parts,
+    the joined reading of each container in the key stands
+    in the returned forms as one text: the stored text parts
+    joined in order with no separator added, so a name split
+    across the parts of one container key stands judged as
+    the name it spells, under limb 3 of the Round 10
+    settlement."""
     forms = []
     seen = set()
     stack = [key]
@@ -667,6 +1057,17 @@ def _key_and_parts(key):
                 stack.extend(set.__iter__(part))
         else:
             forms.append(part)
+    joined_seen = set()
+    for form in list(forms):
+        if isinstance(form, (dict, list, tuple, set, frozenset)):
+            if _has_unordered_split(form):
+                joined_forms = _joined_text_candidates(form)
+            else:
+                joined_forms = (_joined_stored_text(form),)
+            for joined in joined_forms:
+                if joined and joined not in joined_seen:
+                    joined_seen.add(joined)
+                    forms.append(joined)
     return forms
 
 
@@ -757,6 +1158,24 @@ def _payload_walk_barred(value, _depth=0, _seen=None, _walked=None):
                     and item is not None
                 ):
                     return True
+            if isinstance(key, (dict, list, tuple, set, frozenset)):
+                if _has_unordered_split(key):
+                    joined_forms = _joined_text_candidates(key)
+                else:
+                    joined_forms = (_joined_stored_text(key),)
+                for joined in joined_forms:
+                    if joined:
+                        lowered_joined = joined.lower()
+                        if (
+                            "amount" in lowered_joined
+                            and "currency" in lowered_joined
+                        ):
+                            return True
+                        for reading in _folded_readings(joined):
+                            if "amount" in reading and "currency" in reading:
+                                return True
+            if _seg_payload_key(key, item is not None):
+                return True
             if _payload_carries_barred(key, _depth + 1, seen, _walked):
                 return True
             if _payload_carries_barred(item, _depth + 1, seen, _walked):

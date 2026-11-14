@@ -122,6 +122,87 @@ def unit_is_publishable(unit):
     return validate_publication_record(unit.get("publication_record"))
 
 
+_AMENDED_REGISTRY_FIELDS = ("confirmation_outcome", "gate_failure")
+
+
+def _registry_stored_value(entry, field):
+    """Read one field of a registry entry through its stored
+    pairs only: a field stands present only where a stored text
+    key carries its name under a base class comparison, and its
+    value stands as the value its stored pair carries, never
+    through a hash or equality reading a handed key supplies."""
+    if not isinstance(entry, dict):
+        return None
+    for key, item in dict.items(entry):
+        if isinstance(key, str) and str.__eq__(str.__str__(key), field):
+            return item
+    return None
+
+
+def _registry_text_equals(value, stated):
+    """Base class text equality for a stored registry value."""
+    return isinstance(value, str) and str.__eq__(str.__str__(value), stated)
+
+
+def _registry_fields_read(entry):
+    """The Form 22 field set the gate reads, in the field list
+    order: the fields of mod11.REGISTRY_FIELDS, read through
+    mod01.form_fields for form 22, together with the amended
+    fields confirmation_outcome and gate_failure, which stand
+    in that list as cured and stand named here so the gate reads
+    them in the same form on any tree."""
+    fields = []
+    for field in tuple(REGISTRY_FIELDS) + _AMENDED_REGISTRY_FIELDS:
+        if field not in fields:
+            fields.append(field)
+    return fields
+
+
+def _registry_missing_fields(entry):
+    """The Form 22 fields of the gate field set that the entry
+    does not carry, or carries as None, read through stored
+    pairs only."""
+    return [
+        field for field in _registry_fields_read(entry)
+        if _registry_stored_value(entry, field) is None
+    ]
+
+
+def _registry_amended_failures(entry):
+    """The failures the amended Form 22 fields state on an
+    entry, at this gate, in the form the MOD-13 comparison act
+    states for the same fields: a confirmation outcome of failed
+    fails, and a gate failure at the procedure gate, at the
+    confirmation gate, or at both gates fails. An entry for an
+    unranked claim carries the value not ranked in its test
+    value, rank, and threshold fields and no other value, so a
+    not ranked value in one of those fields beside another value
+    in any of them fails on the unranked form."""
+    failures = []
+    if _registry_text_equals(
+            _registry_stored_value(entry, "confirmation_outcome"),
+            "failed"):
+        failures.append("confirmation outcome failed")
+    gate_failure = _registry_stored_value(entry, "gate_failure")
+    for stated in ("procedure gate", "confirmation gate", "both gates"):
+        if _registry_text_equals(gate_failure, stated):
+            failures.append("gate failure: " + stated)
+    ranked_fields = [
+        _registry_stored_value(entry, field)
+        for field in ("test_value", "rank", "threshold")]
+    carries_not_ranked = any(
+        _registry_text_equals(value, "not ranked")
+        for value in ranked_fields)
+    all_not_ranked = all(
+        _registry_text_equals(value, "not ranked")
+        for value in ranked_fields)
+    if carries_not_ranked and not all_not_ranked:
+        failures.append(
+            "unranked form incomplete: the test value, rank, and "
+            "threshold fields do not all carry not ranked")
+    return failures
+
+
 def judge_registry_entry(entry, compiler, checker, run_log=None):
     """Judge one SweepFamilyRegistry entry by phase, as the
     Reporter acting as family registrar: the before runs fields
@@ -136,13 +217,39 @@ def judge_registry_entry(entry, compiler, checker, run_log=None):
     among the inputs, no comparison stands performed, because
     none took place. An entry stands valid only where the
     comparison stands performed and passed beside both phase
-    judgements and a checker who did not compile the entry."""
+    judgements and a checker who did not compile the entry.
+
+    The gate reads the entry itself beside the phases and the
+    comparison. Every field of the Form 22 field set, read
+    through mod11.REGISTRY_FIELDS together with the amended
+    fields confirmation_outcome and gate_failure, stands present
+    on a valid entry, read through the entry stored pairs only,
+    so an entry carrying no registry content, or missing any
+    field of that set, stands not valid, and a missing or
+    incomplete claim does not read as reportable. The amended
+    fields stand read in their own right: a confirmation outcome
+    of failed, or a gate failure at any gate, or an unranked
+    claim standing outside its stated not ranked form, stands
+    not valid, in the form _registry_amended_failures states.
+    The result names the claim it judges, under claim_identifier,
+    read from the entry claim_identifier field, or its claim_id
+    field where that stands, so a saved or handed on result
+    stands tied to its claim from the result itself."""
     same_person = compiler == checker
-    phases = (entry or {}).get("phase_judgements") or {}
+    phases = {}
+    if isinstance(entry, dict):
+        phases = dict.get(entry, "phase_judgements") or {}
+    if not isinstance(phases, dict):
+        phases = {}
     judged = {
-        "before_runs": phases.get("before_runs") == "judged",
-        "after_runs": phases.get("after_runs") == "judged",
+        "before_runs": dict.get(phases, "before_runs") == "judged",
+        "after_runs": dict.get(phases, "after_runs") == "judged",
     }
+    claim_identifier = _registry_stored_value(entry, "claim_identifier")
+    if claim_identifier is None:
+        claim_identifier = _registry_stored_value(entry, "claim_id")
+    missing_fields = _registry_missing_fields(entry)
+    amended_failures = _registry_amended_failures(entry)
     comparison = None
     if not same_person:
         comparison = mod13.compare_registry_against_run_log(
@@ -150,13 +257,18 @@ def judge_registry_entry(entry, compiler, checker, run_log=None):
     performed = bool(comparison and comparison["performed"])
     passed = bool(comparison and comparison["passed"])
     return {
+        "claim_identifier": claim_identifier,
         "before_runs_judged_for": "lateness",
         "after_runs_judged_for": "completeness",
         "phases_judged": judged,
+        "registry_fields_present": not missing_fields,
+        "missing_registry_fields": missing_fields,
+        "amended_form_failures": amended_failures,
         "compared_against_run_log": performed,
         "registry_comparison": comparison,
         "checker_did_not_compile": not same_person,
         "valid": (not same_person) and all(judged.values())
+        and not missing_fields and not amended_failures
         and performed and passed,
     }
 
@@ -649,7 +761,11 @@ def _readable_stem(word):
     est limb stands beside the er limb, so a superlative formed
     in the regular way counts with its base, and the y limb
     stands as a derivation limb, so an adjective formed with y
-    from a noun of the lexicon counts with that noun."""
+    from a noun of the lexicon counts with that noun. The y and
+    er limbs carry the same doubled consonant undoing as the
+    ing, ed, and est limbs. The er, est, ly, and ed limbs each
+    carry the y to i stem change the ies limb carries, so a form
+    built on a y final base counts with that base."""
     stems = []
 
     def undoubled(stem):
@@ -670,6 +786,8 @@ def _readable_stem(word):
         plain = undoubled(word[:-2])
         if plain is not None:
             stems.append(plain)
+        if word[:-2].endswith("i"):
+            stems.append(word[:-3] + "y")
     if word.endswith("ing") and len(word) > 5:
         stems.append(word[:-3])
         stems.append(word[:-3] + "e")
@@ -678,17 +796,29 @@ def _readable_stem(word):
             stems.append(plain)
     if word.endswith("ly") and len(word) > 4:
         stems.append(word[:-2])
+        if word[:-2].endswith("i"):
+            stems.append(word[:-3] + "y")
     if word.endswith("er") and len(word) > 4:
         stems.append(word[:-2])
+        plain = undoubled(word[:-2])
+        if plain is not None:
+            stems.append(plain)
+        if word[:-2].endswith("i"):
+            stems.append(word[:-3] + "y")
     if word.endswith("est") and len(word) > 5:
         stems.append(word[:-3])
         stems.append(word[:-2])
         plain = undoubled(word[:-3])
         if plain is not None:
             stems.append(plain)
+        if word[:-3].endswith("i"):
+            stems.append(word[:-4] + "y")
     if word.endswith("y") and len(word) > 4:
         stems.append(word[:-1])
         stems.append(word[:-1] + "e")
+        plain = undoubled(word[:-1])
+        if plain is not None:
+            stems.append(plain)
     return stems
 
 
@@ -707,20 +837,36 @@ def _is_readable_word(word):
     the letter string stands as a readable word, and in the
     plain sentence duty of the design brief at Shape 15. A
     closed compound counts where it divides into parts that
-    each stand in the lexicon in plain form; a compound with
-    a part outside the lexicon counts as no word."""
-    if len(word) < 3:
-        return False
-    if word in _READABLE_LEXICON:
-        return True
-    if any(stem in _READABLE_LEXICON
-           for stem in _readable_stem(word)):
-        return True
-    for split in range(3, len(word) - 2):
-        if word[:split] in _READABLE_LEXICON \
-                and word[split:] in _READABLE_LEXICON:
-            return True
-    return False
+    each stand as a readable word on this same reading, in
+    plain form or as a regular inflection or derivation of a
+    lexicon form or as a closed compound itself; a compound
+    with a part that stands as no readable word counts as no
+    word. A derivation carried on a whole compound likewise
+    counts where the stem it yields stands as a readable word
+    on this reading."""
+    memo = {}
+
+    def readable(candidate):
+        if candidate in memo:
+            return memo[candidate]
+        memo[candidate] = False
+        result = False
+        if len(candidate) >= 3:
+            if candidate in _READABLE_LEXICON:
+                result = True
+            elif any(stem in _READABLE_LEXICON or readable(stem)
+                     for stem in _readable_stem(candidate)):
+                result = True
+            else:
+                for split in range(3, len(candidate) - 2):
+                    if readable(candidate[:split]) \
+                            and readable(candidate[split:]):
+                        result = True
+                        break
+        memo[candidate] = result
+        return result
+
+    return readable(word)
 
 
 def _plain_word_count(text):
@@ -881,7 +1027,18 @@ def _parley_grounds_stated(other):
     joined forms. A ground number standing before the q
     token, spaced, joined to the q, or standing after the
     Parley name beside a following q, stands read beside
-    the forms that state the number after the q."""
+    the forms that state the number after the q. A ground
+    number standing spaced before a single qparley token,
+    and a number standing spaced beside a parleyq token,
+    stand read beside those forms. A token that joins the
+    Parley name to its number limb, with the question or q
+    limb standing spaced beside that token, and a token
+    that joins the question limb to the Parley name, with
+    the number standing spaced before that token, stand
+    read beside those forms. The Parley name the number
+    before q limbs require stands counted where it stands
+    inside a joined token of the statement, not only where
+    a standalone parley token stands among the tokens."""
     tokens = _ground_tokens(other)
     grounds = set()
     ordinal_numbers = {
@@ -1066,6 +1223,55 @@ def _parley_grounds_stated(other):
             if any(index < parley_place
                    for parley_place in parley_places):
                 grounds.add(_PARLEY_GROUND_NUMBERS[token])
+    parley_named = any("parley" in token for token in tokens)
+    if parley_named:
+        for token in tokens:
+            widened_number_q = re.fullmatch(
+                r"([125]|one|two|five)q", token)
+            if widened_number_q is not None:
+                grounds.add(_PARLEY_GROUND_NUMBERS[
+                    widened_number_q.group(1)])
+            widened_q_number = re.fullmatch(
+                r"q([125]|one|two|five)", token)
+            if widened_q_number is not None:
+                grounds.add(_PARLEY_GROUND_NUMBERS[
+                    widened_q_number.group(1)])
+        for index, token in enumerate(tokens):
+            if token in _PARLEY_GROUND_NUMBERS \
+                    and index + 1 < len(tokens) \
+                    and tokens[index + 1] == "q":
+                grounds.add(_PARLEY_GROUND_NUMBERS[token])
+    for index, token in enumerate(tokens):
+        if token in _PARLEY_GROUND_NUMBERS \
+                and index + 1 < len(tokens) \
+                and tokens[index + 1] in ("qparley", "parleyq"):
+            grounds.add(_PARLEY_GROUND_NUMBERS[token])
+        if token == "parleyq" and index + 1 < len(tokens) \
+                and tokens[index + 1] in _PARLEY_GROUND_NUMBERS:
+            grounds.add(
+                _PARLEY_GROUND_NUMBERS[tokens[index + 1]])
+    question_words = ("question", "questions", "q")
+    for index, token in enumerate(tokens):
+        before = tokens[index - 1] if index > 0 else None
+        after = tokens[index + 1] \
+            if index + 1 < len(tokens) else None
+        joined_number_parley = re.fullmatch(
+            r"([125]|one|two|five)parley", token)
+        if joined_number_parley is not None \
+                and (before in question_words
+                     or after in question_words):
+            grounds.add(_PARLEY_GROUND_NUMBERS[
+                joined_number_parley.group(1)])
+        parley_number_token = re.fullmatch(
+            r"parley([125]|one|two|five)", token)
+        if parley_number_token is not None \
+                and (before in question_words
+                     or after in question_words):
+            grounds.add(_PARLEY_GROUND_NUMBERS[
+                parley_number_token.group(1)])
+        if re.fullmatch(r"(?:questions?|q)parley", token) \
+                is not None and before in _PARLEY_GROUND_NUMBERS:
+            grounds.add(_PARLEY_GROUND_NUMBERS[before])
     return grounds
 
 

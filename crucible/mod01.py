@@ -312,6 +312,7 @@ _FORM_SPECS = {
         "assumption_set_and_row_identifiers", "grid_points",
         "screening_run_identifiers", "held_out_confirmation_run_identifiers",
         "test_value", "rank", "threshold", "outcome",
+        "confirmation_outcome", "gate_failure",
     )),
     "23": ("FamilyManifest", _fields(
         "family_identifier", "family_version", "sealed_family_record_hash",
@@ -820,21 +821,338 @@ _LEET_READING_TWO = dict(_LEET_READING_ONE, **{"1": "i"})
 _SHORT_I_PLACEHOLDER = "\ue000"
 
 
+def _stored_key_text(value):
+    """The stored text of a key or of a part of a key, under the
+    governing stored text settlement. A text value is read through
+    its stored characters. A bytes, bytearray, or memoryview value
+    is read by decoding its stored bytes as UTF-8 with undecodable
+    bytes dropped, through the base class operations of its kind,
+    never through a reading the value itself supplies. A container
+    value in tuple, list, set, or frozenset form is read as the
+    stored text of its parts joined in order with no separator
+    added, each part read recursively in the same form. A value of
+    any other form stores no text name and reads as None."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bytes):
+        return bytes.decode(value, "utf-8", "ignore")
+    if isinstance(value, bytearray):
+        return bytearray.decode(value, "utf-8", "ignore")
+    if isinstance(value, memoryview):
+        return bytes.decode(
+            memoryview.tobytes(value), "utf-8", "ignore")
+    if isinstance(value, (tuple, list, set, frozenset)):
+        parts = []
+        for part in _base_iter(value):
+            part_text = _stored_key_text(part)
+            parts.append(part_text if part_text is not None else "")
+        return "".join(parts)
+    return None
+
+
+
+_UNORDERED_JOIN_PART_BOUND = 7
+
+_JOIN_CANDIDATE_BOUND = 5040
+
+
+def _join_container_parts(node):
+    """The parts a container stores, read through base class
+    operations only, in the iteration order the container
+    stands in for this process."""
+    return list(_base_iter(node))
+
+
+def _has_unordered_split(value):
+    """Whether a key carries a set or frozenset part holding
+    two or more parts, found on an iterative walk, so no
+    recursion stands spent on a key that carries none."""
+    seen = set()
+    stack = [value]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (tuple, list, set, frozenset)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            parts = _join_container_parts(node)
+            if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+                return True
+            stack.extend(parts)
+    return False
+
+
+def _joined_text_candidates(value, _active=None):
+    """Every joined stored text a container key can stand in.
+
+    An ordered container (tuple, list, or a dict read by its
+    keys) contributes the join of its parts in their stored
+    order, exactly as the standing joined reading reads it. An
+    unordered container (set or frozenset) stores no order, so
+    its iteration order, which the hash seed governs, is no
+    reading of it: the candidates are the joins under every
+    ordering of its direct parts, each part contributing every
+    candidate of its own in the same form, so a barred name
+    split across the parts of an unordered container stands
+    among the candidates in every iteration order. The form is
+    complete for an unordered container holding at most
+    _UNORDERED_JOIN_PART_BOUND direct parts and while the
+    distinct candidates of one container stand at or under
+    _JOIN_CANDIDATE_BOUND. Past either bound the container
+    contributes its iteration order join alone, beside the
+    standing per part readings, as the paper for this cure
+    states. A part already on the walk path contributes the
+    empty text, so a cyclic part cannot loop the read."""
+    if not isinstance(value, (tuple, list, set, frozenset)):
+        return ((_stored_key_text(value) or ""),)
+    if _active is None:
+        _active = set()
+    if id(value) in _active:
+        return ("",)
+    _active.add(id(value))
+    try:
+        parts = _join_container_parts(value)
+        child = [
+            _joined_text_candidates(part, _active) for part in parts
+        ]
+    finally:
+        _active.discard(id(value))
+    if (
+        isinstance(value, (set, frozenset))
+        and 2 <= len(parts) <= _UNORDERED_JOIN_PART_BOUND
+    ):
+        orders = list(itertools.permutations(range(len(parts))))
+    else:
+        orders = [tuple(range(len(parts)))]
+    out = []
+    seen = set()
+    for order in orders:
+        total = 1
+        for index in order:
+            total *= len(child[index])
+        if total > _JOIN_CANDIDATE_BOUND:
+            text = "".join(
+                child[index][0] for index in range(len(parts)))
+            if text not in seen:
+                seen.add(text)
+                out.append(text)
+            continue
+        for combo in itertools.product(
+                *(child[index] for index in order)):
+            text = "".join(combo)
+            if text not in seen:
+                seen.add(text)
+                out.append(text)
+                if len(out) >= _JOIN_CANDIDATE_BOUND:
+                    return tuple(out)
+    return tuple(out)
+
+
+def _seg_tiles_exact(options, target):
+    """Whether the parts can stand in some order so that their
+    joined reading, in the reading space the options stand in,
+    stands exactly as the target. The judgement runs as a
+    segmentation of the target over the parts: a state is a
+    position in the target beside the set of parts already
+    placed, a step places one unused part whose reading stands
+    as the next segment of the target, and a part whose
+    readings carry the empty text may stand placed without
+    advancing the position, so it is checked at the end rather
+    than placed. No ordering of the parts is ever listed, and
+    the state count stands at most at the target length plus
+    one times two to the number of parts that can contribute a
+    segment of the target, in place of the factorial count of
+    orderings. A failed state is never searched twice."""
+    count = len(options)
+    usable = []
+    for opts in options:
+        matching = sorted({o for o in opts if o and o in target})
+        if not matching and "" not in opts:
+            return False
+        usable.append(matching)
+
+    def remaining_can_vanish(mask):
+        return all(
+            "" in options[i]
+            for i in range(count) if not (mask >> i) & 1)
+
+    failed = set()
+    stack = [[0, 0, None, 0]]
+    while stack:
+        frame = stack[-1]
+        pos, mask = frame[0], frame[1]
+        if pos == len(target):
+            if remaining_can_vanish(mask):
+                return True
+            failed.add((pos, mask))
+            stack.pop()
+            continue
+        if frame[2] is None:
+            if (pos, mask) in failed:
+                stack.pop()
+                continue
+            frame[2] = [
+                (i, o) for i in range(count)
+                if not (mask >> i) & 1
+                for o in usable[i] if target.startswith(o, pos)]
+        if frame[3] < len(frame[2]):
+            i, o = frame[2][frame[3]]
+            frame[3] += 1
+            stack.append([pos + len(o), mask | (1 << i), None, 0])
+        else:
+            failed.add((pos, mask))
+            stack.pop()
+    return False
+
+
+def _seg_tiles_carrying(options, pattern):
+    """The set of parts that can stand as one unbroken block,
+    in some order, so that their joined reading carries the
+    pattern inside it, or None where no such block stands. The
+    block is found as a segmentation of the pattern: its first
+    part contributes a suffix of its reading, each middle part
+    contributes its whole reading as one segment of the
+    pattern, and its last part contributes a prefix of its
+    reading, each part used at most once. Parts outside the
+    block stand free on either side of it, so the block alone
+    decides the carrying. No ordering of the parts is ever
+    listed, and the state count stands at most at the pattern
+    length plus one times two to the number of parts that can
+    contribute a segment of the pattern."""
+    if not pattern:
+        return None
+    count = len(options)
+    opts_list = [sorted({o for o in opts if o}) for opts in options]
+    failed = set()
+    stack = [[0, 0, None, 0]]
+    while stack:
+        frame = stack[-1]
+        pos, mask = frame[0], frame[1]
+        if frame[2] is None:
+            if (pos, mask) in failed:
+                stack.pop()
+                continue
+            moves = []
+            for i in range(count):
+                if (mask >> i) & 1:
+                    continue
+                for o in opts_list[i]:
+                    if mask == 0:
+                        if pattern in o:
+                            return 1 << i
+                        for j in range(
+                                1, min(len(o), len(pattern)) + 1):
+                            if o.endswith(pattern[:j]):
+                                if j == len(pattern):
+                                    return 1 << i
+                                moves.append((j, i))
+                    elif pos + len(o) <= len(pattern):
+                        if o == pattern[pos:pos + len(o)]:
+                            if pos + len(o) == len(pattern):
+                                return mask | (1 << i)
+                            moves.append((pos + len(o), i))
+                    elif o.startswith(pattern[pos:]):
+                        return mask | (1 << i)
+            frame[2] = moves
+        if frame[3] < len(frame[2]):
+            npos, i = frame[2][frame[3]]
+            frame[3] += 1
+            stack.append([npos, mask | (1 << i), None, 0])
+        else:
+            failed.add((pos, mask))
+            stack.pop()
+    return None
+
+
+def _seg_unordered_nodes(key):
+    """Every set or frozenset standing inside a key, at any
+    depth, found on an iterative walk through base readings,
+    each beside the parts it directly stores."""
+    seen = set()
+    stack = [key]
+    nodes = []
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (tuple, list, set, frozenset)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            parts = _join_container_parts(node)
+            if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+                nodes.append((node, parts))
+            stack.extend(parts)
+    return nodes
+
+
+def _seg_plain_options(parts):
+    """The plain readings of the direct parts of one unordered
+    container: for each part, the lowered texts of every joined
+    candidate the part itself stands in."""
+    return [
+        {text.lower() for text in _joined_text_candidates(part)}
+        for part in parts]
+
+
+def _seg_folded_options(parts):
+    """The folded readings of the direct parts of one unordered
+    container: for each part, every folded reading of every
+    joined candidate the part itself stands in, under this
+    module folded reading act."""
+    options = []
+    for part in parts:
+        readings = set()
+        for text in _joined_text_candidates(part):
+            readings.update(_folded_key_variants(text))
+        if not readings:
+            readings = {""}
+        options.append(readings)
+    return options
+
+
+def _seg_exact(key, target):
+    """Whether an unordered container standing inside a key
+    joins, in some order of its direct parts, to a reading
+    standing exactly as the target, judged by segmentation of
+    the target over the folded readings of the parts, beside
+    the kept candidate readings."""
+    for node, parts in _seg_unordered_nodes(key):
+        if _seg_tiles_exact(_seg_folded_options(parts), target):
+            return True
+    return False
+
+
+def _seg_carrying(key, pattern):
+    """Whether an unordered container standing inside a key
+    joins, in some order of its direct parts, to a reading
+    carrying the pattern, judged by segmentation of the
+    pattern over the folded readings of the parts, beside the
+    kept candidate readings."""
+    for node, parts in _seg_unordered_nodes(key):
+        if _seg_tiles_carrying(
+                _seg_folded_options(parts), pattern) is not None:
+            return True
+    return False
+
+
+
 def _normalised_characters(text):
     # Cyrillic short i is held apart from the decomposition below,
     # which would otherwise reduce it to Cyrillic i and lose its
     # second recorded reading as y. The placeholder stands in its
     # place through the decomposition and the case folding, and the
     # letter itself stands restored in the returned characters.
-    # The characters stand taken from the text the value stores,
-    # read through the base class string form, never through a
-    # string reading the value itself supplies.
-    # A value that is not a text form stores no text name, so the
-    # fold takes no characters from it and judges no name from a
-    # string reading the value itself supplies.
-    if not isinstance(text, str):
+    # The characters stand taken from the stored text of the key,
+    # read through _stored_key_text: a text value through its
+    # stored characters, a bytes like value through its decoded
+    # stored bytes, and a container key through its stored text
+    # parts joined in order, never through a reading the value
+    # itself supplies.
+    # A value that stores no text name takes no characters here,
+    # so the fold judges no name from a string reading the value
+    # itself supplies.
+    stored = _stored_key_text(text)
+    if stored is None:
         return []
-    stored = str.__str__(text)
     source = stored.replace(
         "\u0419", _SHORT_I_PLACEHOLDER).replace(
         "\u0439", _SHORT_I_PLACEHOLDER)
@@ -1161,12 +1479,44 @@ def _folded_key_variants(key):
 
 
 def _folded_key_matches(key, folded_target):
+    if (
+        isinstance(key, (tuple, list, set, frozenset))
+        and _has_unordered_split(key)
+    ):
+        for candidate in _joined_text_candidates(key):
+            if candidate and _folded_key_matches(
+                    candidate, folded_target):
+                return True
+        if _seg_exact(key, folded_target):
+            return True
     if folded_target in _folded_key_variants(key):
         return True
-    return _matches_under_every_reading(key, folded_target)
+    if _matches_under_every_reading(key, folded_target):
+        return True
+    # A container key also stands judged on each part it stores,
+    # read on its own stored text, recursively, beside the joined
+    # reading the variants above carry. A single part container
+    # therefore carries the reading of its one part in full, and a
+    # part that matches on its own matches in the container.
+    if isinstance(key, (tuple, list, set, frozenset)):
+        return any(
+            _folded_key_matches(part, folded_target)
+            for part in _base_iter(key)
+        )
+    return False
 
 
 def _folded_key_carries(key, folded_marker):
+    if (
+        isinstance(key, (tuple, list, set, frozenset))
+        and _has_unordered_split(key)
+    ):
+        for candidate in _joined_text_candidates(key):
+            if candidate and _folded_key_carries(
+                    candidate, folded_marker):
+                return True
+        if _seg_carrying(key, folded_marker):
+            return True
     if any(
         folded_marker in variant
         for variant in _folded_key_variants(key)
@@ -1438,14 +1788,16 @@ def _validate_record_inner(form_id, instance):
     fid = _fid(form_id)
     if fid not in _FORM_SPECS or not isinstance(instance, dict):
         return False
-    if fid == "36":
-        return _validate_eventlog(instance)
     # The required field presence act reads the stored keys of
     # the record through base dict operations: the pairs the
     # record stores stand iterated directly, and a field stands
     # present only where a stored text key carries its name
     # under a base class comparison, never through a hash or
-    # equality reading a handed key supplies.
+    # equality reading a handed key supplies. Form 36 stands
+    # under this same scan: its eventlog validation runs only
+    # after the scan, never before it, so a base field supplied
+    # only by a key whose hash and equality readings lie stands
+    # absent here as at every other form.
     stored_pairs = list(dict.items(instance))
     for field in required_fields(fid):
         matched = [
@@ -1455,18 +1807,64 @@ def _validate_record_inner(form_id, instance):
         ]
         if not matched or matched[0] is None:
             return False
+    if fid == "36":
+        return _validate_eventlog(instance)
     for condition in _conditions_for(fid):
-        if dict.__contains__(instance, condition["discriminator"]):
-            discriminator = dict.__getitem__(
-                instance, condition["discriminator"])
-        else:
-            discriminator = None
+        # The discriminator and the conditional field stand read
+        # through the stored pairs of the record, in the same form
+        # as the presence act above: a field stands present only
+        # where a stored text key carries its name under a base
+        # class comparison, never through a hash or equality
+        # reading a handed key supplies, and the discriminator
+        # value stands as the value its stored pair carries.
+        discriminator_matches = [
+            item for key, item in stored_pairs
+            if isinstance(key, str)
+            and str.__eq__(str.__str__(key), condition["discriminator"])
+        ]
+        discriminator = (
+            discriminator_matches[0] if discriminator_matches else None)
         if discriminator is not None and not isinstance(
                 discriminator, bool):
             return False
         if discriminator is True:
-            if not dict.__contains__(instance, condition["field"]):
+            field_matches = [
+                item for key, item in stored_pairs
+                if isinstance(key, str)
+                and str.__eq__(str.__str__(key), condition["field"])
+            ]
+            if not field_matches:
                 return False
+    if fid == "22":
+        # The amended form 22 reading: the outcome stands read with
+        # the confirmation outcome and the gate failure, and with no
+        # other reading, and an unranked claim stands only in its
+        # stated form, the value not ranked in its test value, rank,
+        # and threshold fields together. Every value here stands
+        # read through the stored pairs of the record.
+        def _registry_text(field):
+            matches = [
+                item for key, item in stored_pairs
+                if isinstance(key, str)
+                and str.__eq__(str.__str__(key), field)
+            ]
+            if not matches:
+                return None
+            return _stored_text(matches[0])
+
+        if _registry_text("outcome") == "reported":
+            if _registry_text("confirmation_outcome") in (
+                    "failed", "not run"):
+                return False
+            if _registry_text("gate_failure") in (
+                    "procedure gate", "confirmation gate", "both gates"):
+                return False
+        unranked = [
+            _registry_text(field) == "not ranked"
+            for field in ("test_value", "rank", "threshold")
+        ]
+        if any(unranked) and not all(unranked):
+            return False
     if fid == "4":
         if _carries_real_money_value(instance):
             return False
@@ -1545,22 +1943,43 @@ def validate_record(form_id, instance):
 
 
 def _validate_eventlog(instance):
+    # Every field reading in this act runs through the stored
+    # pairs of the record, in the form the presence act of
+    # _validate_record_inner states: a field stands present only
+    # where a stored text key carries its name under a base class
+    # comparison, and its value stands as the value its stored
+    # pair carries, never through a contains, get, or getitem
+    # reading on the handed instance, which runs a hash or
+    # equality reading a handed key supplies.
+    stored_pairs = list(dict.items(instance))
+
+    def present(field):
+        return any(
+            isinstance(key, str)
+            and str.__eq__(str.__str__(key), field)
+            for key, item in stored_pairs)
+
+    def stored_value(field):
+        for key, item in stored_pairs:
+            if isinstance(key, str) and str.__eq__(
+                    str.__str__(key), field):
+                return item
+        return None
+
     for field in _EVENTLOG_BASE_FIELDS:
-        if not dict.__contains__(instance, field) or (
-                dict.__getitem__(instance, field) is None):
+        if not present(field) or stored_value(field) is None:
             return False
-    kind = dict.get(instance, "entry_kind")
+    kind = stored_value("entry_kind")
     if kind is not None and kind not in (
             "ordinary", "agent", "supersession"):
         return False
     if kind is None:
         if (
-            dict.__contains__(
-                instance, "superseded_from_journal_position")
-            or dict.__contains__(instance, "resume_attempt_identifier")
+            present("superseded_from_journal_position")
+            or present("resume_attempt_identifier")
         ):
             kind = "supersession"
-        elif dict.__contains__(instance, "agent_identifier"):
+        elif present("agent_identifier"):
             kind = "agent"
         else:
             kind = "ordinary"
@@ -1570,27 +1989,25 @@ def _validate_eventlog(instance):
             "superseded_from_journal_position",
             "resume_attempt_identifier",
         ):
-            if dict.__contains__(instance, field):
+            if present(field):
                 return False
     if kind == "agent":
         for field in (
             "superseded_from_journal_position",
             "resume_attempt_identifier",
         ):
-            if dict.__contains__(instance, field):
+            if present(field):
                 return False
-    if kind == "supersession" and dict.__contains__(
-            instance, "agent_identifier"):
+    if kind == "supersession" and present("agent_identifier"):
         return False
-    if kind == "agent" and not dict.__contains__(
-            instance, "agent_identifier"):
+    if kind == "agent" and not present("agent_identifier"):
         return False
     if kind == "supersession":
         for field in (
             "superseded_from_journal_position",
             "resume_attempt_identifier",
         ):
-            if not dict.__contains__(instance, field):
+            if not present(field):
                 return False
     if _carries_reserved_matter(instance):
         return False

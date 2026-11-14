@@ -18,7 +18,7 @@ release_view calling the MOD-10 view leak check runner as the
 release gate and write_checkpoint retaining the checkpoint pair
 through the MOD-10 paired store.
 """
-import copy
+import itertools
 import unicodedata
 
 GATE_EXECUTABLE_RUNS = "DQ7-02"
@@ -69,15 +69,19 @@ def _gated_message(act):
     )
 
 
-def _freeze(value):
+def _freeze(value, _memo=None):
     """Freeze one value through base class readings and plain
     constructors only, in the form the guarded copy of this
     module states: a set or frozenset part stands rebuilt by the
     plain set or plain frozenset constructor over its base
     iteration reading, and a part in no container form stands
     copied as itself, so a constructor or a copy protocol a part
-    itself supplies is never called on a part this act copies."""
-    return _guarded_copy(value)
+    itself supplies is never called on a part this act copies.
+    An act that freezes several handed values into one assembled
+    result hands one shared memo through every freeze, so a part
+    shared between those values stands in the assembled result
+    as one copy, never as a separate copy per value."""
+    return _guarded_copy(value, _memo)
 
 
 def _guarded_copy(value, _memo=None):
@@ -148,10 +152,10 @@ class ContractAHandover:
     __slots__ = ("_point", "_assumption_record", "_seed_input_set", "_family_id", "_sealed")
 
     def __init__(self, point, assumption_record, seed_input_set, family_id):
-        _view_copy_guard(point)
-        _view_copy_guard(assumption_record)
-        _view_copy_guard(seed_input_set)
-        _view_copy_guard(family_id)
+        _view_copy_guard(point, _act="ContractAHandover", _argument="point")
+        _view_copy_guard(assumption_record, _act="ContractAHandover", _argument="assumption_record")
+        _view_copy_guard(seed_input_set, _act="ContractAHandover", _argument="seed_input_set")
+        _view_copy_guard(family_id, _act="ContractAHandover", _argument="family_id")
         object.__setattr__(self, "_point", _freeze(point))
         object.__setattr__(self, "_assumption_record", _freeze(assumption_record))
         object.__setattr__(self, "_seed_input_set", _freeze(seed_input_set))
@@ -212,7 +216,7 @@ class DeliveryPoint:
         self.form = "interface"
 
     def record_interface_delivery(self, payload_description):
-        _view_copy_guard(payload_description)
+        _view_copy_guard(payload_description, _act="DeliveryPoint.record_interface_delivery", _argument="payload_description")
         entry = {
             "delivery_point": self.name,
             "destination": self.destination,
@@ -415,9 +419,18 @@ def _stored_text(value):
     no text, so no name stands judged from a string reading
     a non text value itself supplies, and its stored text
     stands as the empty text, in the cured no name form the
-    sister modules state."""
+    sister modules state. A bytes, bytearray, or memoryview
+    value stands judged on its stored bytes, read through the
+    buffer the value stores and decoded as UTF-8 with
+    undecodable bytes dropped, never through a string reading
+    a bytes subclass itself supplies, so a bytes like form
+    keeps the standing its stored name carries, in the same
+    form the condition and passage limbs of this estate judge
+    those forms."""
     if isinstance(value, str):
         return str.__str__(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
     return ""
 
 
@@ -650,29 +663,9 @@ def _combined_key_barred(key):
     return False
 
 
-def _is_barred_key(key, _seen=None):
-    if isinstance(key, (tuple, list, set, frozenset)):
-        # A container key stores no text name of its own. It
-        # stands barred only where a part it stores stands
-        # barred, judged on the stored parts through their base
-        # readings, or where the stored text parts joined in
-        # order spell a barred name, never from a string reading
-        # the container itself supplies.
-        if _seen is None:
-            _seen = set()
-        if id(key) in _seen:
-            return False
-        _seen.add(id(key))
-        try:
-            items = [item for index, item in _base_entries(key)]
-            if any(_is_barred_key(item, _seen) for item in items):
-                return True
-            joined = "".join(
-                str.__str__(item) for item in items
-                if isinstance(item, str))
-            return bool(joined) and _is_barred_key(joined, _seen)
-        finally:
-            _seen.discard(id(key))
+def _is_barred_text(key):
+    """Whether one non container key stands barred, judged on
+    its stored text through the folded readings."""
     lowered = _stored_text(key).lower()
     if (
         lowered in BARRED_PROJECTION_KEYS
@@ -685,6 +678,341 @@ def _is_barred_key(key, _seen=None):
         if any(part in reading for part in _BARRED_FOLDED_PARTS):
             return True
     return _combined_key_barred(key)
+
+
+
+_UNORDERED_JOIN_PART_BOUND = 7
+
+_JOIN_CANDIDATE_BOUND = 5040
+
+
+def _join_container_parts(node):
+    """The parts a container stores, read through base class
+    operations only, in the iteration order the container
+    stands in for this process."""
+    return [item for index, item in _base_entries(node)]
+
+
+def _has_unordered_split(value):
+    """Whether a key carries a set or frozenset part holding
+    two or more parts, found on an iterative walk, so no
+    recursion stands spent on a key that carries none."""
+    seen = set()
+    stack = [value]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (tuple, list, set, frozenset)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            parts = _join_container_parts(node)
+            if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+                return True
+            stack.extend(parts)
+    return False
+
+
+def _joined_text_candidates(value, _active=None):
+    """Every joined stored text a container key can stand in.
+
+    An ordered container (tuple, list, or a dict read by its
+    keys) contributes the join of its parts in their stored
+    order, exactly as the standing joined reading reads it. An
+    unordered container (set or frozenset) stores no order, so
+    its iteration order, which the hash seed governs, is no
+    reading of it: the candidates are the joins under every
+    ordering of its direct parts, each part contributing every
+    candidate of its own in the same form, so a barred name
+    split across the parts of an unordered container stands
+    among the candidates in every iteration order. The form is
+    complete for an unordered container holding at most
+    _UNORDERED_JOIN_PART_BOUND direct parts and while the
+    distinct candidates of one container stand at or under
+    _JOIN_CANDIDATE_BOUND. Past either bound the container
+    contributes its iteration order join alone, beside the
+    standing per part readings, as the paper for this cure
+    states. A part already on the walk path contributes the
+    empty text, so a cyclic part cannot loop the read."""
+    if not isinstance(value, (tuple, list, set, frozenset)):
+        return (_stored_text(value),)
+    if _active is None:
+        _active = set()
+    if id(value) in _active:
+        return ("",)
+    _active.add(id(value))
+    try:
+        parts = _join_container_parts(value)
+        child = [
+            _joined_text_candidates(part, _active) for part in parts
+        ]
+    finally:
+        _active.discard(id(value))
+    if (
+        isinstance(value, (set, frozenset))
+        and 2 <= len(parts) <= _UNORDERED_JOIN_PART_BOUND
+    ):
+        orders = list(itertools.permutations(range(len(parts))))
+    else:
+        orders = [tuple(range(len(parts)))]
+    out = []
+    seen = set()
+    for order in orders:
+        total = 1
+        for index in order:
+            total *= len(child[index])
+        if total > _JOIN_CANDIDATE_BOUND:
+            text = "".join(
+                child[index][0] for index in range(len(parts)))
+            if text not in seen:
+                seen.add(text)
+                out.append(text)
+            continue
+        for combo in itertools.product(
+                *(child[index] for index in order)):
+            text = "".join(combo)
+            if text not in seen:
+                seen.add(text)
+                out.append(text)
+                if len(out) >= _JOIN_CANDIDATE_BOUND:
+                    return tuple(out)
+    return tuple(out)
+
+
+def _seg_tiles_exact(options, target):
+    """Whether the parts can stand in some order so that their
+    joined reading, in the reading space the options stand in,
+    stands exactly as the target. The judgement runs as a
+    segmentation of the target over the parts: a state is a
+    position in the target beside the set of parts already
+    placed, a step places one unused part whose reading stands
+    as the next segment of the target, and a part whose
+    readings carry the empty text may stand placed without
+    advancing the position, so it is checked at the end rather
+    than placed. No ordering of the parts is ever listed, and
+    the state count stands at most at the target length plus
+    one times two to the number of parts that can contribute a
+    segment of the target, in place of the factorial count of
+    orderings. A failed state is never searched twice."""
+    count = len(options)
+    usable = []
+    for opts in options:
+        matching = sorted({o for o in opts if o and o in target})
+        if not matching and "" not in opts:
+            return False
+        usable.append(matching)
+
+    def remaining_can_vanish(mask):
+        return all(
+            "" in options[i]
+            for i in range(count) if not (mask >> i) & 1)
+
+    failed = set()
+    stack = [[0, 0, None, 0]]
+    while stack:
+        frame = stack[-1]
+        pos, mask = frame[0], frame[1]
+        if pos == len(target):
+            if remaining_can_vanish(mask):
+                return True
+            failed.add((pos, mask))
+            stack.pop()
+            continue
+        if frame[2] is None:
+            if (pos, mask) in failed:
+                stack.pop()
+                continue
+            frame[2] = [
+                (i, o) for i in range(count)
+                if not (mask >> i) & 1
+                for o in usable[i] if target.startswith(o, pos)]
+        if frame[3] < len(frame[2]):
+            i, o = frame[2][frame[3]]
+            frame[3] += 1
+            stack.append([pos + len(o), mask | (1 << i), None, 0])
+        else:
+            failed.add((pos, mask))
+            stack.pop()
+    return False
+
+
+def _seg_tiles_carrying(options, pattern):
+    """The set of parts that can stand as one unbroken block,
+    in some order, so that their joined reading carries the
+    pattern inside it, or None where no such block stands. The
+    block is found as a segmentation of the pattern: its first
+    part contributes a suffix of its reading, each middle part
+    contributes its whole reading as one segment of the
+    pattern, and its last part contributes a prefix of its
+    reading, each part used at most once. Parts outside the
+    block stand free on either side of it, so the block alone
+    decides the carrying. No ordering of the parts is ever
+    listed, and the state count stands at most at the pattern
+    length plus one times two to the number of parts that can
+    contribute a segment of the pattern."""
+    if not pattern:
+        return None
+    count = len(options)
+    opts_list = [sorted({o for o in opts if o}) for opts in options]
+    failed = set()
+    stack = [[0, 0, None, 0]]
+    while stack:
+        frame = stack[-1]
+        pos, mask = frame[0], frame[1]
+        if frame[2] is None:
+            if (pos, mask) in failed:
+                stack.pop()
+                continue
+            moves = []
+            for i in range(count):
+                if (mask >> i) & 1:
+                    continue
+                for o in opts_list[i]:
+                    if mask == 0:
+                        if pattern in o:
+                            return 1 << i
+                        for j in range(
+                                1, min(len(o), len(pattern)) + 1):
+                            if o.endswith(pattern[:j]):
+                                if j == len(pattern):
+                                    return 1 << i
+                                moves.append((j, i))
+                    elif pos + len(o) <= len(pattern):
+                        if o == pattern[pos:pos + len(o)]:
+                            if pos + len(o) == len(pattern):
+                                return mask | (1 << i)
+                            moves.append((pos + len(o), i))
+                    elif o.startswith(pattern[pos:]):
+                        return mask | (1 << i)
+            frame[2] = moves
+        if frame[3] < len(frame[2]):
+            npos, i = frame[2][frame[3]]
+            frame[3] += 1
+            stack.append([npos, mask | (1 << i), None, 0])
+        else:
+            failed.add((pos, mask))
+            stack.pop()
+    return None
+
+
+def _seg_unordered_nodes(key):
+    """Every set or frozenset standing inside a key, at any
+    depth, found on an iterative walk through base readings,
+    each beside the parts it directly stores."""
+    seen = set()
+    stack = [key]
+    nodes = []
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (tuple, list, set, frozenset)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            parts = _join_container_parts(node)
+            if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+                nodes.append((node, parts))
+            stack.extend(parts)
+    return nodes
+
+
+def _seg_plain_options(parts):
+    """The plain readings of the direct parts of one unordered
+    container: for each part, the lowered texts of every joined
+    candidate the part itself stands in."""
+    return [
+        {text.lower() for text in _joined_text_candidates(part)}
+        for part in parts]
+
+
+def _seg_folded_options(parts):
+    """The folded readings of the direct parts of one unordered
+    container: for each part, every folded reading of every
+    joined candidate the part itself stands in, under this
+    module folded reading act."""
+    options = []
+    for part in parts:
+        readings = set()
+        for text in _joined_text_candidates(part):
+            readings.update(_folded_readings(text))
+        if not readings:
+            readings = {""}
+        options.append(readings)
+    return options
+
+
+def _seg_unordered_barred(key):
+    """Whether an unordered container standing inside a key
+    joins, in some order of its direct parts, to a barred name
+    under this module scalar barred judgement, judged by
+    segmentation beside the kept candidate readings. The plain
+    limb tiles the plain exact names and the plain barred parts
+    of the scalar judgement over the lowered joined texts of
+    the parts; the folded limb tiles its folded exact names
+    and folded barred parts over the folded readings of the
+    parts. Either limb standing barred bars the key, as a
+    joined candidate standing barred bars it."""
+    for node, parts in _seg_unordered_nodes(key):
+        plain = _seg_plain_options(parts)
+        for target in tuple(BARRED_PROJECTION_KEYS):
+            if _seg_tiles_exact(plain, target):
+                return True
+        for pattern in tuple(_BARRED_KEY_PARTS):
+            if _seg_tiles_carrying(plain, pattern) is not None:
+                return True
+        folded = _seg_folded_options(parts)
+        for target in tuple(_BARRED_FOLDED_EXACT):
+            if _seg_tiles_exact(folded, target):
+                return True
+        for pattern in tuple(_BARRED_FOLDED_PARTS):
+            if _seg_tiles_carrying(folded, pattern) is not None:
+                return True
+    return False
+
+
+
+def _is_barred_key(key, _seen=None):
+    if isinstance(key, (tuple, list, set, frozenset)):
+        # A container key stores no text name of its own. It
+        # stands barred only where a part it stores stands
+        # barred, judged on the stored parts through their base
+        # readings, or where the stored text parts joined in
+        # order spell a barred name, never from a string reading
+        # the container itself supplies. The stored text of a
+        # part stands read through _stored_text, so a part in
+        # bytes, bytearray, or memoryview dress contributes its
+        # decoded stored text to the joined reading exactly as
+        # a text part does, and a single part container carries
+        # the reading of its one part. The parts stand walked
+        # on an explicit stack, in the form the MOD-03, MOD-05,
+        # and MOD-08 container limbs state, so a container key
+        # nested to any depth the walk can hold stands answered
+        # both ways and no bare RecursionError escapes this
+        # predicate or any public act that reads through it.
+        seen = set()
+        stack = [key]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, (tuple, list, set, frozenset)):
+                if id(node) in seen:
+                    continue
+                seen.add(id(node))
+                items = [item for index, item in _base_entries(node)]
+                joined = "".join(
+                    _stored_text(item) for item in items
+                    if isinstance(
+                        item, (str, bytes, bytearray, memoryview)))
+                if joined and _is_barred_text(joined):
+                    return True
+                stack.extend(items)
+            elif _is_barred_text(node):
+                return True
+        if _has_unordered_split(key):
+            for candidate in _joined_text_candidates(key):
+                if candidate and _is_barred_text(candidate):
+                    return True
+        if _seg_unordered_barred(key):
+            return True
+        return False
+    return _is_barred_text(key)
 
 
 CLEANING_DEPTH_BOUND = 100
@@ -915,7 +1243,7 @@ class TickEngine:
                 "direct state write from a second component is rejected: "
                 "the write path requires the engine instance itself, not a name"
             )
-        _view_copy_guard(change)
+        _view_copy_guard(change, _act="TickEngine.write_simulation_state", _argument="change")
         self.state_writes.append(_freeze(change))
         return True
 
@@ -1035,10 +1363,11 @@ def scheduling_order_record(family_id, order_identifier):
 def run_record_with_order(run_record, order_identifier):
     """Return a copy of a run record carrying the scheduling order
     identifier the run used, as every run record must."""
-    _view_copy_guard(run_record)
-    _view_copy_guard(order_identifier)
-    record = _freeze(run_record)
-    record["scheduling_order_identifier"] = _freeze(order_identifier)
+    _view_copy_guard(run_record, _act="run_record_with_order", _argument="run_record")
+    _view_copy_guard(order_identifier, _act="run_record_with_order", _argument="order_identifier")
+    memo = {}
+    record = _freeze(run_record, memo)
+    record["scheduling_order_identifier"] = _freeze(order_identifier, memo)
     return record
 
 
@@ -1098,14 +1427,14 @@ def apply_event_to_state(state, event, engine=None):
         raise NamedFailure(
             "applying an event to simulation state requires the TickEngine instance that owns the write"
         )
-    _view_copy_guard(event)
+    _view_copy_guard(event, _act="apply_event_to_state", _argument="event")
     if isinstance(state, dict):
-        _view_copy_guard(state)
+        _view_copy_guard(state, _act="apply_event_to_state", _argument="state")
     engine.write_simulation_state(engine, {"event": _freeze(event)})
     updated = _freeze(state) if isinstance(state, dict) else {}
-    updates = event.get("feature_updates") if isinstance(event, dict) else None
+    updates = dict.get(event, "feature_updates") if isinstance(event, dict) else None
     if isinstance(updates, dict):
-        _view_copy_guard(updates)
+        _view_copy_guard(updates, _act="apply_event_to_state", _argument="feature_updates")
         features = dict(updated.get("feature_values") or {})
         features.update(_freeze(updates))
         updated["feature_values"] = features
@@ -1122,11 +1451,11 @@ def process_day_events(state, events):
     before any later event."""
     engine = TickEngine()
     if isinstance(state, dict):
-        _view_copy_guard(state)
+        _view_copy_guard(state, _act="process_day_events", _argument="state")
     current = _freeze(state) if isinstance(state, dict) else {}
     projections = []
     for event in events:
-        _view_copy_guard(event)
+        _view_copy_guard(event, _act="process_day_events", _argument="event")
         current = apply_event_to_state(current, event, engine=engine)
         engine.rule_core_delivery.record_interface_delivery(
             {"kind": "event", "form": "interface", "event": _freeze(event)}
@@ -1206,7 +1535,8 @@ VIEW_EXCLUDED_CONTENT = (
 VIEW_COPY_DEPTH_BOUND = 100
 
 
-def _view_copy_guard(value, _depth=0, _seen=None, _path="", _walked=None):
+def _view_copy_guard(value, _depth=0, _seen=None, _path="", _walked=None,
+                     _act=None, _argument=None):
     """Walk a value the view select and build acts are about to
     copy, under the same depth bound and named failure form as
     the TA-03 cures: a value standing deeper than the bound, or
@@ -1217,7 +1547,14 @@ def _view_copy_guard(value, _depth=0, _seen=None, _path="", _walked=None):
     walked standing across paths, keyed by the container and
     the depth it stands walked at, so a container stands walked
     once for the paths that reach it at that depth and a deeper
-    reach still stands judged at its own depth."""
+    reach still stands judged at its own depth. Every refusal
+    names the act that refused and the argument it refused, so
+    refusals at different acts, and at different arguments of
+    one act, stand told apart. The bound counts the depth of
+    the value as it stands in the record the act builds, so
+    every container standing around the handed value in that
+    record counts toward the bound, and the refusal states
+    that counting in its wording."""
     if _walked is None:
         _walked = set()
     if isinstance(value, (dict, list, tuple, set, frozenset)):
@@ -1226,11 +1563,16 @@ def _view_copy_guard(value, _depth=0, _seen=None, _path="", _walked=None):
                 "view record copy bound reached at " + (_path or "root")
                 + ": the value stands deeper than the stated bound of "
                 + str(VIEW_COPY_DEPTH_BOUND)
+                + ", counting every container standing around the "
+                "handed value in the record the act builds toward "
+                "that bound"
+                + _guard_context(_act, _argument)
             )
         seen = _seen if _seen is not None else set()
         if id(value) in seen:
             raise NamedFailure(
                 "view record copy found a cycle at " + (_path or "root")
+                + _guard_context(_act, _argument)
             )
         if (id(value), _depth) in _walked:
             return
@@ -1240,18 +1582,30 @@ def _view_copy_guard(value, _depth=0, _seen=None, _path="", _walked=None):
                 for key, item in dict.items(value):
                     _view_copy_guard(
                         key, _depth + 1, seen, _path + "/" + str(key),
-                        _walked)
+                        _walked, _act, _argument)
                     _view_copy_guard(
                         item, _depth + 1, seen, _path + "/" + str(key),
-                        _walked)
+                        _walked, _act, _argument)
             else:
                 for index, item in _base_entries(value):
                     _view_copy_guard(
                         item, _depth + 1, seen,
-                        _path + "[" + str(index) + "]", _walked)
+                        _path + "[" + str(index) + "]", _walked,
+                        _act, _argument)
         finally:
             seen.discard(id(value))
         _walked.add((id(value), _depth))
+
+
+def _guard_context(act, argument):
+    """The act and argument clause of a guard refusal: the act
+    that refused and the argument it refused, stated in the
+    refusal itself, or no clause where no act stands named."""
+    if act is None:
+        return ""
+    if argument is None:
+        return ": " + act + " refused the handed value"
+    return ": " + act + " refused the " + argument + " argument"
 
 
 def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
@@ -1327,7 +1681,7 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
                     continue
                 if _base_order(arising, as_of_position, int.__gt__):
                     continue
-        _view_copy_guard(record)
+        _view_copy_guard(record, _act="select_view_records", _argument="record")
         selected.append(_guarded_copy(record))
     return selected
 
@@ -1366,9 +1720,9 @@ def build_view_record(run_id="run-under-test", viewer_id="viewer-1",
             "in a non record sequence form and no view record stands "
             "written from it: " + type(contents).__name__
         )
-    _view_copy_guard(contents)
-    _view_copy_guard(reputation_and_band or {})
-    _view_copy_guard(graph_position or {})
+    _view_copy_guard(contents, _act="build_view_record", _argument="contents")
+    _view_copy_guard(reputation_and_band or {}, _act="build_view_record", _argument="reputation_and_band")
+    _view_copy_guard(graph_position or {}, _act="build_view_record", _argument="graph_position")
     stated_position = position
     if stated_position is None and isinstance(run_record, dict):
         stated_position = run_record.get("scheduling_position_identifier")
@@ -1459,7 +1813,7 @@ def hold_view(view_record):
     released only after the Recorder leak check runner in MOD-10
     runs its three forms together on it and passes it, as
     release_view performs."""
-    _view_copy_guard(view_record)
+    _view_copy_guard(view_record, _act="hold_view", _argument="view_record")
     return {"view_record": _guarded_copy(view_record), "held": True, "released": False}
 
 
@@ -1501,36 +1855,53 @@ def write_checkpoint(manifest, agent_states=None,
     form before any retention, and neither the manifest nor the
     state stands retained. The pair stands retained through the
     Recorder paired store in MOD-10, where the state reads back
-    beside the manifest."""
+    beside the manifest. The run identifier and the day stand
+    read from the stored contents of the manifest through base
+    dict operations, never through a get reading the handed
+    manifest itself supplies. Every state part, the clock value
+    among them, stands frozen through the guarded copy under
+    one shared memo, and the paired manifest carries the
+    assembled state itself, with no second copy of it taken by
+    any copy protocol. The assembled pair stands guarded as one
+    value before validation and retention, so a state part
+    standing too deep in the pair the act builds meets the one
+    guard refusal form at every depth, and no deeper act states
+    a different cause for it."""
     from crucible import mod01, mod10
 
-    _view_copy_guard(manifest)
-    _view_copy_guard(agent_states)
-    _view_copy_guard(escrow_contract_states)
-    _view_copy_guard(detection_state)
-    _view_copy_guard(stream_positions_and_generator_states)
-    _view_copy_guard(simulation_clock_value)
+    _view_copy_guard(manifest, _act="write_checkpoint", _argument="manifest")
+    _view_copy_guard(agent_states, _act="write_checkpoint", _argument="agent_states")
+    _view_copy_guard(escrow_contract_states, _act="write_checkpoint", _argument="escrow_contract_states")
+    _view_copy_guard(detection_state, _act="write_checkpoint", _argument="detection_state")
+    _view_copy_guard(stream_positions_and_generator_states, _act="write_checkpoint", _argument="stream_positions_and_generator_states")
+    _view_copy_guard(simulation_clock_value, _act="write_checkpoint", _argument="simulation_clock_value")
     if not isinstance(manifest, dict):
         raise NamedFailure(
             "checkpoint writing in named form: a checkpoint stands "
             "on a manifest record, and no other form stands written")
-    run_id = manifest.get("run_identifier") or manifest.get("run_id")
-    day = manifest.get("simulated_day")
+    run_id = dict.get(manifest, "run_identifier") or dict.get(manifest, "run_id")
+    day = dict.get(manifest, "simulated_day")
     if run_id is None or day is None:
         raise NamedFailure(
             "checkpoint writing in named form: no run identifier or "
             "no simulated day stands on the manifest, and no "
             "checkpoint stands written under no identity")
+    memo = {}
     state = {
         "run_identifier": run_id,
         "simulated_day": day,
-        "agent_states": _freeze(agent_states),
-        "escrow_contract_states": _freeze(escrow_contract_states),
-        "detection_state": _freeze(detection_state),
+        "agent_states": _freeze(agent_states, memo),
+        "escrow_contract_states": _freeze(escrow_contract_states, memo),
+        "detection_state": _freeze(detection_state, memo),
         "stream_positions_and_generator_states": _freeze(
-            stream_positions_and_generator_states),
-        "simulation_clock_value": simulation_clock_value,
+            stream_positions_and_generator_states, memo),
+        "simulation_clock_value": _freeze(simulation_clock_value, memo),
     }
+    paired = _freeze(manifest, memo)
+    paired["checkpoint_state"] = state
+    _view_copy_guard(
+        paired, _act="write_checkpoint",
+        _argument="assembled checkpoint pair")
     missing = [
         field for field in mod01.form_fields("13A")
         if state.get(field) is None
@@ -1545,8 +1916,6 @@ def write_checkpoint(manifest, agent_states=None,
             "checkpoint writing in named form: the CheckpointState "
             "fails Form 13A validation, and neither the manifest "
             "nor the state stands written")
-    paired = _freeze(manifest)
-    paired["checkpoint_state"] = copy.deepcopy(state)
     mod10.retain_checkpoint(paired)
     return {"manifest": paired, "checkpoint_state": state}
 
@@ -1559,7 +1928,7 @@ def per_viewer_components(run_id="run-under-test", viewers=None, components=None
     if components is not None:
         copied = []
         for item in components:
-            _view_copy_guard(item)
+            _view_copy_guard(item, _act="per_viewer_components", _argument="component")
             copied.append(_freeze(item))
         return copied
     viewers = list(viewers or ("viewer-1", "viewer-2"))

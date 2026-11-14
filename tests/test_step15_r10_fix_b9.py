@@ -302,8 +302,22 @@ class TestControlsStandingBothWays(unittest.TestCase):
         self.assertIs(copied[0][0], copied)
 
     def test_control_mod11_legacy_run_log_form_still_valid(self):
-        entry = {"phase_judgements": {"before_runs": "judged",
-                                      "after_runs": "judged"}}
+        entry = {
+            "phase_judgements": {"before_runs": "judged",
+                                 "after_runs": "judged"},
+            "claim_identifier": "claim-1",
+            "claim_statement": "stated value",
+            "assumption_set_and_row_identifiers": "stated value",
+            "grid_points": "stated value",
+            "screening_run_identifiers": [],
+            "held_out_confirmation_run_identifiers": [],
+            "test_value": "0.01",
+            "rank": 1,
+            "threshold": 0.05,
+            "outcome": "reported",
+            "confirmation_outcome": "passed",
+            "gate_failure": "none",
+        }
         judged = mod11.judge_registry_entry(
             entry, compiler="registrar", checker="independent checker",
             run_log={"runs": ["retirement run 1"]})
@@ -318,13 +332,23 @@ class TestControlsStandingBothWays(unittest.TestCase):
             run_log=MATCHING_LOG))
 
     def test_control_mod11_matching_run_record_log_valid(self):
+        entry = registry_entry(
+            claim_statement="stated value",
+            assumption_set_and_row_identifiers="stated value",
+            grid_points="stated value",
+            test_value="0.01",
+            rank=1,
+            threshold=0.05,
+            outcome="reported",
+            confirmation_outcome="passed",
+            gate_failure="none")
         judged = mod11.judge_registry_entry(
-            registry_entry(), compiler="registrar", checker="checker",
+            entry, compiler="registrar", checker="checker",
             run_log=MATCHING_LOG)
         self.assertTrue(judged["compared_against_run_log"])
         self.assertTrue(judged["valid"])
         self.assertTrue(mod11.validate_registry_entry(
-            registry_entry(), compiler="registrar", checker="checker",
+            entry, compiler="registrar", checker="checker",
             run_log=MATCHING_LOG))
 
 

@@ -98,8 +98,22 @@ class TestTG131(unittest.TestCase):
         """
         require_surface(self, "TG-13.1", "registry fields judged by phase and compared against the run log by a checker who did not compile the registry")
         m = _surface_module
-        entry = {"phase_judgements": {"before_runs": "judged",
-                                      "after_runs": "judged"}}
+        entry = {
+            "phase_judgements": {"before_runs": "judged",
+                                 "after_runs": "judged"},
+            "claim_identifier": "claim-1",
+            "claim_statement": "stated value",
+            "assumption_set_and_row_identifiers": "stated value",
+            "grid_points": "stated value",
+            "screening_run_identifiers": [],
+            "held_out_confirmation_run_identifiers": [],
+            "test_value": "0.01",
+            "rank": 1,
+            "threshold": 0.05,
+            "outcome": "reported",
+            "confirmation_outcome": "passed",
+            "gate_failure": "none",
+        }
         judged = m.judge_registry_entry(
             entry, compiler="registrar",
             checker="independent checker",

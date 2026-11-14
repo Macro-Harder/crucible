@@ -93,6 +93,37 @@ def _freeze(value, _memo=None):
     return value
 
 
+def _stored_value_present(value):
+    """Whether a handed value stands present, judged by what it
+    stores, for every kind, in the cured MOD-01 form. A text
+    value stands present where the text it stores stands non
+    empty, read through the base class length. A container or
+    bytes value stands present where the contents it stores
+    stand non empty, read through the base class length of its
+    kind. A boolean stands present where it stands as True, and
+    a number where the number it stores stands apart from zero,
+    each read through the base class operations of its kind. A
+    value of any other kind carries no stored content a base
+    class operation can read, so it stands absent, whatever
+    truth reading it supplies."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value is True
+    if isinstance(value, str):
+        return str.__len__(value) > 0
+    if isinstance(value, memoryview):
+        return bytes.__len__(bytes(value)) > 0
+    if isinstance(value, (
+            list, tuple, set, frozenset, dict, bytearray, bytes)):
+        return _base_count(value) > 0
+    if isinstance(value, int):
+        return int.__ne__(value, 0)
+    if isinstance(value, float):
+        return float.__ne__(value, 0.0)
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Family definition, seal, and claims
 # ---------------------------------------------------------------------------
@@ -187,7 +218,8 @@ def seal_family_record(record):
             + " or carries a cycle")
     missing = [
         item for item in FAMILY_COMPLETENESS_ITEMS
-        if not isinstance(record, dict) or not dict.get(record, item)
+        if not isinstance(record, dict)
+        or not _stored_value_present(dict.get(record, item))
     ]
     if missing:
         raise NamedControllerFailure(
@@ -205,8 +237,10 @@ def seal_family_record(record):
     sealed = _freeze(record)
     sealed["sealed"] = True
     sealed["seal"] = {
-        "version": _freeze(version_value) or "version 1",
-        "hash": _freeze(hash_value) or (
+        "version": _freeze(version_value)
+        if _stored_value_present(version_value) else "version 1",
+        "hash": _freeze(hash_value)
+        if _stored_value_present(hash_value) else (
             "manifest hash supplied as a record value, not computed"),
     }
     sealed["seal_version"] = sealed["seal"]["version"]
@@ -242,16 +276,19 @@ def apply_family_edit(record, change=None):
     explicit_checks = []
     if isinstance(change, dict):
         for field in ("kill_check_fields", "kill_checks"):
-            supplied = change.get(field)
+            supplied = dict.get(change, field)
             if isinstance(supplied, (list, tuple)):
                 explicit_checks.extend(supplied)
     if isinstance(change, dict) and (
-            "headline_claims" in change or "claims" in change):
-        raw = change.get("headline_claims") if (
-            "headline_claims" in change) else change.get("claims")
+            dict.__contains__(change, "headline_claims")
+            or dict.__contains__(change, "claims")):
+        raw = dict.get(change, "headline_claims") if (
+            dict.__contains__(change, "headline_claims")) else dict.get(
+                change, "claims")
     else:
-        raw = edited.get("headline_claims") if (
-            "headline_claims" in edited) else edited.get("claims")
+        raw = dict.get(edited, "headline_claims") if (
+            dict.__contains__(edited, "headline_claims")) else dict.get(
+                edited, "claims")
     if raw is not None:
         if not isinstance(raw, (list, tuple)):
             raise NamedControllerFailure(
@@ -265,27 +302,31 @@ def apply_family_edit(record, change=None):
         edited["kill_check_fields"] = checks
         edited["kill_checks"] = checks
         for check in explicit_checks:
-            if isinstance(check, dict) and check.get("claim") is not None \
-                    and check.get("claim") not in standing:
+            if isinstance(check, dict) \
+                    and dict.get(check, "claim") is not None \
+                    and dict.get(check, "claim") not in standing:
                 raise NamedControllerFailure(
                     "family edit refused: a kill check field names "
                     "a claim that no longer stands: "
-                    + str(check.get("claim")))
+                    + str(dict.get(check, "claim")))
     elif explicit_checks:
-        standing_now = edited.get("headline_claims")
+        standing_now = dict.get(edited, "headline_claims")
         if not isinstance(standing_now, (list, tuple)):
-            standing_now = edited.get("claims")
+            standing_now = dict.get(edited, "claims")
         if isinstance(standing_now, (list, tuple)):
             for check in explicit_checks:
                 if isinstance(check, dict) \
-                        and check.get("claim") is not None \
-                        and check.get("claim") not in standing_now:
+                        and dict.get(check, "claim") is not None \
+                        and dict.get(check, "claim") not in standing_now:
                     raise NamedControllerFailure(
                         "family edit refused: a kill check field "
                         "names a claim that no longer stands: "
-                        + str(check.get("claim")))
-    if record.get("sealed"):
-        base_id = record.get("family_identifier") or record.get("family_id")
+                        + str(dict.get(check, "claim")))
+    if isinstance(record, dict) and _stored_value_present(
+            dict.get(record, "sealed")):
+        base_id = dict.get(record, "family_identifier")
+        if not _stored_value_present(base_id):
+            base_id = dict.get(record, "family_id")
         new_id = str(base_id) + "-edited-1"
         edited["family_id"] = new_id
         edited["family_identifier"] = new_id
@@ -342,8 +383,11 @@ def validate_family_record(record):
         return False
     if not _mod01.family_supports_reportable_run(record):
         return False
-    if record.get("sealed") and record.get("edited_after_seal"):
-        if not record.get("identifier_changed"):
+    if _stored_value_present(dict.get(record, "sealed")) \
+            and _stored_value_present(
+                dict.get(record, "edited_after_seal")):
+        if not _stored_value_present(
+                dict.get(record, "identifier_changed")):
             return False
     for field in ("kill_check_fields", "kill_checks"):
         checks = record.get(field)
@@ -598,10 +642,44 @@ def _stored_text(value):
     itself supplies. A value that is not a text form stores
     no text at all, in the cured MOD-01 form: the helper
     returns None for one, so no name stands judged from a
-    string reading a non text key itself supplies."""
+    string reading a non text key itself supplies. A bytes
+    value, a bytearray value, and a memoryview value stand
+    read as stored text by decoding their stored bytes as
+    UTF-8 with undecodable bytes dropped, never through a
+    string reading such a value itself supplies, so a form
+    in bytes dress keeps the standing its stored name
+    carries, in the form of section 2 of the Round 10
+    register, limbs 2 and 6."""
     if isinstance(value, str):
         return str.__str__(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
     return None
+
+
+def _key_stored_text(key, _depth=0):
+    """The stored text of one key, in the container form of
+    section 2 of the Round 10 register, limbs 3 and 4. A
+    scalar key stands as its stored text. A container key
+    in tuple, list, frozenset, or set form stands as the
+    stored text of its parts joined in order with no
+    separator added, each part read on its own stored text
+    recursively, so a single part container carries the
+    reading of its one part, a name split across the parts
+    of one container key reads as one name, and a bytes
+    part inside a container key reads under the bytes limb
+    exactly as a bare bytes key reads. Parts past the
+    barred read bound stand unread."""
+    text = _stored_text(key)
+    if text is not None:
+        return text
+    if _depth > _MAX_BARRED_READ_DEPTH:
+        return ""
+    if isinstance(key, (tuple, list, frozenset, set)):
+        return "".join(
+            _key_stored_text(part, _depth + 1)
+            for part in _base_iter(key))
+    return ""
 
 
 def _canonicalised_name(key, letter_map=None):
@@ -618,7 +696,7 @@ def _canonicalised_name(key, letter_map=None):
 
 
 def _folded_money_key(key):
-    return _canonicalised_name(_stored_text(key))
+    return _canonicalised_name(_key_stored_text(key))
 
 
 def _folded_money_variants(key):
@@ -639,9 +717,7 @@ def _folded_money_variants(key):
     positions, still stand read in full."""
     forms = set()
     bases = set()
-    stored = _stored_text(key)
-    if stored is None:
-        stored = ""
+    stored = _key_stored_text(key)
     for letter_map in _CANONICAL_MAPS:
         bases.add(_canonicalised_name(stored, letter_map))
     options = []
@@ -721,9 +797,7 @@ _FOLDED_READ_MODES = (None, "leet", "drop", "leetdrop")
 
 def _base_reading_options(key):
     options = []
-    stored = _stored_text(key)
-    if stored is None:
-        return options
+    stored = _key_stored_text(key)
     for character in stored:
         raw = set()
         for form in _reading_characters(character):

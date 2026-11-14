@@ -394,13 +394,47 @@ def _stored_text(value):
     string form, never through a string reading the value
     itself supplies. A value that stores no text at all
     judges no name: the empty text stands returned for one,
-    in the cured MOD-01 form."""
+    in the cured MOD-01 form. A bytes value, a bytearray
+    value, and a memoryview value stand judged on their
+    stored bytes, decoded as UTF-8 with undecodable bytes
+    dropped, never through a string reading the value itself
+    supplies, in the governing stored text settlement form."""
     if isinstance(value, str):
         return str.__str__(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
     return ""
 
 
-def _pilot_key_form(key):
+def _container_parts(value):
+    """The parts a container value stores, read through the
+    base iteration reading of its form, never through an
+    iteration reading the value itself supplies."""
+    if isinstance(value, list):
+        return list(list.__iter__(value))
+    if isinstance(value, tuple):
+        return list(tuple.__iter__(value))
+    if isinstance(value, frozenset):
+        return list(frozenset.__iter__(value))
+    if isinstance(value, set):
+        return list(set.__iter__(value))
+    return []
+
+
+def _pilot_key_form(key, _seen=None, _depth=0):
+    if isinstance(key, (list, tuple, set, frozenset)):
+        if _depth > _PILOT_ARTEFACT_DEPTH_BOUND:
+            return ""
+        seen = _seen if _seen is not None else set()
+        if id(key) in seen:
+            return ""
+        seen.add(id(key))
+        try:
+            return "".join(
+                _pilot_key_form(part, seen, _depth + 1)
+                for part in _container_parts(key))
+        finally:
+            seen.discard(id(key))
     return "".join(
         char for char in _stored_text(key).lower()
         if char.isalnum())
@@ -410,7 +444,19 @@ _PILOT_BARRED_KEY_FORMS = tuple(
     _pilot_key_form(marker) for marker in _PILOT_BARRED_KEY_MARKERS)
 
 
-def _screen_pilot_key(key):
+def _screen_pilot_key(key, _seen=None, _depth=0):
+    if isinstance(key, (list, tuple, set, frozenset)):
+        if _depth > _PILOT_ARTEFACT_DEPTH_BOUND:
+            return
+        seen = _seen if _seen is not None else set()
+        if id(key) in seen:
+            return
+        seen.add(id(key))
+        try:
+            for part in _container_parts(key):
+                _screen_pilot_key(part, seen, _depth + 1)
+        finally:
+            seen.discard(id(key))
     form = _pilot_key_form(key)
     if any(marker in form for marker in _PILOT_BARRED_KEY_FORMS):
         raise NamedShellFailure(
@@ -451,9 +497,7 @@ def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None):
             if isinstance(value, dict):
                 for key, item in dict.items(value):
                     _screen_pilot_artefact(key, _depth + 1, seen, walked)
-                    if not isinstance(
-                            key, (dict, list, tuple, set, frozenset)):
-                        _screen_pilot_key(key)
+                    _screen_pilot_key(key)
                     _screen_pilot_artefact(item, _depth + 1, seen, walked)
                 if not validate_pilot_claim(value):
                     raise NamedShellFailure(
@@ -463,9 +507,9 @@ def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None):
                     items = list(list.__iter__(value))
                 else:
                     items = list(tuple.__iter__(value))
-                if len(items) == 2 and isinstance(items[0], str):
-                    _screen_pilot_key(items[0])
                 for item in items:
+                    if not isinstance(item, (dict, list, set)):
+                        _screen_pilot_key(item)
                     _screen_pilot_artefact(item, _depth + 1, seen, walked)
             else:
                 if isinstance(value, frozenset):
@@ -473,7 +517,7 @@ def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None):
                 else:
                     base_iter = set.__iter__
                 for item in base_iter(value):
-                    if isinstance(item, str):
+                    if not isinstance(item, dict):
                         _screen_pilot_key(item)
                     _screen_pilot_artefact(item, _depth + 1, seen, walked)
         finally:
@@ -1864,9 +1908,8 @@ def validate_operator_action(action):
     record on any path; the flag rule path admits edit acts only
     on a closed run record, and a destructive act stands refused
     there as on every path; a checkpoint set stands edited only
-    on the deletion rule. Validation reads checkpoint manifests
-    beside the run record to compare seeds, settings, and rule
-    versions."""
+    on the deletion rule. Validation reads the action record
+    alone."""
     return _operator_action_bar(action) is None
 
 
@@ -1895,7 +1938,7 @@ _RUNBOOK_STEPS = (
     "Read stores by kind: sweep, pilot, and live. Never resolve a record across stores in one lookup.",
     "Run the program checks by name: the store kind check; the flag evaluation, whose inputs and outcome stand written into the stored summary record itself; the weekly headline count, counted from the stored summary records alone; and the outside call check, computed from the dependency manifest and the process and network call log only, certifying only the absence the check reads.",
     "Treat every named failure as the result of its act. Report it with its run identifier and its stage, and never present an empty result in its place, and never let a command exit cleanly over a failed run.",
-    "Make no edit to a sealed family record, to a closed run record outside the flag rule path, or to a checkpoint set outside the deletion rule. Validation reads checkpoint manifests beside the run record to compare seeds, settings, and rule versions.",
+    "Make no edit to a sealed family record, to a closed run record outside the flag rule path, or to a checkpoint set outside the deletion rule. Validation reads the action record alone.",
 )
 
 

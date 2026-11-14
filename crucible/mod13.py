@@ -1006,14 +1006,17 @@ def validate_scoring_record(record):
     stated carriage value."""
     if not isinstance(record, dict):
         return False
-    if record.get("inside_run_boundary"):
+    if _base_get(record, "inside_run_boundary"):
         return False
-    if record.get("value_returned_into_run") is not None:
+    if _base_get(record, "value_returned_into_run") is not None:
         return False
-    if record.get("profile_bound_label") != PROFILE_BOUND_LABEL:
+    if not _base_str_eq(
+            _base_get(record, "profile_bound_label"), PROFILE_BOUND_LABEL):
         return False
-    separations = record.get("separations") or {}
-    return all(separations.get(name) for name in SCORING_SEPARATIONS)
+    separations = _base_get(record, "separations")
+    if not isinstance(separations, dict):
+        return False
+    return all(_base_get(separations, name) for name in SCORING_SEPARATIONS)
 
 
 # ---------------------------------------------------------------------------
@@ -1044,11 +1047,13 @@ def validate_rerun_reading(reading):
     original result, record, or standing."""
     if not isinstance(reading, dict):
         return False
-    if reading.get("read_as") == "corrected version of the original":
+    read_as = _base_get(reading, "read_as")
+    if _base_str_eq(read_as, "corrected version of the original"):
         return False
-    if reading.get("overwrites_original"):
+    if _base_get(reading, "overwrites_original"):
         return False
-    return reading.get("read_as") in (None, "difference between two rule sets only")
+    return read_as is None or _base_str_eq(
+        read_as, "difference between two rule sets only")
 
 
 _HISTORY_CONTAINER_TYPES = (dict, list, tuple, set, frozenset)
@@ -1159,7 +1164,11 @@ def extend_history(history, segment):
     each input, past the bound or a cycle, and names the input
     that carries it. The copy of the handed history reads the
     history through the same base class reading the guard
-    walks, so what is guarded is what is copied."""
+    walks, so what is guarded is what is copied. The history
+    items and the appended segment stand copied under one
+    shared memo, so a part shared across items, or between
+    the history and the appended segment, stands in the
+    returned history as one copy and the sharing stands."""
     if not isinstance(history, (list, tuple)) or not history:
         raise NamedReplicationFailure("a history extension extends an existing segment")
     if not isinstance(segment, dict):
@@ -1180,7 +1189,8 @@ def extend_history(history, segment):
     if grounds:
         raise NamedReplicationFailure(
             "a history extension stands refused: " + "; ".join(grounds))
-    segments = [_freeze(item) for item in _history_base_items(history)]
+    memo = {}
+    segments = [_freeze(item, memo) for item in _history_base_items(history)]
     first = segments[0]
     if not isinstance(first, dict) or not first.get("rule_set_version"):
         raise NamedReplicationFailure(
@@ -1190,7 +1200,7 @@ def extend_history(history, segment):
         raise NamedReplicationFailure(
             "a history extension links by run identifier: no run identifier stands on the segment it extends"
         )
-    appended = _freeze(segment)
+    appended = _freeze(segment, memo)
     stated_version = appended.get("rule_set_version")
     if stated_version is not None and stated_version != first.get("rule_set_version"):
         raise NamedReplicationFailure(
@@ -1260,10 +1270,23 @@ def _first_base_value(record, fields):
 def _record_is_pilot(record):
     """True where a record stands as a pilot artefact. Pilot
     artefacts are stored apart from sweep results and a pilot
-    record is never a run log entry for this check."""
+    record is never a run log entry for this check. The pilot
+    standing stands read in every form the product itself
+    stamps: the run class, store kind, kind, and record kind
+    fields carrying the value pilot, and the pilot artefact
+    form the MOD-14 pilot runner stamps, the form field
+    carrying the pilot artefact value and the confinement
+    label field carrying the pilot confined value."""
     for field in ("run_class", "store_kind", "kind", "record_kind"):
         if _base_str_eq(_base_get(record, field), "pilot"):
             return True
+    if _base_str_eq(_base_get(record, "form"), "pilot artefact") or (
+            _base_str_eq(
+                _base_get(record, "form"),
+                "pilot artefact, stored apart from sweep results")):
+        return True
+    if _base_str_eq(_base_get(record, "confinement_label"), "pilot confined"):
+        return True
     return False
 
 
@@ -1294,12 +1317,11 @@ def _record_bears_on_entry(record, entry):
 def _entry_run_identifiers(entry):
     """The run identifiers a registry entry carries, read
     through base class readings from its screening and held out
-    confirmation identifier fields."""
+    confirmation identifier fields, the two identifier fields
+    Form 22 item 1 states, and from no other field."""
     identifiers = []
     for field in ("screening_run_identifiers",
-                  "held_out_confirmation_run_identifiers",
-                  "confirmation_run_identifiers",
-                  "run_identifiers"):
+                  "held_out_confirmation_run_identifiers"):
         value = _base_get(entry, field)
         if isinstance(value, (list, tuple, set, frozenset)):
             identifiers.extend(_base_container_items(value))
@@ -1308,8 +1330,169 @@ def _entry_run_identifiers(entry):
     return identifiers
 
 
+def _record_status_failed(record):
+    """True where a record stands as a failed run, its status
+    field read as failed, under the status field or the run
+    status field. A failed run bears as any other run bears;
+    this reading names it in the result only."""
+    status = _first_base_value(record, ("status", "run_status"))
+    return _base_str_eq(status, "failed")
+
+
+def _stored_count(value):
+    """Read a stored count as a plain integer, or None where
+    the value stores no count. A boolean stores no count."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return int(value)
+    return None
+
+
+def _plan_expected_count(plan, entry):
+    """Derive the expected run count from one replicate plan,
+    in the smallest forms the records state. A plan stating an
+    expected count carries that count. A plan stating a list
+    of replicate counts per grid point carries the sum of its
+    counts. A plan stating replicates per grid point carries
+    the product of that figure and its grid points, the grid
+    points standing in the plan or, where the plan states
+    none, in the entry. A plan nested under a replicate plan
+    field reads through that field. No other form derives a
+    count, and no figure stands invented here."""
+    if plan is None:
+        return None
+    direct = _stored_count(plan)
+    if direct is not None:
+        return direct
+    if isinstance(plan, (list, tuple, set, frozenset)):
+        total = 0
+        for item in _base_container_items(plan):
+            count = _stored_count(item)
+            if count is None:
+                return None
+            total += count
+        return total
+    if not isinstance(plan, dict):
+        return None
+    stated = _stored_count(_first_base_value(
+        plan, ("expected_run_count", "expected_runs", "expected_count")))
+    if stated is not None:
+        return stated
+    counts = _first_base_value(plan, ("replicate_counts", "replicates_per_point"))
+    if isinstance(counts, (list, tuple, set, frozenset)):
+        return _plan_expected_count(counts, entry)
+    per_point = _stored_count(_first_base_value(
+        plan, ("replicates_per_grid_point", "replicate_count",
+               "replicates")))
+    if per_point is not None:
+        points = _first_base_value(
+            plan, ("grid_points", "grid_point_count"))
+        if points is None and isinstance(entry, dict):
+            points = _base_get(entry, "grid_points")
+        point_count = _stored_count(points)
+        if point_count is None and isinstance(
+                points, (list, tuple, set, frozenset)):
+            point_count = len(_base_container_items(points))
+        if point_count is not None:
+            return per_point * point_count
+    nested = _base_get(plan, "replicate_plan")
+    if nested is not None:
+        return _plan_expected_count(nested, entry)
+    return None
+
+
+def _manifest_expected_count(manifest, entry):
+    """Derive the expected run count from a FamilyManifest
+    handed to the act, through the family record replicate
+    plan it carries as sealed, in the form
+    _plan_expected_count states."""
+    if manifest is None:
+        return None
+    if isinstance(manifest, dict):
+        plan = _base_get(manifest, "replicate_plan")
+        if plan is not None:
+            return _plan_expected_count(plan, entry)
+    return _plan_expected_count(manifest, entry)
+
+
+def _expected_count_and_source(entry, source, family_manifest):
+    """Return the expected run count and the name of its
+    source. The governing source stands first: the family
+    record replicate plan as sealed in the FamilyManifest,
+    handed as the family manifest argument, carried on the
+    entry, or carried on the run log mapping. The stated
+    expected count fields of the entry and of the run log
+    mapping stand as the remaining read sources, as the act
+    has always read them. Where no source states a count,
+    the pair stands as no count and no source, and the caller
+    states that the shortfall limb did not run."""
+    manifest = family_manifest
+    if manifest is None and isinstance(entry, dict):
+        manifest = _first_base_value(
+            entry, ("family_manifest", "manifest"))
+    if manifest is None and isinstance(source, dict):
+        manifest = _first_base_value(
+            source, ("family_manifest", "manifest"))
+    if manifest is not None:
+        derived = _manifest_expected_count(manifest, entry)
+        if derived is not None:
+            return derived, "family manifest replicate plan"
+    if isinstance(entry, dict):
+        plan = _base_get(entry, "replicate_plan")
+        if plan is not None:
+            derived = _plan_expected_count(plan, entry)
+            if derived is not None:
+                return derived, "entry replicate plan"
+        stated = _stored_count(_first_base_value(
+            entry, ("expected_run_count", "expected_runs")))
+        if stated is not None:
+            return stated, "entry expected count field"
+    if isinstance(source, dict):
+        stated = _stored_count(_first_base_value(
+            source, ("expected_run_count", "expected_runs")))
+        if stated is not None:
+            return stated, "run log expected count field"
+    return None, None
+
+
+def _amended_form_failures(entry):
+    """The failures the amended Form 22 fields state on an
+    entry, at this act. The outcome stands read with the
+    confirmation outcome field and the gate failure field and
+    with no other reading: a confirmation outcome of failed
+    fails, and a gate failure at the procedure gate, at the
+    confirmation gate, or at both gates fails. An entry for
+    an unranked claim carries the value not ranked in its
+    test value, rank, and threshold fields and no other
+    value, so a not ranked value in one of those fields
+    beside another value in any of them fails."""
+    failures = []
+    if not isinstance(entry, dict):
+        return failures
+    if _base_str_eq(_base_get(entry, "confirmation_outcome"), "failed"):
+        failures.append("confirmation outcome failed")
+    gate_failure = _base_get(entry, "gate_failure")
+    for stated in ("procedure gate", "confirmation gate", "both gates"):
+        if _base_str_eq(gate_failure, stated):
+            failures.append("gate failure: " + stated)
+    ranked_fields = [
+        _base_get(entry, field)
+        for field in ("test_value", "rank", "threshold")]
+    carries_not_ranked = any(
+        _base_str_eq(value, "not ranked") for value in ranked_fields)
+    all_not_ranked = all(
+        _base_str_eq(value, "not ranked") for value in ranked_fields)
+    if carries_not_ranked and not all_not_ranked:
+        failures.append(
+            "unranked form incomplete: the test value, rank, and "
+            "threshold fields do not all carry not ranked")
+    return failures
+
+
 def compare_registry_against_run_log(entry, run_log=None,
-                                     retained_records=None):
+                                     retained_records=None,
+                                     family_manifest=None):
     """Compare one SweepFamilyRegistry entry against the run
     log, in the form the brief at section 2.4 and the plan at
     Form 22 item 4 and section 6.1 item 13 state. The act stands
@@ -1331,23 +1514,53 @@ def compare_registry_against_run_log(entry, run_log=None,
     confirmation run identifiers, read by base string equality.
 
     The result states whether a comparison was performed, and
-    whether it passed. With no run log among the inputs, no
-    comparison stands performed and none stands passed. Where
-    an expected run count stands stated, on the entry or as
-    the expected count field of the run log mapping, a shortfall
-    of retained records against that count fails the comparison
-    under the name EXPECTED-RUN-SHORTFALL, as Form 22 item 5
-    states."""
+    whether it passed, and it names the claim it judges in its
+    claim identifier field, on every return form. With no run
+    log among the inputs, no comparison stands performed and
+    none stands passed. The comparison runs in both
+    directions: every bearing run must appear in the entry,
+    and every run the entry itself states must stand in the
+    log, named in the result where it stands absent, so a
+    comparison over an empty log does not pass an entry that
+    states runs. The bearing runs that stand failed stand
+    named in the result, while standing in the log as Form 22
+    item 4 states. The amended Form 22 fields stand read at
+    this act in the form _amended_form_failures states.
+
+    The expected run count stands derived from the family
+    record replicate plan as sealed in the FamilyManifest,
+    handed as the family manifest argument, carried on the
+    entry, or carried on the run log mapping, with the stated
+    expected count fields of the entry and of the run log
+    mapping as the remaining read sources. The retained count
+    the shortfall is judged against is the count of bearing
+    records only, the same membership the bearing list states,
+    pilot records and records bearing on no claim of the entry
+    standing outside it. A shortfall of retained records
+    against the expected count fails the comparison under the
+    name EXPECTED-RUN-SHORTFALL, as Form 22 item 5 states.
+    Where no source states an expected count, the result
+    states that the shortfall limb did not run, in its
+    shortfall limb performed and shortfall status fields, so
+    its absence never reads as a pass of that limb."""
+    claim_id = None
+    if isinstance(entry, dict):
+        claim_id = _first_base_value(entry, ("claim_identifier", "claim_id"))
     if not isinstance(entry, dict):
         return {
             "performed": False,
             "passed": False,
             "checker_module": "MOD-13",
             "compared_against_run_log": False,
+            "claim_identifier": claim_id,
             "bearing_run_identifiers": [],
             "missing_run_identifiers": [],
             "excluded_pilot_run_identifiers": [],
             "entry_run_identifiers": [],
+            "absent_from_log_run_identifiers": [],
+            "failed_run_identifiers": [],
+            "shortfall_limb_performed": False,
+            "shortfall_status": "not run: no run log stands handed",
         }
     source = retained_records if retained_records is not None else run_log
     if source is None:
@@ -1359,14 +1572,20 @@ def compare_registry_against_run_log(entry, run_log=None,
             "passed": False,
             "checker_module": "MOD-13",
             "compared_against_run_log": False,
+            "claim_identifier": claim_id,
             "bearing_run_identifiers": [],
             "missing_run_identifiers": [],
             "excluded_pilot_run_identifiers": [],
             "entry_run_identifiers": _entry_run_identifiers(entry),
+            "absent_from_log_run_identifiers": [],
+            "failed_run_identifiers": [],
+            "shortfall_limb_performed": False,
+            "shortfall_status": "not run: no run log stands handed",
         }
     entry_ids = _entry_run_identifiers(entry)
     bearing = []
     excluded_pilot = []
+    failed = []
     for record in records:
         run_id = _first_base_value(record, ("run_identifier", "run_id"))
         if _record_is_pilot(record):
@@ -1375,33 +1594,55 @@ def compare_registry_against_run_log(entry, run_log=None,
         if not _record_bears_on_entry(record, entry):
             continue
         bearing.append(run_id)
+        if _record_status_failed(record):
+            failed.append(run_id)
     missing = [
         run_id for run_id in bearing
         if run_id is None or not any(
             _base_str_eq(run_id, entry_id) for entry_id in entry_ids)]
+    absent = [
+        entry_id for entry_id in entry_ids
+        if not any(_base_str_eq(entry_id, run_id) for run_id in bearing)]
+    amended_failures = _amended_form_failures(entry)
     result = {
         "performed": True,
-        "passed": not missing,
+        "passed": not missing and not absent and not amended_failures,
         "checker_module": "MOD-13",
         "compared_against_run_log": True,
+        "claim_identifier": claim_id,
         "bearing_run_identifiers": bearing,
         "missing_run_identifiers": missing,
         "excluded_pilot_run_identifiers": excluded_pilot,
         "entry_run_identifiers": entry_ids,
+        "absent_from_log_run_identifiers": absent,
+        "failed_run_identifiers": failed,
     }
-    expected = _first_base_value(
-        entry, ("expected_run_count", "expected_runs"))
-    if expected is None and isinstance(source, dict):
-        expected = _first_base_value(
-            source, ("expected_run_count", "expected_runs"))
-    if isinstance(expected, int) and not isinstance(expected, bool):
-        retained_count = len(records) - len(excluded_pilot)
+    if amended_failures:
+        result["amended_form_failures"] = amended_failures
+    confirmation_outcome = _base_get(entry, "confirmation_outcome")
+    if confirmation_outcome is not None:
+        result["confirmation_outcome"] = confirmation_outcome
+    gate_failure = _base_get(entry, "gate_failure")
+    if gate_failure is not None:
+        result["gate_failure"] = gate_failure
+    expected, expected_source = _expected_count_and_source(
+        entry, source, family_manifest)
+    if expected is not None:
+        retained_count = len(bearing)
+        result["shortfall_limb_performed"] = True
+        result["expected_count_source"] = expected_source
         result["expected_run_count"] = expected
         result["retained_run_count"] = retained_count
         if retained_count < expected:
             result["passed"] = False
             result["shortfall_name"] = "EXPECTED-RUN-SHORTFALL"
             result["shortfall"] = expected - retained_count
+    else:
+        result["shortfall_limb_performed"] = False
+        result["expected_count_source"] = None
+        result["shortfall_status"] = (
+            "not run: no expected run count stands stated in a "
+            "read source")
     return result
 
 

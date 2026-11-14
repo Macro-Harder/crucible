@@ -172,42 +172,50 @@ class TestR9018DaySortKeyStoredText(unittest.TestCase):
     def test_defect_isdigit_lie_storing_digit_day_sorts_as_day(self):
         day = LyingDay("5", "zzz", False)
         self.assertEqual(
-            mod10._day_sort_key((day, "viewer1")), (0, 5, "viewer1"))
+            mod10._day_sort_key((day, "viewer1")),
+            (0, 5, "str:1:5", "viewer1", "str:7:viewer1"))
 
     def test_defect_isdigit_lie_storing_text_day_keys_by_stored_text(self):
         day = LyingDay("notaday", "5", True)
         self.assertEqual(
             mod10._day_sort_key((day, "viewer1")),
-            (1, 0, "notaday", "viewer1"))
+            (1, 0, "notaday", "str:7:notaday", "viewer1",
+             "str:7:viewer1"))
 
     def test_defect_reported_day_text_not_in_fallback_key(self):
         day = ReportingStr("later", "zzz")
         self.assertEqual(
             mod10._day_sort_key((day, "viewer1")),
-            (1, 0, "later", "viewer1"))
+            (1, 0, "later", "str:5:later", "viewer1",
+             "str:7:viewer1"))
 
     def test_defect_reported_viewer_not_in_numbered_key(self):
         viewer = ReportingStr("v-real", "v-fake")
         self.assertEqual(
-            mod10._day_sort_key((5, viewer)), (0, 5, "v-real"))
+            mod10._day_sort_key((5, viewer)),
+            (0, 5, "int:5", "v-real", "str:6:v-real"))
 
     def test_defect_reported_viewer_not_in_fallback_key(self):
         viewer = ReportingStr("v-real", "v-fake")
         self.assertEqual(
             mod10._day_sort_key(("later", viewer)),
-            (1, 0, "later", "v-real"))
+            (1, 0, "later", "str:5:later", "v-real",
+             "str:6:v-real"))
 
     def test_control_plain_digit_text_sorts_as_day(self):
         self.assertEqual(
-            mod10._day_sort_key(("5", "viewer1")), (0, 5, "viewer1"))
+            mod10._day_sort_key(("5", "viewer1")),
+            (0, 5, "str:1:5", "viewer1", "str:7:viewer1"))
 
     def test_control_int_day_sorts_as_day(self):
         self.assertEqual(
-            mod10._day_sort_key((5, "viewer1")), (0, 5, "viewer1"))
+            mod10._day_sort_key((5, "viewer1")),
+            (0, 5, "int:5", "viewer1", "str:7:viewer1"))
 
     def test_control_parseable_unicode_digit_sorts_as_day(self):
         self.assertEqual(
-            mod10._day_sort_key(("\u0665", "viewer1")), (0, 5, "viewer1"))
+            mod10._day_sort_key(("\u0665", "viewer1")),
+            (0, 5, "str:1:\u0665", "viewer1", "str:7:viewer1"))
 
 
 class TestR9019FallbackKeyDistinct(unittest.TestCase):
@@ -220,15 +228,19 @@ class TestR9019FallbackKeyDistinct(unittest.TestCase):
     def test_defect_colon_pair_keys_distinct(self):
         left = mod10._day_sort_key(("a", "b:c"))
         right = mod10._day_sort_key(("a:b", "c"))
-        self.assertEqual(left, (1, 0, "a", "b:c"))
-        self.assertEqual(right, (1, 0, "a:b", "c"))
+        self.assertEqual(
+            left, (1, 0, "a", "str:1:a", "b:c", "str:3:b:c"))
+        self.assertEqual(
+            right, (1, 0, "a:b", "str:3:a:b", "c", "str:1:c"))
         self.assertNotEqual(left, right)
 
     def test_defect_none_day_and_text_none_keys_distinct(self):
         left = mod10._day_sort_key((None, "v1"))
         right = mod10._day_sort_key(("None", "v1"))
-        self.assertEqual(left, (1, 0, "", "v1"))
-        self.assertEqual(right, (1, 0, "None", "v1"))
+        self.assertEqual(
+            left, (1, 0, "", "none", "v1", "str:2:v1"))
+        self.assertEqual(
+            right, (1, 0, "None", "str:4:None", "v1", "str:2:v1"))
         self.assertNotEqual(left, right)
 
     def test_defect_colon_pair_order_stable_across_retention_order(self):
@@ -311,7 +323,9 @@ class TestR8025CrashCureKept(unittest.TestCase):
         for char in ("\u2075", "\u00b2", "\u00b3", "\u2460"):
             with self.subTest(code=hex(ord(char))):
                 key = mod10._day_sort_key((char, "viewer1"))
-                self.assertEqual(key, (1, 0, char, "viewer1"))
+                self.assertEqual(
+                    key, (1, 0, char, "str:1:" + char, "viewer1",
+                          "str:7:viewer1"))
 
     def test_control_unparseable_day_aggregates_whole(self):
         mod10.retain_daily_aggregate_deliveries(
@@ -325,7 +339,8 @@ class TestR8025CrashCureKept(unittest.TestCase):
     def test_control_nondigit_text_fallback_separate_segments(self):
         self.assertEqual(
             mod10._day_sort_key(("later", "viewer1")),
-            (1, 0, "later", "viewer1"))
+            (1, 0, "later", "str:5:later", "viewer1",
+             "str:7:viewer1"))
 
 
 if __name__ == "__main__":

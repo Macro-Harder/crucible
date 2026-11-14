@@ -57,13 +57,28 @@ class TestTA56RegistryRunLogClaim(unittest.TestCase):
         self.assertFalse(judged["compared_against_run_log"])
 
     def test_run_log_handed_in_states_the_comparison(self):
+        entry = dict(self.ENTRY)
+        entry.update({
+            "claim_identifier": "claim-1",
+            "claim_statement": "stated value",
+            "assumption_set_and_row_identifiers": "stated value",
+            "grid_points": "stated value",
+            "screening_run_identifiers": [],
+            "held_out_confirmation_run_identifiers": [],
+            "test_value": "0.01",
+            "rank": 1,
+            "threshold": 0.05,
+            "outcome": "reported",
+            "confirmation_outcome": "passed",
+            "gate_failure": "none",
+        })
         judged = mod11.judge_registry_entry(
-            self.ENTRY, compiler="registrar",
+            entry, compiler="registrar",
             checker="independent checker",
             run_log={"runs": ["run-1"]})
         self.assertTrue(judged["compared_against_run_log"])
         self.assertTrue(mod11.validate_registry_entry(
-            self.ENTRY, compiler="registrar",
+            entry, compiler="registrar",
             checker="independent checker",
             run_log={"runs": ["run-1"]}))
 

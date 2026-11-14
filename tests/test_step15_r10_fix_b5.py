@@ -119,12 +119,24 @@ class TestR9010StoredText(unittest.TestCase):
         self.assertEqual(mod04._stored_text(key), "")
         self.assertFalse(mod04._is_barred_key(key))
 
-    def test_defect_bytes_value_stores_no_text_name(self):
-        self.assertEqual(mod04._stored_text(b"membership"), "")
-        self.assertFalse(mod04._is_barred_key(b"membership"))
+    def test_restated_bytes_value_stores_its_decoded_text_name(self):
+        # Restated as a charged act of fix wave 10 under the
+        # Round 10 register, section 2, settlement item (a) and
+        # row R10-001. The form this test carried before the
+        # restatement asserted that a bytes value stores no text
+        # name at MOD-04: _stored_text(b"membership") stood
+        # asserted as the empty text, _is_barred_key of the same
+        # bytes value stood asserted False, and the same two
+        # assertions stood made for a ReportingBytes value
+        # storing b"membership". That form conflicts with
+        # settlement limb 2, under which a bytes value stands
+        # read as stored text by decoding its stored bytes. The
+        # restated form below asserts the decoded standing.
+        self.assertEqual(mod04._stored_text(b"membership"), "membership")
+        self.assertTrue(mod04._is_barred_key(b"membership"))
         reporting = ReportingBytes(b"membership")
-        self.assertEqual(mod04._stored_text(reporting), "")
-        self.assertFalse(mod04._is_barred_key(reporting))
+        self.assertEqual(mod04._stored_text(reporting), "membership")
+        self.assertTrue(mod04._is_barred_key(reporting))
 
     def test_defect_plain_int_stores_no_text_name(self):
         self.assertEqual(mod04._stored_text(123), "")

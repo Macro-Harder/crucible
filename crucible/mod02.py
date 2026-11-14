@@ -163,6 +163,40 @@ def _plain_number(value):
     return None
 
 
+def _stored_present(value):
+    """Return whether a handed value stands present on its
+    stored contents, judged through base class operations
+    only: the stored characters of a text, the stored length
+    of a container, and the stored number of a number, never
+    through a truth, length, or bool reading the value itself
+    supplies. A value in none of those forms stands present
+    where it stands handed in at all."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return str.__len__(str.__str__(value)) != 0
+    if isinstance(value, bytes):
+        return bytes.__len__(value) != 0
+    if isinstance(value, bytearray):
+        return bytearray.__len__(value) != 0
+    if isinstance(value, memoryview):
+        return memoryview.__len__(value) != 0
+    if isinstance(value, dict):
+        return dict.__len__(value) != 0
+    if isinstance(value, list):
+        return list.__len__(value) != 0
+    if isinstance(value, tuple):
+        return tuple.__len__(value) != 0
+    if isinstance(value, (set, frozenset)):
+        if isinstance(value, set):
+            return set.__len__(value) != 0
+        return frozenset.__len__(value) != 0
+    plain = _plain_number(value)
+    if plain is not None:
+        return plain != 0
+    return True
+
+
 def _new_eq_frame(left, right):
     return {"left": left, "right": right, "stage": "start",
             "awaiting": None, "pair": None, "mode": None}
@@ -205,17 +239,23 @@ def _base_value_eq(left, right):
                 if outcome:
                     frame["matched"] = frame["right_keys"][
                         frame["candidate"]]
+                    frame["matched_index"] = frame["candidate"]
                     frame["phase"] = "value"
                 else:
                     frame["candidate"] += 1
             elif awaiting == "dict_value":
                 if not outcome:
-                    if close(False):
-                        return False
-                    continue
-                frame["key_index"] += 1
-                frame["candidate"] = 0
-                frame["phase"] = "key"
+                    frame["candidate"] = frame["matched_index"] + 1
+                    frame["matched"] = None
+                    frame["matched_index"] = None
+                    frame["phase"] = "key"
+                else:
+                    frame["used"].append(frame["matched_index"])
+                    frame["matched"] = None
+                    frame["matched_index"] = None
+                    frame["key_index"] += 1
+                    frame["candidate"] = 0
+                    frame["phase"] = "key"
             elif awaiting == "seq_item":
                 if not outcome:
                     if close(False):
@@ -273,6 +313,8 @@ def _base_value_eq(left, right):
                 frame["candidate"] = 0
                 frame["phase"] = "key"
                 frame["matched"] = None
+                frame["matched_index"] = None
+                frame["used"] = []
                 continue
             if isinstance(held, (list, tuple)) or isinstance(
                     other, (list, tuple)):
@@ -366,6 +408,9 @@ def _base_value_eq(left, right):
                     return True
                 continue
             if frame["phase"] == "key":
+                while (frame["candidate"] < len(frame["right_keys"])
+                        and frame["candidate"] in frame["used"]):
+                    frame["candidate"] += 1
                 if frame["candidate"] >= len(frame["right_keys"]):
                     if close(False):
                         return False
@@ -648,7 +693,7 @@ def validate_adoption_record(record):
     if not isinstance(record, dict):
         return False
     for key in ("derivation_version", "stream_inventory", "generator"):
-        if not _base_dict_get(record, key):
+        if not _stored_present(_base_dict_get(record, key)):
             return False
     return True
 
@@ -751,7 +796,7 @@ def validate_derivation_input(value):
         return False
     if not isinstance(_base_dict_get(value, "derivation_version"), str):
         return False
-    if not _base_dict_get(value, "derivation_version"):
+    if not _stored_present(_base_dict_get(value, "derivation_version")):
         return False
     params = _base_dict_get(value, "parameter_values")
     if not isinstance(params, dict):
@@ -1038,7 +1083,12 @@ def determinism_statement_permitted(battery_state=None,
 
 def _position_value(value):
     if isinstance(value, dict):
-        return int(_base_dict_get(value, "position", 0))
+        value = _base_dict_get(value, "position", 0)
+    if isinstance(value, str):
+        return int(str.__str__(value))
+    plain = _plain_number(value)
+    if plain is not None:
+        return int(plain)
     return int(value)
 
 
@@ -1056,7 +1106,7 @@ def _state_from_held(held_state):
         held_state, "stream_states", missing)
     if stored_streams is not missing:
         streams = {}
-        stream_map = stored_streams or {}
+        stream_map = stored_streams
         if isinstance(stream_map, dict):
             stream_names = list(dict.__iter__(stream_map))
             stream_values = {
