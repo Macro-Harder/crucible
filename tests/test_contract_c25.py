@@ -50,7 +50,8 @@ class TestContractC25(unittest.TestCase):
         source = inspect.getsource(mod08)
         self.assertNotIn("AgentState", source)
         accepted = mod08.accept_detection_input({"agent_identifier": "agent-c25", "day": 1, "feature_values": {"activity": 2}, "records_for_agent_and_day": []})
-        self.assertTrue(accepted if isinstance(accepted, bool) else True)
+        self.assertEqual(accepted, {"agent_identifier": "agent-c25", "day": 1, "feature_values": {"activity": 2}, "records_for_agent_and_day": []})
+        self.assertEqual(list(accepted.keys()), ["agent_identifier", "day", "feature_values", "records_for_agent_and_day"])
 
     def test_canary_absence_before_any_reportable_run(self):
         """

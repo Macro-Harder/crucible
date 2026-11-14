@@ -7,7 +7,26 @@ import crucible.mod11 as mod11
 
 
 def string_unit():
-    return {field: "value for " + field for field in mod11.HEADLINE_UNIT_FIELDS}
+    unit = {field: "value for " + field for field in mod11.HEADLINE_UNIT_FIELDS}
+    unit["claim_sentence"] = (
+        "At the sampled points within the stated scope, the result "
+        "holds for the sampled points only, and nothing is claimed "
+        "beyond the stated limits.")
+    unit["grounding_sentence"] = (
+        "This unit rests on the retained run records within the "
+        "stated scope, and its limits are that nothing is claimed "
+        "beyond the sampled points in this unit.")
+    unit["qualifiers_and_markings_block"] = (
+        "seam status: no cross seam effect; "
+        "kill check: self checked only; "
+        "dependence mark: DQ-164 confirmation form, recording that "
+        "DQ-164 stands settled as confirmation only; "
+        "Parley Q3 statement: no part of the result encodes Parley "
+        "Q3 behaviour; "
+        "core only qualifier: this unit is a core only result; "
+        "anchor scenario statement: no anchor scenario is used in "
+        "this unit.")
+    return unit
 
 
 def lawful_unit():

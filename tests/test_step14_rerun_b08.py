@@ -65,9 +65,27 @@ def run_record(entry=None):
 
 
 def lawful_unit():
-    return mod11.make_headline_unit(
-        {field: "value for " + field
-         for field in mod11.HEADLINE_UNIT_FIELDS})
+    values = {field: "value for " + field
+              for field in mod11.HEADLINE_UNIT_FIELDS}
+    values["claim_sentence"] = (
+        "At the sampled points within the stated scope, the result "
+        "holds for the sampled points only, and nothing is claimed "
+        "beyond the stated limits.")
+    values["grounding_sentence"] = (
+        "This unit rests on the retained run records within the "
+        "stated scope, and its limits are that nothing is claimed "
+        "beyond the sampled points in this unit.")
+    values["qualifiers_and_markings_block"] = (
+        "seam status: no cross seam effect; "
+        "kill check: self checked only; "
+        "dependence mark: DQ-164 confirmation form, recording that "
+        "DQ-164 stands settled as confirmation only; "
+        "Parley Q3 statement: no part of the result encodes Parley "
+        "Q3 behaviour; "
+        "core only qualifier: this unit is a core only result; "
+        "anchor scenario statement: no anchor scenario is used in "
+        "this unit.")
+    return mod11.make_headline_unit(values)
 
 
 class TestMoneyDressesAtMod12(unittest.TestCase):

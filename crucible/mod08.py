@@ -31,6 +31,7 @@ calibration claim, under decision D-13.
 
 import copy
 import math
+import unicodedata
 from decimal import Decimal, localcontext
 
 from crucible import mod01 as _mod01
@@ -204,11 +205,82 @@ def mod01_surface():
     return _mod01
 
 
+_HOMOGLYPH_MAP = {
+    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p",
+    "\u0441": "c", "\u0445": "x", "\u0443": "y", "\u0456": "i",
+    "\u0458": "j", "\u0455": "s", "\u04bb": "h",
+    "\u03b1": "a", "\u03b5": "e", "\u03bf": "o", "\u03c1": "p",
+    "\u03c4": "t", "\u03ba": "k", "\u03b9": "i", "\u03bd": "v",
+    "\u03c7": "x",
+    "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
+    "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
+    "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
+    "\u0167": "t",
+    "\u00c6": "ae", "\u0152": "oe", "\u00d8": "o", "\u0110": "d",
+    "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
+    "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
+}
+
+_LEET_MAP = {
+    "0": "o", "1": "l", "3": "e", "4": "a", "5": "s",
+    "7": "t", "8": "b", "@": "a", "$": "s",
+}
+
+
+def _folded_readings(key):
+    """The folded readings of one key, in the shared canonicalised
+    form the barred surfaces at MOD-03, MOD-04 and MOD-05 read: the
+    base reading lowercases the key, applies compatibility
+    decomposition with combining marks dropped, maps non Latin
+    homoglyph letters to the Latin letters they stand for, and
+    drops every character that is not a letter or a digit, so a
+    hyphen, a space, a separator, a zero width character, or a
+    soft hyphen standing inside a word holds the word apart no
+    longer. Two further readings stand beside it: one with digit
+    and symbol substitutions read as the letters they stand for,
+    and one with digits dropped, so a digit standing inside a word
+    as a split reads as the word it splits."""
+    decomposed = unicodedata.normalize("NFKD", str(key).lower())
+    base = "".join(
+        _HOMOGLYPH_MAP.get(character, character)
+        for character in decomposed
+        if not unicodedata.category(character).startswith("M")
+    )
+    plain = "".join(
+        character for character in base if character.isalnum())
+    readings = []
+    for reading in (
+        plain,
+        "".join(_LEET_MAP.get(character, character)
+                for character in plain),
+        "".join(character for character in plain
+                if not character.isdigit()),
+    ):
+        if reading and reading not in readings:
+            readings.append(reading)
+    return tuple(readings)
+
+
+_BARRED_FOLDED_EXACT = frozenset(
+    reading
+    for name in _BARRED_EXACT_KEYS
+    for reading in _folded_readings(name)
+)
+_BARRED_FOLDED_PARTS = ("membership", "groundtruth", "canary")
+
+
 def _is_barred_key(key):
     lowered = str(key).lower()
     if lowered in _BARRED_EXACT_KEYS:
         return True
-    return any(part in lowered for part in _BARRED_KEY_PARTS)
+    if any(part in lowered for part in _BARRED_KEY_PARTS):
+        return True
+    for reading in _folded_readings(key):
+        if reading in _BARRED_FOLDED_EXACT:
+            return True
+        if any(part in reading for part in _BARRED_FOLDED_PARTS):
+            return True
+    return False
 
 
 BARRED_SEARCH_DEPTH_BOUND = 100
@@ -233,7 +305,7 @@ def _find_barred(node, path="", _depth=0, _seen=None):
         try:
             hits = []
             if isinstance(node, dict):
-                for key, value in node.items():
+                for key, value in dict.items(node):
                     here = path + "/" + str(key)
                     if _is_barred_key(key):
                         hits.append(here)
@@ -251,6 +323,13 @@ def _find_barred(node, path="", _depth=0, _seen=None):
 def _record_values(record):
     if isinstance(record, dict):
         return record
+    stated_form = (
+        getattr(type(record), "FORM_ID", None) == "19"
+        or type(record).__name__ == "DetectionInput"
+        or getattr(record, "form", None) == "DetectionInput"
+    )
+    if not stated_form:
+        return None
     values = getattr(record, "values", None)
     if isinstance(values, dict):
         return values
@@ -274,7 +353,7 @@ def accept_detection_input(record):
         raise NamedDetectionFailure(
             "delivery rejected: the record is not a DetectionInput record"
         )
-    keys = set(values.keys())
+    keys = set(dict.keys(values))
     allowed = set(DETECTION_INPUT_FIELDS) | {_RECORDS_ALIAS}
     if not keys.issubset(allowed):
         raise NamedDetectionFailure(
@@ -282,25 +361,37 @@ def accept_detection_input(record):
             + ", ".join(sorted(str(k) for k in keys - allowed))
         )
     for field in ("agent_identifier", "day", "feature_values"):
-        if field not in values or values[field] is None:
+        if field not in keys or dict.get(values, field) is None:
             raise NamedDetectionFailure(
                 "delivery rejected: required DetectionInput field absent: "
                 + field
             )
-    if not isinstance(values["agent_identifier"], str) or not values[
-            "agent_identifier"]:
+    identifier_raw = dict.get(values, "agent_identifier")
+    if not isinstance(identifier_raw, str):
         raise NamedDetectionFailure(
             "delivery rejected: the agent identifier stands in no "
             "identifier form"
         )
-    day = values["day"]
-    if isinstance(day, bool) or not isinstance(day, int) or day < 0 or (
-            day >= 10 ** 6):
+    identifier = str.__str__(identifier_raw)
+    if not identifier:
+        raise NamedDetectionFailure(
+            "delivery rejected: the agent identifier stands in no "
+            "identifier form"
+        )
+    day_raw = dict.get(values, "day")
+    if isinstance(day_raw, bool) or not isinstance(day_raw, int):
+        raise NamedDetectionFailure(
+            "delivery rejected: the day stands in no stated simulated "
+            "day form: " + repr(day_raw)
+        )
+    day = int.__int__(day_raw)
+    if int.__lt__(day, 0) or int.__ge__(day, 10 ** 6):
         raise NamedDetectionFailure(
             "delivery rejected: the day stands in no stated simulated "
             "day form: " + repr(day)
         )
-    if not isinstance(values["feature_values"], dict):
+    feature_raw = dict.get(values, "feature_values")
+    if not isinstance(feature_raw, dict):
         raise NamedDetectionFailure(
             "delivery rejected: feature values stand in no record form"
         )
@@ -310,20 +401,33 @@ def accept_detection_input(record):
             "delivery rejected: barred field present in DetectionInput: "
             + ", ".join(barred)
         )
-    for feature_name, feature_value in values["feature_values"].items():
-        if isinstance(feature_value, bool) or not isinstance(
-                feature_value, (int, float)):
+    feature_values = {}
+    for feature_name_raw, feature_value_raw in dict.items(feature_raw):
+        if not isinstance(feature_name_raw, str):
+            raise NamedDetectionFailure(
+                "delivery rejected: a feature name stands in no "
+                "string form: " + repr(feature_name_raw)
+            )
+        feature_name = str.__str__(feature_name_raw)
+        if isinstance(feature_value_raw, bool) or not isinstance(
+                feature_value_raw, (int, float)):
             raise NamedDetectionFailure(
                 "delivery rejected: a feature value the rules cannot "
-                "consume stands in the record: " + str(feature_name)
+                "consume stands in the record: " + feature_name
             )
+        if isinstance(feature_value_raw, int):
+            feature_value = int.__int__(feature_value_raw)
+        else:
+            feature_value = float.__float__(feature_value_raw)
         if isinstance(feature_value, float) and not math.isfinite(
                 feature_value):
             raise NamedDetectionFailure(
                 "delivery rejected: a feature value the rules cannot "
-                "consume stands in the record: " + str(feature_name)
+                "consume stands in the record: " + feature_name
             )
-    records = values.get(_RECORDS_KEY, values.get(_RECORDS_ALIAS, []))
+        feature_values[feature_name] = feature_value
+    records = dict.get(
+        values, _RECORDS_KEY, dict.get(values, _RECORDS_ALIAS, []))
     if records is None:
         records = []
     if not isinstance(records, (list, tuple)):
@@ -332,9 +436,9 @@ def accept_detection_input(record):
             "in no record form"
         )
     return {
-        "agent_identifier": values["agent_identifier"],
-        "day": values["day"],
-        "feature_values": copy.deepcopy(values["feature_values"]),
+        "agent_identifier": identifier,
+        "day": day,
+        "feature_values": feature_values,
         _RECORDS_KEY: copy.deepcopy(list(records)),
     }
 
@@ -345,7 +449,15 @@ def _contributions(feature_values):
         context.prec = 28
         total = Decimal("0")
         for position, name in enumerate(sorted(feature_values.keys())):
-            value = feature_values[name]
+            raw_value = feature_values[name]
+            if isinstance(raw_value, bool):
+                value = raw_value
+            elif isinstance(raw_value, int):
+                value = int.__int__(raw_value)
+            elif isinstance(raw_value, float):
+                value = float.__float__(raw_value)
+            else:
+                value = raw_value
             amount = Decimal(str(value))
             total += amount
             contributions.append({
@@ -529,7 +641,8 @@ def validate_output(output):
     """
     if not isinstance(output, dict):
         return False
-    if output.get(PROFILE_BOUND_LABEL_FIELD) != PROFILE_LABEL_CARRIAGE:
+    if dict.get(output, PROFILE_BOUND_LABEL_FIELD) != (
+            PROFILE_LABEL_CARRIAGE):
         return False
     return not _carries_barred_verdict(output)
 
@@ -541,19 +654,41 @@ _VERDICT_POSITION_KEYS = (
 )
 
 
-def _carries_barred_verdict(node):
-    if isinstance(node, dict):
-        for key, value in node.items():
-            lowered = str(key).lower()
-            if lowered in _VERDICT_POSITION_KEYS or "verdict" in lowered:
-                if isinstance(value, str) and value.strip().lower() in (
-                        _BARRED_VERDICT_VALUES):
-                    return True
-            if _carries_barred_verdict(value):
-                return True
-        return False
-    if isinstance(node, (list, tuple)):
-        return any(_carries_barred_verdict(item) for item in node)
+def _carries_barred_verdict(node, _depth=0, _seen=None):
+    """Return whether a value carries a barred verdict reading.
+
+    The read stands bounded, in the bounded form the delivery
+    surfaces keep: a value standing deeper than the stated bound,
+    and a value carrying a cycle on its own path, each read as
+    carrying the barred form, so the caller returns False for the
+    output as a whole and no bare RecursionError escapes. A part
+    shared from two places on different paths carries no cycle
+    and stands read on each path."""
+    if isinstance(node, (dict, list, tuple)):
+        if _depth > BARRED_SEARCH_DEPTH_BOUND:
+            return True
+        seen = _seen if _seen is not None else set()
+        if id(node) in seen:
+            return True
+        seen.add(id(node))
+        try:
+            if isinstance(node, dict):
+                for key, value in dict.items(node):
+                    lowered = str(key).lower()
+                    if lowered in _VERDICT_POSITION_KEYS or (
+                            "verdict" in lowered):
+                        if isinstance(value, str) and (
+                                value.strip().lower() in
+                                _BARRED_VERDICT_VALUES):
+                            return True
+                    if _carries_barred_verdict(value, _depth + 1, seen):
+                        return True
+                return False
+            return any(
+                _carries_barred_verdict(item, _depth + 1, seen)
+                for item in node)
+        finally:
+            seen.discard(id(node))
     return False
 
 
@@ -610,8 +745,17 @@ def score_profiles(profile_set=None):
                 "profile set differs from the recorded F-06 set"
             )
         streams = profile_set.get("streams_per_profile", 0)
-        if isinstance(streams, (int, float)) and streams < (
-                F06_MINIMUM_STREAMS_PER_PROFILE):
+        if isinstance(streams, bool) or not isinstance(
+                streams, (int, float)):
+            raise NamedDetectionFailure(
+                "profile set rejected: the streams per profile "
+                "value stands in no number form: " + repr(streams)
+            )
+        if isinstance(streams, int):
+            streams = int.__int__(streams)
+        else:
+            streams = float.__float__(streams)
+        if streams < F06_MINIMUM_STREAMS_PER_PROFILE:
             raise NamedDetectionFailure(
                 "profile set stands below the F-06 stream count"
             )
@@ -782,6 +926,11 @@ def author_sealed_class(sealed_set, kind, identifier,
         raise NamedDetectionFailure(
             "sealed set rejected: authoring after sealing"
         )
+    if sealed_set.get("scoring_closed") or sealed_set.get(
+            "stage") == "unsealed after scoring closed":
+        raise NamedDetectionFailure(
+            "sealed set rejected: authoring after scoring has closed"
+        )
     if kind not in ("sleeper class", "honest challenge variant"):
         raise NamedDetectionFailure(
             "sealed set rejected: authored kind stands unnamed: "
@@ -824,6 +973,7 @@ def unseal_sealed_set(sealed_set, scoring_closed=False):
             "closes"
         )
     sealed_set["sealed"] = False
+    sealed_set["scoring_closed"] = True
     sealed_set["stage"] = "unsealed after scoring closed"
     return sealed_set
 

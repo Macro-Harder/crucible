@@ -51,7 +51,7 @@ class TestRunClassSeparation(unittest.TestCase):
         markings = SURFACE.run_class_markings()
         self.assertEqual(tuple(sorted(markings.keys())), tuple(sorted(RUN_CLASSES)))
         confirmation = markings["confirmation"]
-        self.assertEqual(confirmation["seed_domain"], "held_out")
+        self.assertEqual(confirmation["seed_domain"], "held out confirmation")
         self.assertTrue(confirmation["held_out_settings"])
 
     def test_screening_promoted_by_relabelling_fails(self):

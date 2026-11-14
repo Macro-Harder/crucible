@@ -117,9 +117,10 @@ class TestB04SeamEffectReportForm(unittest.TestCase):
             report = mod07.seam_effect_report(value)
             self.assertIsNone(report["effect"])
             self.assertEqual(
-                report["reporting"], mod07.INTERIM_REPORTING)
+                report["reporting"],
+                "computed in Parley and not settled in the chosen escrow")
             self.assertEqual(
-                report["lien_state"], mod07.COMPUTED_NOT_SETTLED)
+                report["lien_state"], "computed not settled")
 
     def test_a_record_effect_still_reports_its_kind_and_value(self):
         report = mod07.seam_effect_report(

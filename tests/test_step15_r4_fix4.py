@@ -2,8 +2,10 @@
 
 Item R4-A7-01, on TB-19's ground: the shipped README install step 7
 must state its expected verification result in full, in TB-19's own
-cure form, restated to the suite standing as derived at this builder's
-close with this pin file counted in. The operative expected result is
+cure form, restated to the suite standing as derived from an actual
+suite run counted with the pin files included. The constants below
+stand as that counted run gives them, so these pins fail where the
+README stated figures and the counted suite figures disagree. The operative expected result is
 the current standing; the Round 1 figures may stand only in a sentence
 that labels them as that round's form. Plain simulated values only.
 Sensitive guard phrases stand split by concatenation, as the Fix
@@ -20,12 +22,12 @@ GUARD_3C_NAME = "DQ-" + "164 dependence mark"
 GUARD_6D_NAME = "core " + "only qualifier"
 GUARD_3A_NAME = "no real money stake " + "encoding"
 
-STATED_TOTAL = 858
+STATED_TOTAL = 978
 STATED_FAILURES = 4
 BUILD_SKIPS = 46
-BUILD_PASSES = 808
+BUILD_PASSES = 928
 PRODUCT_SKIPS = 49
-PRODUCT_PASSES = 805
+PRODUCT_PASSES = 925
 
 ROUND1_MARKER = "The figures stated at Round 1"
 

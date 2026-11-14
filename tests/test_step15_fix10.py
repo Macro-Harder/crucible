@@ -63,10 +63,10 @@ class TestVerificationExpectedResult(Fix10Base):
         marker = "The figures stated at Round 1"
         self.assertIn(marker, step7)
         operative, historical = step7.split(marker, 1)
-        self.assertIn("858 tests", operative)
-        self.assertIn("808 passes", operative)
+        self.assertIn("978 tests", operative)
+        self.assertIn("928 passes", operative)
         self.assertIn("46 skipped", operative)
-        self.assertIn("805 passes", operative)
+        self.assertIn("925 passes", operative)
         self.assertIn("49 skipped", operative)
         self.assertIn("step-14-rf13-guard-answers.md", operative)
         self.assertIn("guard tests 3a, 3b, 3c, and 6d", operative)

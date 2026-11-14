@@ -18,12 +18,12 @@ import unicodedata
 
 from crucible import mod01 as _mod01
 from crucible import mod02 as _mod02
-from crucible import mod13 as _mod13
+from crucible import mod10 as _mod10
 
 RUN_CLASSES = ("screening", "confirmation", "headline", "validation")
 GATE_QUESTION = "DQ7-02"
 
-FAMILY_COMPLETENESS_ITEMS = tuple(_mod13.OP20_QUANTITIES)
+FAMILY_COMPLETENESS_ITEMS = tuple(_mod01.COMPLETENESS_FIELDS)
 
 _MONEY_MARKER = "real_" + "money"
 _ANCHOR_VALUES_FIELD = "anchor_" + "scenario_values"
@@ -57,8 +57,10 @@ def make_family_record(family_id="family-under-test", claims=None,
         kill_check_for_claim(claim) for claim in claims]
     if scheduling_order_identifier is not None:
         record["scheduling_order_identifier"] = scheduling_order_identifier
-    for item in FAMILY_COMPLETENESS_ITEMS:
-        record[item] = "stated value"
+    # The six completeness fields stand on the record as the MOD-01
+    # builder carries them, in open marker form. No stated value
+    # stands written here for the OP-20 replication quantities,
+    # which the plan carries as unfixed.
     record["family_version"] = "version 1"
     record["family_manifest_hash"] = (
         "manifest hash supplied as a record value, not computed")
@@ -75,17 +77,28 @@ def make_family_record(family_id="family-under-test", claims=None,
 
 
 def sweep_manifest(record):
-    """The sweep manifest of one family record: the family
-    identifier, its version and hash values as recorded strings,
-    and the field list of the record it stands for."""
+    """The sweep manifest of one family record, in the Form 23
+    fields: the family identifier, the family version, and the
+    sealed family record hash, each as the record carries it."""
     record = record or {}
+    seal = record.get("seal") if isinstance(record.get("seal"), dict) else {}
     return {
         "family_identifier": record.get(
             "family_identifier", record.get("family_id")),
         "family_version": record.get("family_version"),
-        "family_manifest_hash": record.get("family_manifest_hash"),
-        "fields": sorted(record.keys()),
+        "sealed_family_record_hash": (
+            record.get("family_manifest_hash")
+            or record.get("seal_hash")
+            or seal.get("hash")),
     }
+
+
+def retained_run_record(run_id, store_kind="sweep"):
+    """One run record read through MOD-10, the Recorder store
+    reading path the plan boundary row for this controller states.
+    A record that does not resolve stands raised as the MOD-10
+    named lookup failure, and no record is fabricated here."""
+    return _mod10.read_run_record(run_id, store_kind=store_kind)
 
 
 def seal_family_record(record):
@@ -127,13 +140,27 @@ def apply_family_edit(record, change=None):
     edited = _freeze(record)
     if isinstance(change, dict):
         edited.update(_freeze(change))
+    standing = edited.get("headline_claims") or edited.get("claims")
+    if standing:
+        standing = list(standing)
+        edited["headline_claims"] = standing
+        edited["claims"] = standing
+        checks = [kill_check_for_claim(claim) for claim in standing]
+        edited["kill_check_fields"] = checks
+        edited["kill_checks"] = checks
     if record.get("sealed"):
-        new_id = str(record.get("family_id")) + "-edited-1"
+        base_id = record.get("family_identifier") or record.get("family_id")
+        new_id = str(base_id) + "-edited-1"
         edited["family_id"] = new_id
+        edited["family_identifier"] = new_id
         edited["runs_under"] = new_id
         edited["edited_after_seal"] = True
         edited["identifier_changed"] = True
         edited["runs_start_again"] = True
+        edited["sealed"] = False
+        for carried in ("seal", "seal_version", "seal_hash",
+                        "sweep_manifest"):
+            edited.pop(carried, None)
     else:
         edited["runs_under"] = edited.get("family_id")
     return edited
@@ -263,9 +290,9 @@ def run_class_markings():
     settings."""
     return {
         "screening": {"seed_domain": "screening", "held_out_settings": False, "reporting": False},
-        "confirmation": {"seed_domain": "held_out", "held_out_settings": True, "reporting": True},
-        "headline": {"seed_domain": "held_out", "held_out_settings": True, "reporting": True},
-        "validation": {"seed_domain": "validation", "held_out_settings": True, "reporting": False},
+        "confirmation": {"seed_domain": "held out confirmation", "held_out_settings": True, "reporting": True},
+        "headline": {"seed_domain": "held out confirmation", "held_out_settings": True, "reporting": True},
+        "validation": {"seed_domain": "held out confirmation", "held_out_settings": True, "reporting": False},
     }
 
 
@@ -299,7 +326,27 @@ _LETTER_MAP = {
     "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
     "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
     "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
+    "\u0166": "t", "\u0167": "t",
+    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
+    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
+    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
+    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
+    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
+    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
+    "\u1d22": "z",
+    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
+    "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
+    "\u00a5": "y",
 }
+
+# Beside the s reading of Cyrillic U+0441, the same letter carries
+# a c reading, as in the scenario field name. Beside the n reading
+# of Armenian U+0578, the same letter carries an un reading, as in
+# the amount key. Each reading stands as its own canonical map, and
+# a name stands read under every map.
+_LETTER_MAP_C = dict(_LETTER_MAP, **{"\u0441": "c"})
+_LETTER_MAP_VO = dict(_LETTER_MAP, **{"\u0578": "un", "\u0548": "un"})
+_CANONICAL_MAPS = (_LETTER_MAP, _LETTER_MAP_C, _LETTER_MAP_VO)
 
 # Digit and leet substitutions inside a marker word read in two
 # further forms beside the canonical form: one where each digit
@@ -308,13 +355,17 @@ _LETTER_MAP = {
 _LEET_MAP = {
     "0": "o", "1": "l", "2": "z", "3": "e", "4": "a",
     "5": "s", "6": "g", "7": "t", "8": "b", "9": "g",
+    "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
+    "\u00a5": "y",
 }
 _LEET_MAP_I = dict(_LEET_MAP, **{"1": "i"})
 
 
-def _canonicalised_name(key):
+def _canonicalised_name(key, letter_map=None):
+    if letter_map is None:
+        letter_map = _LETTER_MAP
     mapped = "".join(
-        _LETTER_MAP.get(character, _LETTER_MAP.get(
+        letter_map.get(character, letter_map.get(
             character.lower(), character))
         for character in str(key)
     )
@@ -347,13 +398,15 @@ def _folded_money_variants(key):
     Cyrillic spelling that reads realmani in Latin letters, read as
     the marker itself. A name stands as a barred or counted name
     where any one of its forms reads as that name."""
-    base = _canonicalised_name(key)
-    forms = {base}
-    for table in (_LEET_MAP, _LEET_MAP_I):
-        forms.add("".join(table.get(character, character)
-                          for character in base))
-    forms.add("".join(
-        character for character in base if not character.isdigit()))
+    forms = set()
+    for letter_map in _CANONICAL_MAPS:
+        base = _canonicalised_name(key, letter_map)
+        forms.add(base)
+        for table in (_LEET_MAP, _LEET_MAP_I):
+            forms.add("".join(table.get(character, character)
+                              for character in base))
+        forms.add("".join(
+            character for character in base if not character.isdigit()))
     marker = _MONEY_MARKER.replace("_", "")
     return tuple(
         form.replace("realmani", marker) for form in forms
@@ -364,7 +417,41 @@ _MONEY_MARKER_FOLDED = _MONEY_MARKER.replace("_", "")
 _ANCHOR_VALUES_FIELD_FOLDED = _folded_money_key(_ANCHOR_VALUES_FIELD)
 
 
-def _carries_barred_money_value(value):
+_MAX_BARRED_READ_DEPTH = 64
+
+
+def _shape_exceeds_bounds(value):
+    """True where a value stands deeper than the barred read bound
+    or carries a cycle on one of its paths. The check walks with
+    an explicit stack, so a hostile shape is reported in this
+    form and never as a bare RecursionError."""
+    stack = [(value, 0, frozenset())]
+    while stack:
+        current, depth, path = stack.pop()
+        if depth > _MAX_BARRED_READ_DEPTH:
+            return True
+        if isinstance(current, (dict, list, tuple)):
+            if id(current) in path:
+                return True
+            path = path | {id(current)}
+            if isinstance(current, dict):
+                children = list(current.values())
+            else:
+                children = list(current)
+            for child in children:
+                stack.append((child, depth + 1, path))
+    return False
+
+
+def _carries_barred_money_value(value, _depth=0, _seen=None):
+    if _depth > _MAX_BARRED_READ_DEPTH:
+        return False
+    if isinstance(value, (dict, list, tuple)):
+        if _seen is None:
+            _seen = frozenset()
+        if id(value) in _seen:
+            return False
+        _seen = _seen | {id(value)}
     if isinstance(value, dict):
         amount_stands = False
         currency_stands = False
@@ -382,10 +469,12 @@ def _carries_barred_money_value(value):
                     for variant in _folded_money_variants(key)) and (
                     item is not None):
                 return True
-            if _carries_barred_money_value(item):
+            if _carries_barred_money_value(item, _depth + 1, _seen):
                 return True
     elif isinstance(value, (list, tuple)):
-        return any(_carries_barred_money_value(item) for item in value)
+        return any(
+            _carries_barred_money_value(item, _depth + 1, _seen)
+            for item in value)
     return False
 
 
@@ -409,6 +498,8 @@ def validate_run_record(run):
         return False
     if run.get("run_class") in ("confirmation", "headline") \
             and run.get("seed_domain") == "screening":
+        return False
+    if _shape_exceeds_bounds(run):
         return False
     if _carries_barred_money_value(run):
         return False
@@ -911,6 +1002,7 @@ __all__ = [
     "NamedControllerFailure",
     "make_family_record",
     "sweep_manifest",
+    "retained_run_record",
     "family_record_validation_failures",
     "sample_statement",
     "seal_family_record",

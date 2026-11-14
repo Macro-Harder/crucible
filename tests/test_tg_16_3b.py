@@ -36,7 +36,10 @@ class TestTG163b(unittest.TestCase):
         confirmation = result["confirmation"]
         self.assertEqual(confirmation["run_class"], "confirmation")
         self.assertEqual(confirmation["material"], "validation")
-        self.assertEqual(confirmation["settings_lineage_record"], "Form 32 completed")
+        lineage = confirmation["settings_lineage_record"]
+        self.assertIsInstance(lineage, dict)
+        self.assertEqual(lineage["form"], "Form 32")
+        self.assertTrue(lineage["completed"])
         self.assertFalse(confirmation["headline_claim"])
         headline = result["headline"]
         self.assertEqual(headline["run_class"], "headline")

@@ -171,13 +171,17 @@ class T(unittest.TestCase):
         c=mod11.make_weekly_container("W1",units)
         self.assertIn("weekly_load",c); self.assertEqual(c["weekly_load"]["H"],3); self.assertIn("U",c["weekly_load"])
         self.assertIn("estimated",str(c.get("cap_form","")).lower())
-    # TB-31
+    # TB-31, restated to the R1-080 cured form: a second checkpoint
+    # write for one run and day stands rejected and recorded, so the
+    # repeated identical writes this pin once counted on no longer
+    # stand retained toward any cap.
     def test_tb31_checkpoint_cap(self):
         man={"run_identifier":"cap-run","simulated_day":1}
-        for i in range(10000):
-            mod10.retain_checkpoint(dict(man))
+        mod10.retain_checkpoint(dict(man))
         with self.assertRaises(ValueError):
             mod10.retain_checkpoint(dict(man))
+        self.assertEqual(len(mod10.checkpoints_for_run("cap-run")),1)
+        self.assertEqual(len(mod10.rejected_checkpoint_writes("cap-run")),1)
     # TB-32
     def test_tb32_hold_end(self):
         h=mod10.place_reserve_hold("hold-run",family_states_headlines=False,start_day=3)
@@ -187,7 +191,7 @@ class T(unittest.TestCase):
     # TB-33
     def test_tb33_writes_into_store(self):
         mod10.write_summary_record({"run_id":"s-run","retention_tier":"Tier 1"})
-        out=mod10.apply_flag_evaluation(mod10.summary_record_for_run("s-run"),outcome="promote",tier="Tier 3",inputs={"x":1})
+        out=mod10.apply_flag_evaluation(mod10.summary_record_for_run("s-run"),outcome="promote",tier="Tier 3",inputs={"x":1,"flag_conditions_fired":["condition-1"]})
         self.assertEqual(mod10.summary_record_for_run("s-run")["retention_tier"],"Tier 3")
         base=mod10.summary_record_for_run("s-run")
         mod10.apply_deferred_evaluation(base,1,inputs={"a":1},outcome="held")

@@ -176,7 +176,12 @@ def make_headline_unit(values):
 _HIDDEN_PART_VALUES = ("redacted", "see elsewhere", "none", "x", "")
 
 
-def _envelope_part_stands(value, _seen=None):
+_DEPTH_BOUND = 100
+
+
+def _envelope_part_stands(value, _seen=None, _depth=0):
+    if _depth > _DEPTH_BOUND:
+        return False
     if value is None:
         return False
     if isinstance(value, bool):
@@ -194,7 +199,7 @@ def _envelope_part_stands(value, _seen=None):
         seen.add(id(value))
         try:
             return any(
-                _envelope_part_stands(item, seen)
+                _envelope_part_stands(item, seen, _depth + 1)
                 for item in dict.values(value))
         finally:
             seen.discard(id(value))
@@ -216,7 +221,7 @@ def _envelope_part_stands(value, _seen=None):
                         if cls in iter_by_base)
             base_iter = iter_by_base[base]
             return any(
-                _envelope_part_stands(item, seen)
+                _envelope_part_stands(item, seen, _depth + 1)
                 for item in base_iter(value))
         finally:
             seen.discard(id(value))
@@ -263,6 +268,109 @@ def _region_stands(value):
     return _envelope_part_stands(value)
 
 
+def _part_text(value, _depth=0):
+    """Return the text a unit part carries, read through base
+    class readings only, so a string form stands beside a block
+    form of the same part."""
+    if _depth > _DEPTH_BOUND:
+        return ""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, dict):
+        parts = []
+        for key, item in dict.items(value):
+            parts.append(str(key))
+            parts.append(_part_text(item, _depth + 1))
+        return " ".join(parts)
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return " ".join(
+            _part_text(item, _depth + 1) for item in _base_iter(value))
+    if value is None:
+        return ""
+    return str(value)
+
+
+_FIELD10_SEAM_VALUES = (
+    "computed in parley and not settled in the chosen escrow",
+    "no cross seam effect",
+)
+
+
+def _field10_stands(value):
+    """Return True only where Field 10 carries its stated marks:
+    a seam status value in one of its two permitted forms, a
+    kill check name or the self checked only label, a dependence
+    mark, the Parley Q3 statement, the core only qualifier
+    statement, and the anchor scenario statement."""
+    text = _part_text(value).lower().replace("_", " ")
+    if not text.strip():
+        return False
+    if not any(seam in text for seam in _FIELD10_SEAM_VALUES):
+        return False
+    if "self checked only" not in text:
+        match = re.search(
+            r"kill check(?: name)?\s*[:\-]?\s*([a-z][a-z0-9\-]*)",
+            text)
+        if match is None or match.group(1) in (
+                "none", "no", "x", "redacted"):
+            return False
+    if "dependence" not in text:
+        return False
+    if "dq-164" not in text and "no dependence mark applies" not in text:
+        return False
+    if "parley q3" not in text:
+        return False
+    if "no part" not in text or "encodes parley q3" not in text:
+        return False
+    if "core only" not in text:
+        return False
+    if "anchor scenario" not in text:
+        return False
+    if "no anchor scenario is used" in text:
+        return True
+    return "dq-163" in text
+
+
+_PLAIN_WORDS_MIN = 4
+
+
+def _plain_word_count(text):
+    words = re.findall(r"[A-Za-z]+", str(text).lower())
+    return sum(1 for word in words if len(word) >= 3)
+
+
+def _has_plain_scope_limits_sentence(value):
+    """Return True only where a text part carries a plain scope
+    and limits sentence: a sentence in readable words, not code
+    only text, that names a scope and states a limit."""
+    text = _part_text(value)
+    if not isinstance(text, str) or not text.strip():
+        return False
+    scope_words = ("scope", "sampled", "range", "points", "applies",
+                   "covers", "within")
+    limit_words = ("limit", "limits", "only", "beyond", "nothing",
+                   "not claimed", "no claim")
+    for sentence in re.split(r"[.!?]", text):
+        lowered = sentence.lower()
+        if _plain_word_count(sentence) < 6:
+            continue
+        if not any(word in lowered for word in scope_words):
+            continue
+        if not any(word in lowered for word in limit_words):
+            continue
+        return True
+    return False
+
+
+def _is_code_only_text(text):
+    """Return True where a text stands as code only: it carries
+    fewer plain words than a readable sentence needs."""
+    if not isinstance(text, str):
+        return True
+    sentence = str(text).split(".", 1)[0]
+    return _plain_word_count(sentence) < _PLAIN_WORDS_MIN
+
+
 def validate_headline_unit(unit):
     """Return True only for a closed unit in the fixed field
     order, carrying its assumption set, its rows, its range kind,
@@ -303,10 +411,32 @@ def validate_headline_unit(unit):
     claim = str(claim).lower()
     if "everywhere" in claim or "all points" in claim:
         return False
+    if not _field10_stands(
+            dict.get(unit, "qualifiers_and_markings_block")):
+        return False
+    if not _has_plain_scope_limits_sentence(
+            dict.get(unit, "claim_sentence")):
+        return False
+    if not _has_plain_scope_limits_sentence(
+            dict.get(unit, "grounding_sentence")):
+        return False
     return True
 
 
-def _quoted_copy(value, _memo=None):
+def _quoted_copy(value, _memo=None, _depth=0):
+    """Copy a value through base class readings only. Dict parts
+    stand read through the base dict items reading, and sequence
+    and set parts through their base iteration, so a part that
+    overrides items or the copy protocol is quoted as the content
+    the base readings show, never as content its own override
+    supplies. A part in no container form and no plain scalar
+    form stands quoted as itself, so no copy protocol of the
+    part itself is ever invoked. A value nested past the depth
+    bound stands refused in named form."""
+    if _depth > _DEPTH_BOUND:
+        raise ValueError(
+            "quoted copy stands refused in named form: a value "
+            "stands nested past the depth bound")
     if _memo is None:
         _memo = {}
     if isinstance(value, memoryview):
@@ -316,35 +446,46 @@ def _quoted_copy(value, _memo=None):
             return _memo[id(value)]
         copied = {}
         _memo[id(value)] = copied
-        for key, item in value.items():
-            copied[_quoted_copy(key, _memo)] = _quoted_copy(item, _memo)
+        for key, item in dict.items(value):
+            copied[_quoted_copy(key, _memo, _depth + 1)] = _quoted_copy(
+                item, _memo, _depth + 1)
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
             return _memo[id(value)]
         copied = []
         _memo[id(value)] = copied
-        copied.extend(_quoted_copy(item, _memo) for item in value)
+        copied.extend(
+            _quoted_copy(item, _memo, _depth + 1)
+            for item in list.__iter__(value))
         return copied
     if isinstance(value, tuple):
-        return tuple(_quoted_copy(item, _memo) for item in value)
+        return tuple(
+            _quoted_copy(item, _memo, _depth + 1)
+            for item in tuple.__iter__(value))
     if isinstance(value, (set, frozenset)):
+        base_iter = set.__iter__ if isinstance(value, set) \
+            else frozenset.__iter__
         return type(value)(
-            _quoted_copy(item, _memo) for item in value)
-    return copy.deepcopy(value, _memo)
+            _quoted_copy(item, _memo, _depth + 1)
+            for item in base_iter(value))
+    if isinstance(value, (str, bytes, bytearray, int, float, complex,
+                          bool)) or value is None:
+        return value
+    return value
 
 
 def quote_headline_unit(unit):
     """Quote a headline unit whole. A unit that does not validate
-    is not quoted at all. A standing memoryview part stands quoted
-    as the bytes content it carries, so quotation of a standing
-    unit never fails in the copy act itself."""
+    is not quoted at all. The quotation copies the validated unit
+    through base class readings only, never through a copy
+    protocol a part of the unit overrides. A standing memoryview
+    part stands quoted as the bytes content it carries, so
+    quotation of a standing unit never fails in the copy act
+    itself."""
     if not validate_headline_unit(unit):
         raise ValueError("a headline unit is quotable whole or not at all")
-    try:
-        return copy.deepcopy(unit)
-    except TypeError:
-        return _quoted_copy(unit)
+    return _quoted_copy(unit)
 
 
 def first_sentence(text):
@@ -358,6 +499,8 @@ def validate_working_range_claim(text, assumption_set, rows, range_kind):
     kind. A first sentence naming none of the three, or only some
     of them, does not meet the claim form."""
     sentence = first_sentence(text)
+    if _is_code_only_text(sentence):
+        return False
     return all(
         str(named) in sentence
         for named in (assumption_set, rows, range_kind)
@@ -634,8 +777,21 @@ def validate_transition_unit(unit):
         return False
     if unit.get("incidence_label") != "derived from the replicate counts in this unit":
         return False
+    horizon = unit.get("horizon")
+    if horizon is None:
+        horizon = figure.get("horizon")
+    if horizon is None:
+        horizon = figure.get("stated_horizon")
+    if horizon is None:
+        horizon = unit.get("stated_horizon")
     for sentence in unit.get("location_sentences") or []:
-        if "horizon" not in sentence:
+        if not isinstance(sentence, str) or "horizon" not in sentence:
+            return False
+        numbers = re.findall(r"[0-9]+(?:\.[0-9]+)?", sentence)
+        if not numbers:
+            return False
+        if horizon is not None and str(horizon) not in numbers \
+                and str(float(horizon)) not in numbers:
             return False
     return True
 
@@ -683,7 +839,7 @@ def build_headline_unit_from_run(run_id, values, store_kind="sweep",
             "name": mod10.ONE_LOOKUP_FAILURE_NAME,
             "run_status": "failed",
             "complete": False,
-            "record": run_id,
+            "run_identifier": run_id,
         }
         if isinstance(family_record, dict):
             family_record.setdefault("named_failures", []).append(
@@ -694,7 +850,7 @@ def build_headline_unit_from_run(run_id, values, store_kind="sweep",
             "name": type(error).__name__ + ": " + str(error),
             "run_status": "failed",
             "complete": False,
-            "record": run_id,
+            "run_identifier": run_id,
         }
         if isinstance(family_record, dict):
             family_record.setdefault("named_failures", []).append(
@@ -818,12 +974,18 @@ def validate_readout(readout):
     for quantity in quantities:
         if not isinstance(quantity, dict):
             return False
+        name = quantity.get("name")
+        if not isinstance(name, str) or len(name.strip()) < 2 \
+                or _plain_word_count(name) < 1:
+            return False
         number = quantity.get("recorded_number")
         if isinstance(number, bool) or not isinstance(number, (int, float)):
             return False
         if quantity.get("class_based"):
             rule = quantity.get("class_rule")
             if not isinstance(rule, str) or not rule.strip():
+                return False
+            if _plain_word_count(rule) < 3:
                 return False
     return True
 

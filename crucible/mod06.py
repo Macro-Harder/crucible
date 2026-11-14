@@ -158,10 +158,48 @@ _HOMOGLYPH_MAP = {
     "\u03c7": "x",
 }
 
+_HOMOGLYPH_MAP.update({
+    "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
+    "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
+    "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
+    "\u0167": "t",
+    "\u00c6": "ae", "\u0152": "oe", "\u00d8": "o", "\u0110": "d",
+    "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
+    "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
+})
+
+# The transliterated reading: the same letters read by the Latin
+# spelling they transliterate to, where that spelling differs from
+# the letter they stand rendered as. Cyrillic er reads as r, es as
+# s, en as n, u as u, and ha as h in this reading, and letters with
+# no Latin letter of their own read as their sounded spelling.
+_TRANSLITERATION_MAP = dict(_HOMOGLYPH_MAP)
+_TRANSLITERATION_MAP.update({
+    "\u0431": "b", "\u0432": "v", "\u0433": "g", "\u0434": "d",
+    "\u0451": "e", "\u0436": "zh", "\u0437": "z", "\u0438": "i",
+    "\u0439": "y", "\u043b": "l", "\u043c": "m", "\u043d": "n",
+    "\u043f": "p", "\u0440": "r", "\u0441": "s", "\u0442": "t",
+    "\u0443": "u", "\u0444": "f", "\u0445": "h", "\u0446": "ts",
+    "\u0447": "ch", "\u0448": "sh", "\u0449": "shch", "\u044a": "",
+    "\u044b": "y", "\u044c": "", "\u044d": "e", "\u044e": "yu",
+    "\u044f": "ya",
+    "\u03b2": "b", "\u03b3": "g", "\u03b4": "d", "\u03b6": "z",
+    "\u03b7": "e", "\u03b8": "th", "\u03bb": "l", "\u03bc": "m",
+    "\u03bd": "n", "\u03c0": "p", "\u03c1": "r", "\u03c2": "s",
+    "\u03c3": "s", "\u03c5": "u", "\u03c6": "ph", "\u03c7": "h",
+    "\u03c8": "ps", "\u03c9": "o",
+})
+
 _LEET_MAP = {
     "0": "o", "1": "l", "3": "e", "4": "a", "5": "s",
     "7": "t", "8": "b", "@": "a", "$": "s",
 }
+
+# The figure one stands for two letters: l in one reading and i in
+# the other, as the reference fold reads it.
+_LEET_MAP_I = dict(_LEET_MAP, **{"1": "i"})
+
+_PAYLOAD_DEPTH_BOUND = 100
 
 
 def _folded_readings(key):
@@ -172,25 +210,33 @@ def _folded_readings(key):
     zero width characters dropped, beside a reading with digit
     substitutions read as letters and a reading with digits
     dropped. The barred forms themselves stand unmoved; only
-    their reading gains the folded form."""
-    decomposed = unicodedata.normalize("NFKD", str(key).lower())
-    base = "".join(
-        _HOMOGLYPH_MAP.get(character, character)
-        for character in decomposed
-        if not unicodedata.category(character).startswith("M")
-    )
-    plain = "".join(
-        character for character in base if character.isalnum())
+    their reading gains the folded form. The readings stand taken
+    under both the homoglyph map and the transliteration map, and
+    under both readings of the figure one, as l and as i, and the
+    transliterated spelling of the money marker word itself reads
+    as the marker."""
     readings = []
-    for reading in (
-        plain,
-        "".join(_LEET_MAP.get(character, character)
-                for character in plain),
-        "".join(character for character in plain
-                if not character.isdigit()),
-    ):
-        if reading and reading not in readings:
-            readings.append(reading)
+    for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+        decomposed = unicodedata.normalize("NFKD", str(key).lower())
+        base = "".join(
+            letter_map.get(character, character)
+            for character in decomposed
+            if not unicodedata.category(character).startswith("M")
+        )
+        plain = "".join(
+            character for character in base if character.isalnum())
+        for reading in (
+            plain,
+            "".join(_LEET_MAP.get(character, character)
+                    for character in plain),
+            "".join(_LEET_MAP_I.get(character, character)
+                    for character in plain),
+            "".join(character for character in plain
+                    if not character.isdigit()),
+        ):
+            reading = reading.replace("realmani", "realmoney")
+            if reading and reading not in readings:
+                readings.append(reading)
     return tuple(readings)
 
 
@@ -198,14 +244,29 @@ def _key_reads_as(key, folded_name):
     return folded_name in _folded_readings(key)
 
 
-def _payload_carries_barred(value):
+def _payload_carries_barred(value, _depth=0, _seen=None):
     """Screen a payload at any depth for the barred money and
     anchor forms: a real money value, an amount and currency pair,
     or a supplied anchor set, which DQ-162 and DQ-163 bar. The
     names stand read through the folded reading, so a split or
     dressed spelling of a barred name stands barred as the plain
-    spelling stands barred."""
+    spelling stands barred. The money screen reads containment,
+    as the other money surfaces do: a folded key that contains
+    the marker stands barred, not only a key that starts with it.
+    A money name carrying no standing value stands unbarred, as
+    on the sister surfaces: the name bars only where a value
+    stands under it. The read stands bounded in depth and guarded
+    against cycles: a payload past the bound, or one that revisits
+    a container on its own path, reads as barred, so the callers
+    answer in their stated forms and never in a bare recursion
+    error."""
+    if _depth > _PAYLOAD_DEPTH_BOUND:
+        return True
     if isinstance(value, dict):
+        seen = set(_seen) if _seen is not None else set()
+        if id(value) in seen:
+            return True
+        seen.add(id(value))
         keys = {str(key).lower() for key in value}
         if "amount" in keys and "currency" in keys:
             return True
@@ -216,15 +277,25 @@ def _payload_carries_barred(value):
             return True
         for key, item in value.items():
             lowered = str(key).lower()
-            if "anchor_set" in lowered or lowered.startswith("real_money"):
+            if "anchor_set" in lowered or (
+                "real_money" in lowered and item is not None
+            ):
                 return True
             for reading in _folded_readings(key):
-                if "anchorset" in reading or reading.startswith("realmoney"):
+                if "anchorset" in reading or (
+                    "realmoney" in reading and item is not None
+                ):
                     return True
-            if _payload_carries_barred(item):
+            if _payload_carries_barred(item, _depth + 1, seen):
                 return True
     if isinstance(value, (list, tuple)):
-        return any(_payload_carries_barred(item) for item in value)
+        seen = set(_seen) if _seen is not None else set()
+        if id(value) in seen:
+            return True
+        seen.add(id(value))
+        return any(
+            _payload_carries_barred(item, _depth + 1, seen)
+            for item in value)
     return False
 
 
@@ -290,6 +361,14 @@ def validate_escrow_result(result):
         return False
     if result.get("core_only_qualifier") is not True:
         return False
+    if result.get("verification_limit") != VERIFICATION_LIMIT:
+        return False
+    if not result.get("k1_and_l2_state"):
+        return False
+    if result.get("real_money_value") is not None:
+        return False
+    if _payload_carries_barred(result):
+        return False
     return not _payload_carries_barred(result.get("payload"))
 
 
@@ -325,7 +404,7 @@ def run_instruction(name, variant="B-4", context=None):
     """
     try:
         return _run_instruction_act(name, variant=variant, context=context)
-    except (ExcludedSubpath, GuessedAnswer, ValueError) as error:
+    except (ExcludedSubpath, GuessedAnswer, UnnamedInstruction, ValueError) as error:
         error.failure_class = classify_instruction_refusal()
         raise
 
@@ -336,7 +415,13 @@ def _run_instruction_act(name, variant="B-4", context=None):
         raise GuessedAnswer("no case encodes a guess at any DQ-5 to DQ-30 item")
     if context.get("asserts_floor_under_n") or context.get("asserts_clock_scope_as_answer"):
         raise GuessedAnswer("no floor under N and no clock scope reading stands as a DQ answer")
-    if "pool" in str(name) or name == EXCLUDED_PROFILE or context.get("profile") == EXCLUDED_PROFILE:
+    if (
+        "pool" in str(name)
+        or name == EXCLUDED_PROFILE
+        or context.get("profile") == EXCLUDED_PROFILE
+        or _reads_as_excluded_profile(name)
+        or _reads_as_excluded_profile(context.get("profile"))
+    ):
         raise ExcludedSubpath("a construction excluded on a DQ ground stays excluded on that ground: " + str(name))
     if name not in _ALLOWED:
         raise UnnamedInstruction("instruction stands unnamed in the cited set of 12 core instructions, with no exercised case standing for it: " + str(name))
@@ -377,6 +462,19 @@ def _run_instruction_act(name, variant="B-4", context=None):
         result_payload["window_n_form"] = "labelled assumption in the standard for that contract"
         result_payload["contact_clocks_tracked"] = True
     return escrow_result(name, variant=variant, payload=result_payload)
+
+
+def _reads_as_excluded_profile(value):
+    """Whether a name or profile reads as the excluded profile
+    through the folded reading, so a dressed spelling of it, for
+    example one carrying a zero width character, stands read as
+    the excluded profile itself."""
+    if value is None:
+        return False
+    excluded_readings = _folded_readings(EXCLUDED_PROFILE)
+    return any(
+        reading in excluded_readings
+        for reading in _folded_readings(value))
 
 
 def classify_instruction_refusal():

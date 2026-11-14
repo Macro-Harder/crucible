@@ -117,19 +117,79 @@ def validate_derivation_domain_use(purpose=None, seed_domain=None):
     return purpose == seed_domain
 
 
-def validate_stream_cardinality(counts=None):
+def _stream_set_classes(stream_set):
+    """Return the stream class names a run StreamSet carries, or
+    None where no StreamSet stands handed in. A StreamSet stands
+    read in its typed form, in record form, or as a plain list of
+    class names, and each inventory entry stands read as a name
+    or as a record carrying its class name."""
+    if stream_set is None:
+        return None
+    if isinstance(stream_set, dict):
+        values = stream_set
+    else:
+        values = getattr(stream_set, "values", stream_set)
+    inventory = None
+    if isinstance(values, dict):
+        for key in ("stream_class_inventory", "stream_classes",
+                    "inventory", "classes"):
+            if key in values:
+                inventory = values[key]
+                break
+        if inventory is None:
+            inventory = list(values.keys())
+    elif isinstance(values, (list, tuple, set, frozenset)):
+        inventory = list(values)
+    else:
+        return None
+    classes = []
+    for entry in inventory or []:
+        if isinstance(entry, dict):
+            name = None
+            for key in ("stream_class_identifier", "stream_class",
+                        "name", "identifier", "class"):
+                if entry.get(key) is not None:
+                    name = entry.get(key)
+                    break
+            if name is None:
+                return None
+            classes.append(name)
+        else:
+            classes.append(entry)
+    return classes
+
+
+def validate_stream_cardinality(counts=None, stream_set=None,
+                                **kwargs):
     """Return True only at exactly one derivation input per class.
 
     The counts mapping names each stream class in the run StreamSet
     against the number of derivation inputs handed over for it. Any
     count other than one, for any class, fails. An empty set fails.
+    Where the run StreamSet stands handed in, as the second
+    argument or under a stream set keyword, the classes named in
+    the counts must stand as exactly the classes of that set: a
+    class of the set with no count stands missing and fails, and
+    a counted class the set does not carry stands extra and fails.
     """
+    if stream_set is None:
+        for key in ("streamset", "run_stream_set", "stream_classes",
+                    "expected_classes"):
+            if key in kwargs:
+                stream_set = kwargs[key]
+                break
     if not counts:
         return False
     try:
-        items = counts.items()
+        items = list(counts.items())
     except AttributeError:
         return False
+    classes = _stream_set_classes(stream_set)
+    if classes is not None:
+        if set(name for name, _count in items) != set(classes):
+            return False
+        if len(items) != len(classes):
+            return False
     for _name, count in items:
         if isinstance(count, (list, tuple)):
             count = len(count)
@@ -482,7 +542,7 @@ def encode_candidate_input(values):
                 + " is not a recorded string")
         text = raw
         parts.append(
-            str(len(name)) + ":" + name + "="
+            type(key).__name__ + ":" + str(len(name)) + ":" + name + "="
             + str(len(text)) + ":" + text)
     return _CANDIDATE_SEPARATOR.join(parts)
 
@@ -525,6 +585,8 @@ def battery_verdict_state(inter_stream_element_recorded=False,
     pass in any state of the record.
     """
     if not inter_stream_element_recorded:
+        return GATED
+    if not verdict_recorded:
         return GATED
     if verdict in _BATTERY_RESULT_STATES:
         return verdict

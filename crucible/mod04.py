@@ -189,12 +189,15 @@ _BARRED_KEY_PARTS = (
 
 
 _HOMOGLYPH_MAP = {
-    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p",
-    "\u0441": "c", "\u0445": "x", "\u0443": "y", "\u0456": "i",
-    "\u0458": "j", "\u0455": "s", "\u04bb": "h",
-    "\u03b1": "a", "\u03b5": "e", "\u03bf": "o", "\u03c1": "p",
-    "\u03c4": "t", "\u03ba": "k", "\u03b9": "i", "\u03bd": "v",
-    "\u03c7": "x",
+    "\u0430": "a", "\u0441": "c", "\u0435": "e", "\u043e": "o",
+    "\u0440": "p", "\u0445": "x", "\u0443": "y", "\u0456": "i",
+    "\u0458": "j", "\u0455": "s", "\u04bb": "h", "\u043a": "k",
+    "\u043c": "m", "\u043d": "h", "\u0442": "t", "\u0432": "b",
+    "\u03b1": "a", "\u03b2": "b", "\u03b5": "e", "\u03b9": "i",
+    "\u03ba": "k", "\u03bc": "m", "\u03bf": "o", "\u03c1": "p",
+    "\u03c4": "t", "\u03c7": "x", "\u03c5": "u", "\u03bd": "n",
+    "\u03b3": "g", "\u03b4": "d", "\u03bb": "l", "\u03c3": "s",
+    "\u03c9": "w", "\u03b6": "z", "\u03b8": "t", "\u03c6": "f",
     "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
     "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
     "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
@@ -203,6 +206,8 @@ _HOMOGLYPH_MAP = {
     "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
     "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
 }
+for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
+    _HOMOGLYPH_MAP[_upper.upper()] = _lower
 
 _LEET_MAP = {
     "0": "o", "1": "l", "3": "e", "4": "a", "5": "s",
@@ -230,11 +235,21 @@ def _folded_readings(key):
     )
     plain = "".join(
         character for character in base if character.isalnum())
+    leet_applied_first = "".join(
+        character for character in "".join(
+            _LEET_MAP.get(character, character) for character in base)
+        if character.isalnum())
+    leet_one_as_i = "".join(
+        character for character in "".join(
+            "i" if character == "1"
+            else _LEET_MAP.get(character, character)
+            for character in base)
+        if character.isalnum())
     readings = []
     for reading in (
         plain,
-        "".join(_LEET_MAP.get(character, character)
-                for character in plain),
+        leet_applied_first,
+        leet_one_as_i,
         "".join(character for character in plain
                 if not character.isdigit()),
     ):
@@ -341,6 +356,18 @@ def project_detection_input(state):
         )
     features = _state_field(state, ["feature_values", "features"], {})
     rule_records = _state_field(state, ["rule_records", "detection_records"], [])
+    if not isinstance(features, dict):
+        raise NamedFailure(
+            "projection refused in named form: feature_values stands "
+            "in a non record form and no projection stands written "
+            "from it: " + type(features).__name__
+        )
+    if not isinstance(rule_records, list):
+        raise NamedFailure(
+            "projection refused in named form: rule_records stands "
+            "in a non list form and no projection stands written "
+            "from it: " + type(rule_records).__name__
+        )
     return {
         "agent_identifier": agent_id,
         "day": day,
@@ -741,6 +768,15 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
     the view day stands admitted, and a record first seen on the
     view day stands admitted only where its arising position is at
     or before the as of position."""
+    def _whole(value):
+        return isinstance(value, int) and not isinstance(value, bool)
+
+    if not _whole(as_of_day) or not _whole(delay):
+        return []
+    if as_of_position is not None and not _whole(as_of_position):
+        return []
+    view_day = as_of_day
+    delay_days = delay
     selected = []
     for record in retained_records or ():
         if not isinstance(record, dict):
@@ -755,25 +791,21 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
             first_seen = record.get("day")
         if first_seen is None:
             continue
-        try:
-            first_seen_day = int(first_seen)
-            view_day = int(as_of_day)
-            delay_days = int(delay)
-        except (TypeError, ValueError):
+        if not _whole(first_seen):
             continue
+        first_seen_day = first_seen
         if first_seen_day + delay_days > view_day:
             continue
         if as_of_position is not None:
-            if first_seen_day == view_day:
+            if first_seen_day + delay_days == view_day:
                 arising = record.get("arising_position")
                 if arising is None:
                     arising = record.get("position")
                 if arising is None:
                     continue
-                try:
-                    if int(arising) > int(as_of_position):
-                        continue
-                except (TypeError, ValueError):
+                if not _whole(arising):
+                    continue
+                if arising > as_of_position:
                     continue
         _view_copy_guard(record)
         selected.append(_freeze(record))
@@ -876,7 +908,10 @@ def view_record_carries_barred_field(view_record):
             if id(node) in visited:
                 continue
             visited.add(id(node))
-            for key, item in node.items():
+            for key in dict.keys(node):
+                if _is_barred_key(key):
+                    return True
+            for key, item in dict.items(node):
                 if _is_barred_key(key):
                     return True
                 stack.append(item)

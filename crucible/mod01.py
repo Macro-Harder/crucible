@@ -512,6 +512,9 @@ _FIELD_VALUES = {
     "core_only_qualifier": True,
     "content_check_outcome": "passed",
     "completeness_state": "complete",
+    "anchor_scenario_values": (
+        "stated anchor value one", "stated anchor value two",
+        "stated anchor value three"),
 }
 
 
@@ -533,6 +536,11 @@ def minimal_valid_instance(form_id, entry_kind=None, condition_holds=None):
     """
     fid = _fid(form_id)
     if fid == "36":
+        if entry_kind is not None and entry_kind not in (
+                "ordinary", "agent", "supersession"):
+            raise ValueError(
+                "unknown entry kind: " + str(entry_kind)
+                + "; the stated kinds are ordinary, agent and supersession")
         return _minimal_eventlog(entry_kind or "ordinary")
     if fid == "15":
         return _minimal_joint_outcome_vector()
@@ -595,16 +603,66 @@ def minimal_valid_family_record():
 # Validators
 # ---------------------------------------------------------------------------
 
-def _carries_reserved_matter(value):
+RECORD_TRAVERSAL_DEPTH_BOUND = 100
+
+
+class RecordTraversalFailure(ValueError):
+    """A named failure for a value deeper than the stated traversal
+    bound, or carrying a cycle, in the reading of a record."""
+
+
+def _traversal_guard(value, depth, seen):
+    if depth > RECORD_TRAVERSAL_DEPTH_BOUND:
+        raise RecordTraversalFailure(
+            "record traversal bound reached: the value stands deeper "
+            "than the stated bound of "
+            + str(RECORD_TRAVERSAL_DEPTH_BOUND))
+    if id(value) in seen:
+        raise RecordTraversalFailure(
+            "record traversal found a cycle")
+
+
+def _guard_copyable(value, depth=0, seen=None):
+    if seen is None:
+        seen = set()
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        _traversal_guard(value, depth, seen)
+        seen.add(id(value))
+        try:
+            items = value.items() if isinstance(value, dict) else (
+                (item, item) for item in value)
+            for key, item in items:
+                _guard_copyable(key, depth + 1, seen)
+                _guard_copyable(item, depth + 1, seen)
+        finally:
+            seen.discard(id(value))
+
+
+def _carries_reserved_matter(value, _depth=0, _seen=None):
+    if _seen is None:
+        _seen = set()
     if isinstance(value, str):
         return value in RESERVED_MATTER_VALUES
     if isinstance(value, dict):
-        return any(
-            _carries_reserved_matter(k) or _carries_reserved_matter(v)
-            for k, v in value.items()
-        )
+        _traversal_guard(value, _depth, _seen)
+        _seen.add(id(value))
+        try:
+            return any(
+                _carries_reserved_matter(k, _depth + 1, _seen)
+                or _carries_reserved_matter(v, _depth + 1, _seen)
+                for k, v in value.items()
+            )
+        finally:
+            _seen.discard(id(value))
     if isinstance(value, (list, tuple, set, frozenset)):
-        return any(_carries_reserved_matter(v) for v in value)
+        _traversal_guard(value, _depth, _seen)
+        _seen.add(id(value))
+        try:
+            return any(
+                _carries_reserved_matter(v, _depth + 1, _seen)
+                for v in value)
+        finally:
+            _seen.discard(id(value))
     return False
 
 
@@ -635,6 +693,22 @@ _LETTER_MAP = {
     "\u00c6": "ae", "\u0152": "oe", "\u00d8": "o", "\u0110": "d",
     "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
     "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
+    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
+    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
+    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
+    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
+    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
+    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
+    "\u1d22": "z",
+    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
+}
+
+# Symbol substitutions in the leet readings, beside the digit readings
+# below: a sign standing in a marker word for the letter it commonly
+# stands for reads as that letter, for a, e, l and y.
+_SYMBOL_LEET_READINGS = {
+    "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
+    "\u00a5": "y",
 }
 
 _TRANSLITERATED_SPELLINGS = (
@@ -668,7 +742,8 @@ def _canonicalise_letters(text):
             digit = unicodedata.digit(character, None)
             if digit is not None:
                 character = str(digit)
-        characters.append(_LETTER_MAP.get(character, character))
+        characters.append(_LETTER_MAP.get(
+            character, _SYMBOL_LEET_READINGS.get(character, character)))
     canonical = "".join(characters)
     for source, target in _TRANSLITERATED_SPELLINGS:
         canonical = canonical.replace(source, target)
@@ -711,8 +786,12 @@ _ANCHOR_VALUES_FIELD_FOLDED = _folded_money_key(
     "anchor_" + "scenario_values")
 
 
-def _carries_real_money_value(value):
+def _carries_real_money_value(value, _depth=0, _seen=None):
+    if _seen is None:
+        _seen = set()
     if isinstance(value, dict):
+        _traversal_guard(value, _depth, _seen)
+        _seen.add(id(value))
         amount_carried = any(
             _folded_key_matches(key, "amount") and item is not None
             for key, item in value.items()
@@ -721,17 +800,27 @@ def _carries_real_money_value(value):
             _folded_key_matches(key, "currency")
             for key in value.keys()
         )
-        if amount_carried and currency_carried:
-            return True
-        for key, item in value.items():
-            if _folded_key_carries(key, _MONEY_MARKER_FOLDED) and (
-                    item is not None):
+        try:
+            if amount_carried and currency_carried:
                 return True
-            if _carries_real_money_value(item):
-                return True
-        return False
+            for key, item in value.items():
+                if _folded_key_carries(key, _MONEY_MARKER_FOLDED) and (
+                        item is not None):
+                    return True
+                if _carries_real_money_value(item, _depth + 1, _seen):
+                    return True
+            return False
+        finally:
+            _seen.discard(id(value))
     if isinstance(value, (list, tuple, set, frozenset)):
-        return any(_carries_real_money_value(v) for v in value)
+        _traversal_guard(value, _depth, _seen)
+        _seen.add(id(value))
+        try:
+            return any(
+                _carries_real_money_value(v, _depth + 1, _seen)
+                for v in value)
+        finally:
+            _seen.discard(id(value))
     return False
 
 
@@ -804,7 +893,7 @@ def family_supports_reportable_run(record):
     return True
 
 
-def validate_record(form_id, instance):
+def _validate_record_inner(form_id, instance):
     """Validate one record instance against its form.
 
     The required field rule: a record with a required field absent
@@ -833,10 +922,11 @@ def validate_record(form_id, instance):
         for key, anchor_values in instance.items():
             if not _folded_key_matches(key, _ANCHOR_VALUES_FIELD_FOLDED):
                 continue
-            if isinstance(anchor_values, dict) and len(anchor_values) != 3:
+            try:
+                anchor_count = len(anchor_values)
+            except TypeError:
                 return False
-            if isinstance(anchor_values, (list, tuple, set, frozenset)) and len(
-                    anchor_values) != 3:
+            if anchor_count != 3:
                 return False
     if fid == "15":
         for field, parts in JOINT_OUTCOME_COMPONENT_PARTS.items():
@@ -877,6 +967,17 @@ def validate_record(form_id, instance):
         if any(not isinstance(v, str) for v in items):
             return False
     return True
+
+
+def validate_record(form_id, instance):
+    """Validate one record instance against its form, in the form
+    _validate_record_inner states. A value deeper than the stated
+    traversal bound, or carrying a cycle, fails validation and
+    returns False, in place of a bare recursion error."""
+    try:
+        return _validate_record_inner(form_id, instance)
+    except (RecordTraversalFailure, RecursionError):
+        return False
 
 
 def _validate_eventlog(instance):
@@ -960,7 +1061,7 @@ def partial_record_is_marked(run_status=None, partial=None, record=None):
     failed run carries its marking, so it can never be presented as
     complete."""
     if isinstance(record, dict):
-        return bool(record.get("partial")) and bool(record.get("marked_partial", True))
+        return bool(record.get("partial")) and bool(record.get("marked_partial", False))
     return bool(partial)
 
 
@@ -1023,9 +1124,12 @@ class VersionStamp:
     FIELDS = ("family_version", "family_manifest_hash", "rule_version_set")
 
     def __init__(self, values):
-        self._values = copy.deepcopy(dict(values))
+        stored = dict(values)
+        _guard_copyable(stored)
+        self._values = copy.deepcopy(stored)
 
     def as_dict(self):
+        _guard_copyable(self._values)
         return copy.deepcopy(self._values)
 
     def __eq__(self, other):
@@ -1033,7 +1137,11 @@ class VersionStamp:
 
 
 def validate_version_stamp(stamp, sealed_family_hash=None):
-    values = stamp.as_dict() if isinstance(stamp, VersionStamp) else stamp
+    try:
+        values = VersionStamp.as_dict(stamp) if isinstance(
+            stamp, VersionStamp) else stamp
+    except (RecordTraversalFailure, RecursionError):
+        return False
     if not isinstance(values, dict):
         return False
     for field in VersionStamp.FIELDS:
@@ -1065,12 +1173,16 @@ class ProvenanceBlock:
 
 
 def validate_provenance_block(block):
-    data = block.as_dict() if isinstance(block, ProvenanceBlock) else block
+    try:
+        data = ProvenanceBlock.as_dict(block) if isinstance(
+            block, ProvenanceBlock) else block
+    except (RecordTraversalFailure, RecursionError):
+        return False
     if not isinstance(data, dict):
         return False
-    if data.get("excluded_class_counts") is None:
+    if not data.get("excluded_class_counts"):
         return False
-    if data.get("excluded_class_shares") is None:
+    if not data.get("excluded_class_shares"):
         return False
     entries = data.get("entries")
     if not entries:
@@ -1080,7 +1192,9 @@ def validate_provenance_block(block):
             return False
         if "applicability" not in entry:
             return False
-        if "arbiter accuracy" in str(entry.get("field")):
+        field_reading = str(entry.get("field")).lower().replace(
+            "_", " ").replace("-", " ")
+        if "arbiter accuracy" in field_reading:
             if not entry.get("error_direction"):
                 return False
     return True

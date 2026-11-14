@@ -28,6 +28,7 @@ in this module in the forms the plan states for them.
 """
 
 import copy
+import math
 
 from crucible import mod03 as _mod03
 
@@ -261,6 +262,14 @@ def attacker_payoff(strategy, external_profit_value):
             "attacker payoff rejected: the external profit value "
             "stands in no numeric form: " + repr(external_profit_value)
         )
+    if not math.isfinite(in_protocol) or not math.isfinite(
+            external_profit_value):
+        raise NamedAttackerFailure(
+            "attacker payoff rejected: a payoff part stands in no "
+            "finite numeric form: in protocol "
+            + repr(in_protocol) + ", external "
+            + repr(external_profit_value)
+        )
     return in_protocol + external_profit_value
 
 
@@ -345,6 +354,11 @@ def run_record_carriage(strategy_class, ladder_position,
             "run record rejected: the fixed strategy class stands "
             "in no class list form: " + repr(strategy_class)
         )
+    if len(strategy_class) == 0:
+        raise NamedAttackerFailure(
+            "run record rejected: no fixed strategy class stands "
+            "stated"
+        )
     if strategies is not None and not isinstance(
             strategies, (list, tuple)):
         raise NamedAttackerFailure(
@@ -363,13 +377,19 @@ def run_record_carriage(strategy_class, ladder_position,
             "the whole rungs 0 to 6 of the search ladder: "
             + repr(ladder_position)
         )
-    if catalogue_version_or_hash is None:
+    if catalogue_version_or_hash is None or (
+            isinstance(catalogue_version_or_hash, str)
+            and not catalogue_version_or_hash.strip()):
         raise NamedAttackerFailure(
             "run record rejected: no catalogue version or hash "
             "stands stated"
         )
     if ladder_definition_pointer is None or (
-            ladder_definition_version is None):
+            ladder_definition_version is None) or (
+            isinstance(ladder_definition_pointer, str)
+            and not ladder_definition_pointer.strip()) or (
+            isinstance(ladder_definition_version, str)
+            and not ladder_definition_version.strip()):
         raise NamedAttackerFailure(
             "run record rejected: no ladder definition pointer "
             "and version stand stated"

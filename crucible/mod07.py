@@ -157,6 +157,11 @@ def validate_choice_pair(log_entry, run_entry):
         "governing_text_version",
         "dependence_marks",
     ):
+        for entry in (log_entry, run_entry):
+            if field not in entry or entry.get(field) is None:
+                return False
+            if field != "dependence_marks" and entry.get(field) == "":
+                return False
         if log_entry.get(field) != run_entry.get(field):
             return False
     return True
@@ -293,6 +298,10 @@ def validate_tracer_passage_set(records, positive_control=None):
         for field in _TRACER_FIELDS:
             if record.get(field) is None:
                 return False
+            if field == "what_in_fact_passed" and isinstance(
+                    record.get(field), str) \
+                    and not record.get(field).strip():
+                return False
         if record.get("result") not in TRACER_RESULTS:
             return False
         items.append(record.get("open_semantic_item"))
@@ -310,6 +319,52 @@ def validate_tracer_passage_set(records, positive_control=None):
     return control.get("recorded_as_passing") is True
 
 
+def _stored_entries(run, keys):
+    """Return the stored entries a run carries under any of the
+    stated carriage keys, as a list of records."""
+    entries = []
+    for key in keys:
+        carried = run.get(key)
+        if isinstance(carried, dict):
+            entries.append(carried)
+        elif isinstance(carried, (list, tuple)):
+            entries.extend(
+                entry for entry in carried
+                if isinstance(entry, dict))
+    return entries
+
+
+def _stored_pair_stands(run, choice):
+    """Return True only where the choice pair a run in fact
+    carries stands in agreement. The pair check reads the stored
+    interpretation log entry and the stored run record entry of
+    the choice, matched by choice identifier. A side the run
+    does not store stands read from the entry this module builds
+    for the choice, so a run storing neither side stands judged
+    on its choices alone, as before."""
+    identifier = choice.get("choice_identifier")
+    log_entries = _stored_entries(run, (
+        "interpretation_log_entries", "interpretation_log_entry",
+        "interpretation_log", "log_entries"))
+    run_entries = _stored_entries(run, (
+        "run_record_entries", "run_record_entry",
+        "run_record_choices", "record_entries"))
+    log_entry = next(
+        (entry for entry in log_entries
+         if entry.get("choice_identifier") == identifier), None)
+    run_entry = next(
+        (entry for entry in run_entries
+         if entry.get("choice_identifier") == identifier), None)
+    if log_entry is None and run_entry is None:
+        return validate_choice_pair(
+            interpretation_log_entry(choice), run_record_entry(choice))
+    if log_entry is None:
+        log_entry = interpretation_log_entry(choice)
+    if run_entry is None:
+        run_entry = run_record_entry(choice)
+    return validate_choice_pair(log_entry, run_entry)
+
+
 def validate_joint_run(run):
     """Return True only where a joint run may stand: every adapter
     choice it uses stands recorded as a choice in both records with
@@ -321,9 +376,7 @@ def validate_joint_run(run):
     for choice in run.get("adapter_choices") or []:
         if not validate_adapter_choice(choice):
             return False
-        if not validate_choice_pair(
-            interpretation_log_entry(choice), run_record_entry(choice)
-        ):
+        if not _stored_pair_stands(run, choice):
             return False
     if not validate_tracer_passage_set(
         run.get("tracer_passage_records") or [],
@@ -352,6 +405,9 @@ def joint_run_failure(run):
         if not validate_adapter_choice(choice):
             return mod01.failure_value(
                 "adapter choice stands outside its recorded form")
+        if not _stored_pair_stands(run, choice):
+            return mod01.failure_value(
+                "joint run choice pair stands in disagreement")
     records = run.get("tracer_passage_records") or []
     if len(records) != len(OPEN_SEMANTIC_ITEMS):
         return mod01.failure_value(
@@ -435,7 +491,16 @@ def _claim_drifts(claim):
     index = claim.find("released")
     while index != -1:
         if not claim[:index].rstrip().endswith("not"):
-            if "computed" not in claim:
+            start = max(
+                claim.rfind(separator, 0, index)
+                for separator in (",", ";", " and "))
+            ends = [
+                claim.find(separator, index + len("released"))
+                for separator in (",", ";", " and ")]
+            ends = [end for end in ends if end != -1]
+            end = min(ends) if ends else len(claim)
+            segment = claim[start:end]
+            if "computed" not in segment:
                 return True
         index = claim.find("released", index + 1)
     return False

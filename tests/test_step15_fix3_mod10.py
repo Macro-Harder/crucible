@@ -292,16 +292,25 @@ class TestFlagEvaluation(Fix3Base):
                 record, outcome="promote", tier=None, inputs="recorded")
         lawful = {"run_id": "run-fix3-flag-2", "retention_tier": "Tier 1"}
         promoted = mod10.apply_flag_evaluation(
-            lawful, outcome="promote", tier="Tier 3", inputs="flag inputs")
+            lawful, outcome="promote", tier="Tier 3",
+            inputs={"flag_conditions_fired": ["condition-1"]})
         self.assertEqual(promoted["retention_tier"], "Tier 3")
-        self.assertEqual(promoted["flag_evaluation"]["inputs"], "flag inputs")
+        self.assertEqual(
+            promoted["flag_evaluation"]["inputs"],
+            {"flag_conditions_fired": ["condition-1"]})
 
     def test_ta31_inputs_recorded_as_supplied(self):
         record = {"run_id": "run-fix3-flag-3", "retention_tier": "Tier 2"}
+        with self.assertRaises(ValueError):
+            mod10.apply_flag_evaluation(
+                record, outcome="promote", tier="Tier 3")
+        self.assertEqual(record["retention_tier"], "Tier 2")
+        self.assertNotIn("flag_evaluation", record)
+        supplied = {"flag_conditions_fired": ["condition-1"]}
         updated = mod10.apply_flag_evaluation(
-            record, outcome="promote", tier="Tier 3")
+            record, outcome="promote", tier="Tier 3", inputs=supplied)
         self.assertIn("inputs", updated["flag_evaluation"])
-        self.assertIsNone(updated["flag_evaluation"]["inputs"])
+        self.assertEqual(updated["flag_evaluation"]["inputs"], supplied)
 
 
 class TestDeferredAndRetention(Fix3Base):
@@ -437,9 +446,9 @@ class TestLookupForms(Fix3Base):
         with self.assertRaises(mod10.LookupFailure) as caught:
             mod10.gc08_record("call_log", "owner-fix3")
         failure = caught.exception.failure
-        self.assertEqual(failure["owner_identifier"], "owner-fix3")
+        self.assertEqual(failure["run_identifier"], "owner-fix3")
         self.assertEqual(failure["record_kind"], "call_log")
-        self.assertNotIn("run_identifier", failure)
+        self.assertNotIn("owner_identifier", failure)
 
     def test_c14_annotation_link_plan_name(self):
         self.assertEqual(mod10.annotation_link_at_checkpoint(

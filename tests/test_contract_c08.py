@@ -42,7 +42,7 @@ class TestContractC08(unittest.TestCase):
             mod10.apply_flag_evaluation(record, outcome="promote", tier="Tier 3", actor="person")
         with self.assertRaises(ValueError):
             mod10.apply_flag_evaluation(record, outcome="demote", tier="Tier 1", actor="program")
-        promoted = mod10.apply_flag_evaluation(record, outcome="promote", tier="Tier 3", actor="program", inputs="flag inputs")
+        promoted = mod10.apply_flag_evaluation(record, outcome="promote", tier="Tier 3", actor="program", inputs={"flag_conditions_fired": ["condition-1"]})
         self.assertEqual(promoted["retention_tier"], "Tier 3")
         self.assertEqual(promoted["flag_evaluation"]["actor"], "program")
         mod10.write_summary_record(promoted)

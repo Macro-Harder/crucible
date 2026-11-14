@@ -43,7 +43,7 @@ class TestFlagRuleAmendmentForm(unittest.TestCase):
         require_surface(self, "flag rule amendment written into the stored summary record", "summary_record_for_run", "apply_flag_evaluation")
         record = SURFACE.summary_record_for_run(run_id="run-under-test")
         self.assertEqual(record["written_at"], "run_close")
-        updated = SURFACE.apply_flag_evaluation(record, outcome="promote", tier="Tier 3")
+        updated = SURFACE.apply_flag_evaluation(record, outcome="promote", tier="Tier 3", inputs={"flag_conditions_fired": ["condition-1"]})
         self.assertEqual(updated["retention_tier"], "Tier 3")
         self.assertIn("flag_evaluation", updated)
         self.assertIn("inputs", updated["flag_evaluation"])

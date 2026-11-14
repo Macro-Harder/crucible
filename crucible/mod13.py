@@ -39,6 +39,94 @@ def _freeze(value):
     return copy.deepcopy(value)
 
 
+REPLICATION_STATEMENT_SENTENCES = (
+    "The same program was run again on the same records and gave the result stated.",
+    "No separate team rebuilt the program, and no separate team reran the work with its own tools.",
+    "This check does not show that an independent team would get the same result.",
+)
+REPLICATION_STATEMENT = " ".join(REPLICATION_STATEMENT_SENTENCES)
+
+COMPARABILITY_ITEM_ALIASES = {
+    "code_version": ("code_version", "code version"),
+    "rule_version_set": ("rule_version_set", "rule version set"),
+    "dependency_manifest": (
+        "dependency_manifest", "dependency manifest",
+        "dependency_manifest_hash", "dependency manifest hash"),
+    "compiler_identity_and_arithmetic_flags": (
+        "compiler_identity_and_arithmetic_flags",
+        "compiler identity and arithmetic flags",
+        "compiler_identity", "compiler identity"),
+    "library_versions": ("library_versions", "library versions"),
+    "algorithm_selection_mode": (
+        "algorithm_selection_mode", "algorithm selection mode",
+        "algorithm_selection_modes"),
+    "processor_class": ("processor_class", "processor class"),
+    "worker_count_form": ("worker_count_form", "worker count form"),
+    "hash_seed_setting": (
+        "hash_seed_setting", "hash seed setting",
+        "process_hash_seed_setting", "hash_seed"),
+    "build_identifier": ("build_identifier", "build identifier"),
+}
+COMPARABILITY_ITEMS = tuple(COMPARABILITY_ITEM_ALIASES)
+
+
+def _base_get(record, key):
+    """Read one field through the base dict get, never through a
+    get the record itself overrides."""
+    if isinstance(record, dict):
+        return dict.get(record, key)
+    return None
+
+
+def _comparability_value(record, item):
+    for alias in COMPARABILITY_ITEM_ALIASES[item]:
+        value = _base_get(record, alias)
+        if value is not None:
+            return value
+    return None
+
+
+def _comparability(first, second):
+    """The contracts C-02 and C-03 comparability check, in the
+    consolidated form: the items the plan names, read from both
+    records, with every differing item named."""
+    differing = [
+        item for item in COMPARABILITY_ITEMS
+        if _comparability_value(first, item) != _comparability_value(second, item)
+    ]
+    record = {
+        "comparable": not differing,
+        "not_comparable": bool(differing),
+        "items_checked": list(COMPARABILITY_ITEMS),
+        "differing_items": differing,
+        "not_comparable_on": differing,
+    }
+    return differing, record
+
+
+def _run_label(record):
+    for key in ("run_id", "run_identifier", "run"):
+        value = _base_get(record, key)
+        if value is not None:
+            return value
+    return None
+
+
+def _no_difference_report(fields, first, second, compared_form, points):
+    return {
+        "fields_compared": list(fields),
+        "compared_form": compared_form,
+        "form": compared_form,
+        "points_compared": list(points),
+        "comparison_points": list(points),
+        "runs_compared": [_run_label(first), _run_label(second)],
+        "hash_limb_ran": False,
+        "wider_claim": False,
+        "no_wider_claim": True,
+        "report_kind": "observation",
+    }
+
+
 def ac1_field_list():
     """The AC-1 state hash field list and its order, as MOD-01
     carries them. This checker pins the list and the order only,
@@ -64,29 +152,83 @@ def replay_check(first, second):
     named in missing_fields, never agreement. A field standing
     present with the value None stands as missing in the same
     form: no value stands stated on that side, and the headline
-    unit stands under the same rule."""
+    unit stands under the same rule. Every field stands read
+    through the base dict get, never through a get the record
+    itself overrides. The comparison runs only where the two
+    records agree on every comparability item of contracts C-02
+    and C-03; a differing item records the pair as not comparable
+    on that item and no equality observation stands reported from
+    it. A differing comparison returns the consolidated first
+    divergence record, and a comparison with no difference returns
+    the consolidated no difference report, each in the form the
+    resume check returns for its state limb."""
     fields = ac1_field_list()
     first_record = first if isinstance(first, dict) else {}
     second_record = second if isinstance(second, dict) else {}
+    comp_differing, comp_record = _comparability(first_record, second_record)
+    if comp_differing:
+        return {
+            "field_list": fields,
+            "order": list(fields),
+            "differing_fields": [],
+            "missing_fields": [],
+            "identical_headline_unit": None,
+            "deterministic": None,
+            "marked_non_deterministic": None,
+            "hash_equality_claimed": False,
+            "detection_state_completeness_claimed": False,
+            "comparable": False,
+            "not_comparable": True,
+            "not_comparable_on": comp_differing,
+            "comparability_differing_items": comp_differing,
+            "comparability": comp_record,
+            "comparability_record": comp_record,
+            "equality_observation_reported": False,
+            "comparison_reported": False,
+            "first_divergence": None,
+            "divergence_record": None,
+            "no_difference_report": None,
+        }
     missing = [
         field for field in fields
-        if first_record.get(field) is None
-        or second_record.get(field) is None
+        if _base_get(first_record, field) is None
+        or _base_get(second_record, field) is None
     ]
     differing = []
     for field in fields:
         if field in missing:
             differing.append(field)
-        elif first_record.get(field) != second_record.get(field):
+        elif _base_get(first_record, field) != _base_get(second_record, field):
             differing.append(field)
     unit_differs = (
-        first_record.get("headline_unit") is None
-        or second_record.get("headline_unit") is None
-        or first_record.get("headline_unit") != second_record.get("headline_unit")
+        _base_get(first_record, "headline_unit") is None
+        or _base_get(second_record, "headline_unit") is None
+        or _base_get(first_record, "headline_unit") != _base_get(second_record, "headline_unit")
     )
     if unit_differs:
         differing.append("headline_unit")
     deterministic = not differing
+    divergence_record = None
+    no_difference_report = None
+    if differing:
+        first_diff = differing[0]
+        divergence_record = {
+            "field": first_diff,
+            "tick": _base_get(second_record, "tick"),
+            "day": _base_get(second_record, "simulated_day"),
+            "agent_identifier": _base_get(second_record, "agent_identifier"),
+            "values_compared": [
+                _base_get(first_record, first_diff),
+                _base_get(second_record, first_diff),
+            ],
+            "hash_limb_ran": False,
+            "compared_form": "record level and verdict level values, no hash equality",
+        }
+    else:
+        no_difference_report = _no_difference_report(
+            fields, first_record, second_record,
+            "record level and verdict level values, no hash equality",
+            ["end of run"])
     return {
         "field_list": fields,
         "order": list(fields),
@@ -97,6 +239,16 @@ def replay_check(first, second):
         "marked_non_deterministic": not deterministic,
         "hash_equality_claimed": False,
         "detection_state_completeness_claimed": False,
+        "comparable": True,
+        "not_comparable": False,
+        "not_comparable_on": [],
+        "comparability_differing_items": [],
+        "comparability": comp_record,
+        "comparability_record": comp_record,
+        "equality_observation_reported": True,
+        "first_divergence": differing[0] if differing else None,
+        "divergence_record": divergence_record,
+        "no_difference_report": no_difference_report,
     }
 
 
@@ -194,34 +346,61 @@ def resume_check(original, resumed):
     comparison point on either side, or standing present with
     the value None, is a divergence of that point in the same
     form: a point on which no verdict stands on either side
-    certifies no agreement."""
+    certifies no agreement. The comparison runs only where the
+    two records agree on every comparability item of contracts
+    C-02 and C-03; a differing item records the pair as not
+    comparable on that item and no equality observation stands
+    reported from it."""
     fields = ac1_field_list()
     original_record = original if isinstance(original, dict) else {}
     resumed_record = resumed if isinstance(resumed, dict) else {}
+    comp_differing, comp_record = _comparability(original_record, resumed_record)
+    verdict_points = detection_comparison_points()
+    if comp_differing:
+        return {
+            "equal_in_scope": None,
+            "scope": "non detection state, plus detection verdicts at two points only",
+            "differing_fields": [],
+            "missing_fields": [],
+            "first_divergence": None,
+            "divergence_record": None,
+            "no_difference_report": None,
+            "detection_comparison_points": verdict_points,
+            "detection_scope": "verdict level only",
+            "promoted_to_full_retention": False,
+            "witness_use_barred": False,
+            "comparable": False,
+            "not_comparable": True,
+            "not_comparable_on": comp_differing,
+            "comparability_differing_items": comp_differing,
+            "comparability": comp_record,
+            "comparability_record": comp_record,
+            "equality_observation_reported": False,
+            "comparison_reported": False,
+        }
     missing = [
         field for field in fields
-        if original_record.get(field) is None
-        or resumed_record.get(field) is None
+        if _base_get(original_record, field) is None
+        or _base_get(resumed_record, field) is None
     ]
     differing = []
     for field in fields:
         if field in missing:
             differing.append(field)
-        elif original_record.get(field) != resumed_record.get(field):
+        elif _base_get(original_record, field) != _base_get(resumed_record, field):
             differing.append(field)
-    verdict_points = detection_comparison_points()
     verdict_differing = []
-    original_verdicts = original_record.get("detection_verdicts")
+    original_verdicts = _base_get(original_record, "detection_verdicts")
     if not isinstance(original_verdicts, dict):
         original_verdicts = {}
-    resumed_verdicts = resumed_record.get("detection_verdicts")
+    resumed_verdicts = _base_get(resumed_record, "detection_verdicts")
     if not isinstance(resumed_verdicts, dict):
         resumed_verdicts = {}
     for point in verdict_points:
         if (
-            original_verdicts.get(point) is None
-            or resumed_verdicts.get(point) is None
-            or original_verdicts.get(point) != resumed_verdicts.get(point)
+            _base_get(original_verdicts, point) is None
+            or _base_get(resumed_verdicts, point) is None
+            or _base_get(original_verdicts, point) != _base_get(resumed_verdicts, point)
         ):
             verdict_differing.append(point)
     failed = bool(differing or verdict_differing)
@@ -230,16 +409,22 @@ def resume_check(original, resumed):
     if failed:
         divergence_record = {
             "field": first,
-            "tick": resumed_record.get("tick"),
-            "day": resumed_record.get("simulated_day"),
-            "agent_identifier": resumed_record.get("agent_identifier"),
+            "tick": _base_get(resumed_record, "tick"),
+            "day": _base_get(resumed_record, "simulated_day"),
+            "agent_identifier": _base_get(resumed_record, "agent_identifier"),
             "values_compared": [
-                original_record.get(first) if first in differing else original_verdicts.get(first),
-                resumed_record.get(first) if first in differing else resumed_verdicts.get(first),
+                _base_get(original_record, first) if first in differing else _base_get(original_verdicts, first),
+                _base_get(resumed_record, first) if first in differing else _base_get(resumed_verdicts, first),
             ],
             "hash_limb_ran": False,
             "compared_form": "record level and verdict level values, no hash equality",
         }
+    no_difference_report = None
+    if not failed:
+        no_difference_report = _no_difference_report(
+            fields, original_record, resumed_record,
+            "record level and verdict level values, no hash equality",
+            verdict_points)
     return {
         "equal_in_scope": not failed,
         "scope": "non detection state, plus detection verdicts at two points only",
@@ -247,10 +432,18 @@ def resume_check(original, resumed):
         "missing_fields": missing,
         "first_divergence": first,
         "divergence_record": divergence_record,
+        "no_difference_report": no_difference_report,
         "detection_comparison_points": verdict_points,
         "detection_scope": "verdict level only",
         "promoted_to_full_retention": failed,
         "witness_use_barred": failed,
+        "comparable": True,
+        "not_comparable": False,
+        "not_comparable_on": [],
+        "comparability_differing_items": [],
+        "comparability": comp_record,
+        "comparability_record": comp_record,
+        "equality_observation_reported": True,
     }
 
 
@@ -290,6 +483,8 @@ def verdict_record(claim_id, standard="exact replay alone", outcome="rests"):
         "standard_applied": standard,
         "outcome": outcome,
         "quantities": None,
+        "replication_statement": REPLICATION_STATEMENT,
+        "replication_statement_sentences": list(REPLICATION_STATEMENT_SENTENCES),
     }
     if not validate_verdict_record(record):
         raise NamedReplicationFailure(
@@ -309,6 +504,8 @@ def validate_verdict_record(record):
     if record.get("outcome") not in ("rests", "does not rest"):
         return False
     if record.get("standard_applied") == "distributional equivalence":
+        return False
+    if dict.get(record, "replication_statement") != REPLICATION_STATEMENT:
         return False
     return record.get("standard_applied") == "exact replay alone"
 
@@ -559,6 +756,9 @@ __all__ = [
     "STANDARDS",
     "OP20_QUANTITIES",
     "NamedReplicationFailure",
+    "REPLICATION_STATEMENT",
+    "REPLICATION_STATEMENT_SENTENCES",
+    "COMPARABILITY_ITEMS",
     "ac1_field_list",
     "replay_check",
     "ac1_check",

@@ -28,6 +28,23 @@ class NamedShellFailure(Exception):
     """A named failure reaching the operator with its run
     identifier and its stage, never swallowed."""
 
+    def __init__(self, message=""):
+        super().__init__(message)
+        self.failure = {
+            "name": type(self).__name__,
+            "message": str(message),
+            "failure": str(message),
+        }
+
+
+_NAMED_FAILURE_CLASS_NAMES = frozenset((
+    "NamedShellFailure", "NamedGeneratorFailure", "NamedFailure",
+    "AlterationBarred", "GatedRun", "NamedDetectionFailure",
+    "SilentUseMovement", "NamedAttackerFailure",
+    "NamedControllerFailure", "NamedReplicationFailure",
+    "LookupFailure",
+))
+
 
 def _freeze(value):
     return copy.deepcopy(value)
@@ -143,6 +160,12 @@ def error_carriage(failure, run_id=None, stage=None):
         for key, value in vars(failure).items():
             if key not in fields and key != "failure":
                 fields[key] = _freeze(value)
+        class_name = type(failure).__name__
+        if class_name in _NAMED_FAILURE_CLASS_NAMES or class_name.startswith("Named"):
+            fields.setdefault("name", class_name)
+            fields.setdefault("message", str(failure))
+            if not fields:
+                fields["failure"] = str(failure)
     carriage = {
         "failure": name,
         "failure_value": fields,
@@ -250,24 +273,40 @@ def _screen_pilot_key(key):
             "pilot confined label: " + str(key))
 
 
-def _screen_pilot_artefact(value):
-    if isinstance(value, dict):
-        for key, item in value.items():
-            _screen_pilot_key(key)
-            _screen_pilot_artefact(item)
-        if not validate_pilot_claim(value):
+_PILOT_ARTEFACT_DEPTH_BOUND = 100
+
+
+def _screen_pilot_artefact(value, _depth=0, _seen=None):
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        if _depth > _PILOT_ARTEFACT_DEPTH_BOUND:
             raise NamedShellFailure(
-                "pilot artefact carries a claim the pilot check bars")
-    elif isinstance(value, (list, tuple)):
-        if len(value) == 2 and isinstance(value[0], str):
-            _screen_pilot_key(value[0])
-        for item in value:
-            _screen_pilot_artefact(item)
-    elif isinstance(value, (set, frozenset)):
-        for item in value:
-            if isinstance(item, str):
-                _screen_pilot_key(item)
-            _screen_pilot_artefact(item)
+                "pilot artefact stands deeper than the stated "
+                "depth bound of " + str(_PILOT_ARTEFACT_DEPTH_BOUND))
+        seen = _seen if _seen is not None else set()
+        if id(value) in seen:
+            raise NamedShellFailure(
+                "pilot artefact carries a cycle")
+        seen.add(id(value))
+        try:
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    _screen_pilot_key(key)
+                    _screen_pilot_artefact(item, _depth + 1, seen)
+                if not validate_pilot_claim(value):
+                    raise NamedShellFailure(
+                        "pilot artefact carries a claim the pilot check bars")
+            elif isinstance(value, (list, tuple)):
+                if len(value) == 2 and isinstance(value[0], str):
+                    _screen_pilot_key(value[0])
+                for item in value:
+                    _screen_pilot_artefact(item, _depth + 1, seen)
+            else:
+                for item in value:
+                    if isinstance(item, str):
+                        _screen_pilot_key(item)
+                    _screen_pilot_artefact(item, _depth + 1, seen)
+        finally:
+            seen.discard(id(value))
 
 
 
@@ -413,6 +452,22 @@ def store_kind_check_with_reason(kind):
 RETENTION_TIERS = ("Tier 1", "Tier 2", "Tier 3")
 
 
+def _normalise_actor(actor):
+    """Normalise an actor reading before the exact person check
+    in MOD-10: case is folded, spacing is collapsed to single
+    spaces, separator characters read as spacing, and one
+    leading article is dropped, so a person actor in that dress
+    reads as the plain actor it names."""
+    if not isinstance(actor, str):
+        return actor
+    text = _canonicalise_text(actor)
+    text = "".join(char if char.isalnum() else " " for char in text)
+    words = text.split()
+    if words and words[0] in _ARTICLES:
+        words = words[1:]
+    return " ".join(words)
+
+
 def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
                     actor="program"):
     """The flag evaluation program check: its inputs and outcome
@@ -446,7 +501,7 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
                 "flag promotion with no stated flag condition fired")
     return _mod10.apply_flag_evaluation(
         summary_record, outcome=outcome, tier=tier,
-        actor=actor, inputs=inputs,
+        actor=_normalise_actor(actor), inputs=inputs,
     )
 
 
@@ -596,14 +651,20 @@ def _canonicalise_text(value):
     for char in decomposed:
         if unicodedata.combining(char):
             continue
-        if char in _LETTER_MAP:
-            chars.append(_LETTER_MAP[char])
+        mapped = _LETTER_MAP.get(
+            char, _LETTER_MAP.get(char.lower(), char))
+        digit = unicodedata.digit(mapped, None) if len(str(mapped)) == 1 else None
+        if digit is not None:
+            chars.append(str(digit))
         else:
-            chars.append(char)
+            chars.append(mapped)
     return "".join(chars).lower()
 
 
 def _canonicalise_word(word):
+    word = "".join(
+        str(unicodedata.digit(char)) if unicodedata.digit(char, None) is not None else char
+        for char in word)
     if any(char.isalpha() for char in word) and any(
             char.isdigit() for char in word):
         word = "".join(
@@ -620,14 +681,22 @@ _VOCABULARY_WORDS = frozenset(
 )
 
 
+_VOCABULARY_ORDERED = tuple(dict.fromkeys(
+    word
+    for phrase in (
+        _PROTECTED_TARGETS + _EDIT_ACTS + _DESTRUCTIVE_ACTS
+        + _READ_ACTS + ("flag rule", "deletion rule"))
+    for word in phrase.split()
+))
+
+
 def _resolve_word(word):
     """Read one word as the vocabulary word it dresses, where
-    it dresses one: the word itself where it stands plain, and
-    the word with one added letter struck where the candidate
-    carries exactly one letter more than a vocabulary word, so
-    a word carrying an added letter inside it or at its end
-    reads as the word it dresses. Any other word stands as
-    itself."""
+    it dresses one: the word itself where it stands plain, a
+    word with one or two added letters struck, a word with one
+    letter dropped from a vocabulary word, a word with one
+    letter replaced, and a word with two adjacent letters
+    transposed. Any other word stands as itself."""
     if word in _VOCABULARY_WORDS:
         return word
     if len(word) > 3:
@@ -635,6 +704,33 @@ def _resolve_word(word):
             reduced = word[:cut] + word[cut + 1:]
             if reduced in _VOCABULARY_WORDS:
                 return reduced
+        for first in range(len(word)):
+            for second in range(first + 1, len(word)):
+                reduced = word[:first] + word[first + 1:second] + word[second + 1:]
+                if reduced in _VOCABULARY_WORDS:
+                    return reduced
+    if len(word) >= 3:
+        for candidate in _VOCABULARY_ORDERED:
+            if len(candidate) == len(word) + 1:
+                for cut in range(len(candidate)):
+                    if candidate[:cut] + candidate[cut + 1:] == word:
+                        return candidate
+        for candidate in _VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            for cut in range(len(word) - 1):
+                swapped = (
+                    candidate[:cut] + candidate[cut + 1]
+                    + candidate[cut] + candidate[cut + 2:])
+                if swapped == word:
+                    return candidate
+        for candidate in _VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            differences = sum(
+                1 for left, right in zip(candidate, word) if left != right)
+            if differences == 1:
+                return candidate
     return word
 
 

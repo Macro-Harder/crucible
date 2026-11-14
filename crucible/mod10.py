@@ -24,6 +24,7 @@ computed result without changing the value.
 """
 import copy
 import json
+import math
 import os
 import unicodedata
 
@@ -122,6 +123,16 @@ _TRANSLITERATION_MAP = {
     "\u00c6": "ae", "\u0152": "oe", "\u00d8": "o", "\u0110": "d",
     "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
     "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
+    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
+    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
+    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
+    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
+    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
+    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
+    "\u1d22": "z",
+    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
+    "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
+    "\u00a5": "y",
 }
 
 _HOMOGLYPH_MAP = dict(_TRANSLITERATION_MAP)
@@ -129,11 +140,26 @@ _HOMOGLYPH_MAP.update({
     "\u0440": "p", "\u0441": "c", "\u0445": "x", "\u0443": "y",
     "\u043d": "h", "\u0432": "b", "\u043a": "k", "\u043c": "m",
     "\u0442": "t",
+    "\u03c5": "y",
+    "\u0452": "s", "\u0493": "h", "\u0456": "i", "\u03c1": "p",
 })
 
 _LEET_DIGITS = {
     "0": "o", "1": "l", "2": "z", "3": "e", "4": "a",
     "5": "s", "6": "g", "7": "t", "8": "b", "9": "g",
+}
+
+# The figure one carries a second leet reading as i beside its
+# reading as l, as on the cured barred surfaces. The symbol leet
+# readings stand applied before any symbol is dropped, so a symbol
+# standing in a word for the letter it commonly stands for reads
+# as that letter: the at sign and the dollar sign stand beside the
+# symbol substitutions recorded in the letter maps above.
+_LEET_DIGITS_I = dict(_LEET_DIGITS, **{"1": "i"})
+
+_SYMBOL_LEET_READINGS = {
+    "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
+    "\u00a5": "y", "$": "s",
 }
 
 
@@ -149,7 +175,11 @@ def _canonical_text(value, letter_map):
         for part in unicodedata.normalize("NFKD", character):
             if unicodedata.category(part) in ("Mn", "Me", "Cf"):
                 continue
-            pieces.append(part)
+            lowered = part.lower()
+            if lowered in letter_map:
+                pieces.append(letter_map[lowered])
+                continue
+            pieces.append(lowered)
     return "".join(pieces)
 
 
@@ -157,13 +187,17 @@ def _fold_variants(key):
     variants = set()
     for letter_map in (_TRANSLITERATION_MAP, _HOMOGLYPH_MAP):
         text = _canonical_text(key, letter_map)
-        leet = "".join(
-            _LEET_DIGITS.get(character, character)
-            for character in text if character.isalnum())
+        for digit_map in (_LEET_DIGITS, _LEET_DIGITS_I):
+            leet = "".join(
+                character for character in "".join(
+                    _SYMBOL_LEET_READINGS.get(
+                        character, digit_map.get(character, character))
+                    for character in text)
+                if character.isalnum())
+            variants.add(leet.replace("realmani", "realmoney"))
         dropped = "".join(
             character for character in text if character.isalpha())
-        for variant in (leet, dropped):
-            variants.add(variant.replace("realmani", "realmoney"))
+        variants.add(dropped.replace("realmani", "realmoney"))
     return variants
 
 
@@ -178,35 +212,48 @@ def _folded_money_key(key):
 _MONEY_MARKER_FOLDED = ("real_" + "money").replace("_", "")
 
 
-def _carries_real_money_field(value):
+def _carries_real_money_field(value, _depth=0, _path=()):
     """Whether a value carries a real money field at any depth, by
     field name (a real money field name with a value standing) or
     by amount and currency shape. Field names and the shape keys
     stand read through the canonicalised fold stated above, so a
     name stands read as the name it is in any dress the fold
-    covers, and the shape stands read where either shape key
-    stands in any of its folded readings with a value standing."""
+    covers, and the shape stands read where the amount key stands
+    in any of its folded readings with a value standing and the
+    currency key stands present in any of its folded readings.
+    The read stands bounded: a value standing deeper than the
+    bound, or carrying a cycle, stands refused in the stated
+    ValueError form instead of escaping as a bare RecursionError."""
+    if isinstance(value, (dict, list, tuple)):
+        if _depth > 100 or id(value) in _path:
+            raise ValueError(
+                "deep or cyclic record in named form: a record "
+                "standing deeper than the retention bound, or "
+                "carrying a cycle, stands refused at retention")
+        _path = _path + (id(value),)
     if isinstance(value, dict):
         amount_stands = any(
             "amount" in _fold_variants(key) and item is not None
-            for key, item in value.items()
+            for key, item in dict.items(value)
         )
         currency_stands = any(
-            "currency" in _fold_variants(key) and item is not None
-            for key, item in value.items()
+            "currency" in _fold_variants(key)
+            for key in dict.keys(value)
         )
         if amount_stands and currency_stands:
             return True
-        for key, item in value.items():
+        for key, item in dict.items(value):
             if item is not None and any(
                     _MONEY_MARKER_FOLDED in variant
                     for variant in _fold_variants(key)):
                 return True
-            if _carries_real_money_field(item):
+            if _carries_real_money_field(item, _depth + 1, _path):
                 return True
         return False
     if isinstance(value, (list, tuple)):
-        return any(_carries_real_money_field(item) for item in value)
+        return any(
+            _carries_real_money_field(item, _depth + 1, _path)
+            for item in value)
     return False
 
 
@@ -276,6 +323,13 @@ class RecorderStore:
             raise ValueError(
                 "identity less record: no run identifier stands on the "
                 "record, and no record stands retained under no identifier")
+        try:
+            hash(rid)
+        except TypeError as exc:
+            raise ValueError(
+                "identity less record: the run identifier stands in "
+                "an unhashable form, and no record stands retained "
+                "under it") from exc
         if _carries_real_money_field(record):
             raise ValueError(
                 "real money field in named form: a run record carrying "
@@ -283,7 +337,14 @@ class RecorderStore:
                 "field name and by amount and currency shape")
         if rid in self._records:
             raise ValueError("second record for the same run is rejected: " + str(rid))
-        self._records[rid] = copy.deepcopy(record)
+        try:
+            stored = copy.deepcopy(record)
+        except RecursionError as exc:
+            raise ValueError(
+                "deep or cyclic record in named form: a record "
+                "standing deeper than the retention bound, or "
+                "carrying a cycle, stands refused at retention") from exc
+        self._records[rid] = stored
         self._index.append(rid)
         try:
             self._flush()
@@ -300,12 +361,19 @@ class RecorderStore:
         """The Recorder store reading path. The tracer cut reads
         back through this path and no other path. Reading never
         writes: a missing run raises the named lookup failure."""
-        if run_id not in self._records:
+        try:
+            present = run_id in self._records
+        except TypeError as exc:
+            raise LookupFailure(run_id) from exc
+        if not present:
             raise LookupFailure(run_id)
         return copy.deepcopy(self._records[run_id])
 
     def has_run_record(self, run_id):
-        return run_id in self._records
+        try:
+            return run_id in self._records
+        except TypeError as exc:
+            raise LookupFailure(run_id) from exc
 
     def clear(self):
         self._records = {}
@@ -329,6 +397,7 @@ _RESERVE_HOLDS = {}
 _SUMMARY_RECORDS = {}
 _VIEW_RECORDS = {}
 _CHECKPOINT_STATES = {}
+_REJECTED_CHECKPOINT_WRITES = []
 
 
 def new_store(store_kind="sweep", path=None):
@@ -357,6 +426,7 @@ def reset_stores():
         _CHECKPOINT_STATES,
     ):
         collection.clear()
+    _REJECTED_CHECKPOINT_WRITES.clear()
 
 
 def retain_run_record(record, store_kind="sweep"):
@@ -387,6 +457,8 @@ def validate_run_record_set(records):
             return False
         seen.add(rid)
         writers = record.get("group_writers") or {}
+        if not isinstance(writers, dict):
+            return False
         for group, writer in writers.items():
             owner = GROUP_OWNERS.get(group)
             if owner is not None and writer != owner:
@@ -394,12 +466,41 @@ def validate_run_record_set(records):
     return True
 
 
+def _numeric_component(value):
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value))
+
+
+def _components_stand_numeric(values):
+    return (
+        isinstance(values, (list, tuple))
+        and all(_numeric_component(value) for value in values))
+
+
 def retain_daily_aggregate_deliveries(run_id, deliveries):
     """Retain the daily aggregate deliveries of one run: one
     delivery per run per day per viewer, each carrying the four
     joint outcome components, their denominators, the honest share,
     and the gate passing share for each epoch ending on that day.
-    Aggregates for the run stand computed from these deliveries."""
+    Aggregates for the run stand computed from these deliveries.
+    A delivery whose joint outcome components or component
+    denominators stand in a non numeric form stands refused at
+    retention in named form, so no retained delivery can crash a
+    later rederivation with a bare TypeError."""
+    for delivery in deliveries:
+        if not isinstance(delivery, dict):
+            continue
+        for field in ("joint_outcome_components",
+                      "component_denominators"):
+            values = delivery.get(field)
+            if isinstance(values, (list, tuple)) and not all(
+                    _numeric_component(value) for value in values):
+                raise ValueError(
+                    "daily aggregate delivery in named form: the "
+                    + field + " of a delivery stand in a non numeric "
+                    "form, and no delivery stands retained for it")
     stored = _AGGREGATE_DELIVERIES.setdefault(run_id, {})
     for delivery in deliveries:
         key = (delivery.get("simulated_day"), delivery.get("viewer_id"))
@@ -569,6 +670,8 @@ def rederive_regime_classification(aggregates):
         components = record.get("joint_outcome_components") or []
         if len(components) != 4:
             return None
+        if not _components_stand_numeric(components):
+            return None
         for position, value in enumerate(components):
             totals[position] += value
     return {
@@ -588,6 +691,11 @@ def validate_daily_aggregates(aggregates):
             return False
         if "viewer_id" not in record:
             return False
+        for field in ("joint_outcome_components",
+                      "component_denominators"):
+            if field in record and not _components_stand_numeric(
+                    record[field]):
+                return False
         if "joint_outcome_components" in record and len(record["joint_outcome_components"]) != 4:
             return False
     return True
@@ -666,6 +774,10 @@ def retain_event_log_entry(entry, store_kind="sweep"):
             "identity less entry: an event log entry stands as a record, "
             "and no other form stands retained")
     run_id = entry.get("run_identifier") or entry.get("run_id")
+    if run_id is None:
+        raise ValueError(
+            "identity less entry: no run identifier stands on the "
+            "entry, and no entry stands retained under no identifier")
     bucket = _EVENT_LOGS.setdefault((store_kind, run_id), [])
     for existing in bucket:
         if existing == entry:
@@ -691,6 +803,10 @@ def retain_daily_snapshot(snapshot, store_kind="sweep"):
             "identity less snapshot: a daily snapshot stands as a record, "
             "and no other form stands retained")
     run_id = snapshot.get("run_identifier") or snapshot.get("run_id")
+    if run_id is None:
+        raise ValueError(
+            "identity less snapshot: no run identifier stands on the "
+            "snapshot, and no snapshot stands retained under no identifier")
     bucket = _DAILY_SNAPSHOTS.setdefault((store_kind, run_id), [])
     for existing in bucket:
         if existing == snapshot:
@@ -720,6 +836,20 @@ def retain_checkpoint(manifest, store_kind="sweep"):
             "identity less checkpoint: no run identifier stands on the "
             "manifest, and no checkpoint stands retained under no identifier")
     bucket = _CHECKPOINTS.setdefault((store_kind, run_id), [])
+    if any(
+            item.get("simulated_day") == manifest.get("simulated_day")
+            for item in bucket):
+        _REJECTED_CHECKPOINT_WRITES.append({
+            "run_id": run_id,
+            "run_identifier": run_id,
+            "simulated_day": manifest.get("simulated_day"),
+            "store_kind": store_kind,
+            "manifest": copy.deepcopy(manifest),
+            "recorded_as": "rejected write",
+        })
+        raise ValueError(
+            "second checkpoint for the same run and day is rejected: "
+            + str(run_id) + " day " + str(manifest.get("simulated_day")))
     if len(bucket) >= 10000:
         raise ValueError("checkpoint cap in named form: a run stands at the ruled cap of 10,000 checkpoints per run under ruling Entry 18, and no further checkpoint stands retained")
     stored = copy.deepcopy(manifest)
@@ -732,6 +862,18 @@ def retain_checkpoint(manifest, store_kind="sweep"):
                             manifest.get("simulated_day"))] = (
             copy.deepcopy(manifest["checkpoint_state"]))
     return copy.deepcopy(manifest)
+
+
+def rejected_checkpoint_writes(run_id=None):
+    """Read the rejected checkpoint writes recorded under contract
+    C-01 uniqueness: each second write for a run and day that
+    already held a manifest stands recorded here as a rejected
+    write, and no rejected write stands retained as a checkpoint.
+    Reading never writes."""
+    return copy.deepcopy([
+        item for item in _REJECTED_CHECKPOINT_WRITES
+        if run_id is None or item.get("run_id") == run_id
+    ])
 
 
 def checkpoint_state_at(run_id, simulated_day, store_kind="sweep"):
@@ -960,15 +1102,15 @@ def retain_gc08_record(kind, record, owner_id):
 def gc08_record(kind, owner_id):
     """Read one retained GC-08 record. Reading never writes: an
     absent record raises the named lookup failure, with the
-    identifier carried under its own kind name and the record kind
-    sought stated in the failure."""
+    identifier carried under the agreed key run_identifier and
+    the record kind sought stated in the failure."""
     if (kind, owner_id) not in _GC08_RECORDS:
         failure = LookupFailure(owner_id)
         failure.failure = {
             "name": ONE_LOOKUP_FAILURE_NAME,
             "run_status": "failed",
             "complete": False,
-            "owner_identifier": owner_id,
+            "run_identifier": owner_id,
             "record_kind": kind,
         }
         raise failure
@@ -1221,6 +1363,22 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
             "the flag rule never demotes: the stated tier stands below "
             "the record tier")
     if outcome == "promote":
+        if inputs is None:
+            raise ValueError(
+                "flag promotion with no inputs supplied: a promotion "
+                "stands only with inputs actually supplied, and no "
+                "promotion stands effected by it")
+        fired = []
+        if isinstance(inputs, dict):
+            fired = inputs.get("flag_conditions_fired") or []
+        if not fired:
+            fired = record.get("flag_conditions_fired") or []
+        if not fired:
+            raise ValueError(
+                "flag promotion with no stated flag condition fired: "
+                "a promotion stands only with at least one stated "
+                "flag condition fired, and no promotion stands "
+                "effected by it")
         if tier is None:
             raise ValueError(
                 "a promote outcome with no tier stands refused: no "
@@ -1329,7 +1487,8 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
         "written_into": "summary record",
     })
     if firing == 2:
-        hold = _RESERVE_HOLDS.get(updated.get("run_id"))
+        hold = _RESERVE_HOLDS.get(
+            updated.get("run_id") or updated.get("run_identifier"))
         if hold is not None and hold.get("family_states_headlines", True):
             hold["state"] = "released"
             updated["reserve_hold_state"] = "released"
@@ -1452,7 +1611,11 @@ def resume_from_checkpoint(checkpoint):
                     key: value for key, value in retained.items()
                     if key != "journal_event_count_at_checkpoint"
                 }
-                if retained_form != checkpoint:
+                handed_form = {
+                    key: value for key, value in checkpoint.items()
+                    if key != "journal_event_count_at_checkpoint"
+                }
+                if retained_form != handed_form:
                     raise ValueError(
                         "checkpoint integrity refusal: the handed "
                         "checkpoint differs from the retained checkpoint "
@@ -1613,6 +1776,7 @@ __all__ = [
     "daily_snapshots",
     "retain_checkpoint",
     "checkpoints_for_run",
+    "rejected_checkpoint_writes",
     "delete_checkpoint",
     "checkpoint_integrity_check",
     "portable_checkpoint_manifest",
@@ -1805,7 +1969,7 @@ def _carries_barred_key(value):
             if id(node) in visited:
                 continue
             visited.add(id(node))
-            for key, item in node.items():
+            for key, item in dict.items(node):
                 if _is_barred_view_key(key):
                     return True
                 stack.append(item)
@@ -1855,6 +2019,9 @@ def run_view_leak_check(view_record):
                 + view_name + ", field " + field
                 + " carries a barred key")
     for field in mod01.ViewRecord.FIELDS:
+        if field in ("scheduling_position_identifier",
+                     "rule_version_set"):
+            continue
         if view_record.get(field) is None:
             raise ValueError(
                 "view leak check failure: form field_validation, view "

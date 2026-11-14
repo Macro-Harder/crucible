@@ -15,6 +15,7 @@ values passed in.
 """
 
 import copy
+import math
 import unicodedata
 
 from . import mod01
@@ -155,16 +156,20 @@ def validate_proportion(record):
         return False
     if "numerator" not in record or "denominator" not in record:
         return False
-    numerator = record["numerator"]
-    denominator = record["denominator"]
+    numerator = dict.__getitem__(record, "numerator")
+    denominator = dict.__getitem__(record, "denominator")
     for part in (numerator, denominator):
         if isinstance(part, bool) or not isinstance(part, (int, float)):
             return False
+        if not math.isfinite(part):
+            return False
     if denominator <= 0 or numerator < 0:
         return False
-    if "quotient" in record and record["quotient"] is not None:
-        quotient = record["quotient"]
+    if "quotient" in record and dict.__getitem__(record, "quotient") is not None:
+        quotient = dict.__getitem__(record, "quotient")
         if isinstance(quotient, bool) or not isinstance(quotient, (int, float)):
+            return False
+        if not math.isfinite(quotient):
             return False
         if abs(quotient - numerator / denominator) > 1e-12:
             return False
@@ -206,7 +211,10 @@ def work_credit(events):
         "totals": {
             "submitted": total_submitted,
             "accepted": total_accepted,
-            "proportion": proportion_record(total_accepted, total_submitted),
+            "proportion": (
+                proportion_record(total_accepted, total_submitted)
+                if total_submitted else UNKNOWN_SHARE
+            ),
         },
         "events_used": len(events),
         "same_event_set": True,
@@ -876,17 +884,34 @@ _PANEL_BARRED_KEYS = {
 
 
 _HOMOGLYPH_MAP = {
-    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p",
-    "\u0441": "c", "\u0445": "x", "\u0443": "y", "\u0456": "i",
-    "\u0458": "j", "\u0455": "s", "\u04bb": "h",
-    "\u03b1": "a", "\u03b5": "e", "\u03bf": "o", "\u03c1": "p",
-    "\u03c4": "t", "\u03ba": "k", "\u03b9": "i", "\u03bd": "v",
-    "\u03c7": "x",
+    "\u0430": "a", "\u0441": "c", "\u0435": "e", "\u043e": "o",
+    "\u0440": "p", "\u0445": "x", "\u0443": "y", "\u0456": "i",
+    "\u0458": "j", "\u0455": "s", "\u04bb": "h", "\u043a": "k",
+    "\u043c": "m", "\u043d": "h", "\u0442": "t", "\u0432": "b",
+    "\u03b1": "a", "\u03b2": "b", "\u03b5": "e", "\u03b9": "i",
+    "\u03ba": "k", "\u03bc": "m", "\u03bf": "o", "\u03c1": "p",
+    "\u03c4": "t", "\u03c7": "x", "\u03c5": "u", "\u03bd": "n",
+    "\u03b3": "g", "\u03b4": "d", "\u03bb": "l", "\u03c3": "s",
+    "\u03c9": "w", "\u03b6": "z", "\u03b8": "t", "\u03c6": "f",
+    "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
+    "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
+    "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
+    "\u0167": "t",
+    "\u00c6": "ae", "\u0152": "oe", "\u00d8": "o", "\u0110": "d",
+    "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
+    "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
 }
+for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
+    _HOMOGLYPH_MAP[_upper.upper()] = _lower
 
 _LEET_MAP = {
-    "0": "o", "1": "l", "3": "e", "4": "a", "5": "s",
-    "7": "t", "8": "b", "@": "a", "$": "s",
+    "0": "o", "1": "i", "3": "e", "4": "a",
+    "5": "s", "7": "t", "8": "b", "@": "a", "$": "s",
+}
+
+_LEET_L_MAP = {
+    "0": "o", "1": "l", "3": "e", "4": "a",
+    "5": "s", "7": "t", "8": "b", "@": "a", "$": "s",
 }
 
 
@@ -905,18 +930,22 @@ def _folded_readings(key):
         for character in decomposed
         if not unicodedata.category(character).startswith("M")
     )
-    plain = "".join(
-        character for character in base if character.isalnum())
     readings = []
-    for reading in (
-        plain,
-        "".join(_LEET_MAP.get(character, character)
-                for character in plain),
-        "".join(character for character in plain
-                if not character.isdigit()),
-    ):
-        if reading and reading not in readings:
-            readings.append(reading)
+
+    def add(transformed):
+        plain = "".join(
+            character for character in transformed
+            if character.isalnum())
+        if plain and plain not in readings:
+            readings.append(plain)
+
+    add(base)
+    add("".join(_LEET_MAP.get(character, character)
+                for character in base))
+    add("".join(_LEET_L_MAP.get(character, character)
+                for character in base))
+    add("".join(character for character in base
+                if not character.isdigit()))
     return tuple(readings)
 
 
@@ -939,26 +968,73 @@ def _panel_key_barred(key):
     return False
 
 
-def _panel_clean(value):
-    if isinstance(value, dict):
-        return {
-            key: _panel_clean(item)
-            for key, item in value.items()
-            if not _panel_key_barred(key)
-        }
-    if isinstance(value, list):
-        return [_panel_clean(item) for item in value]
+PANEL_TRAVERSAL_DEPTH_BOUND = 100
+
+
+def _panel_traversal_guard(value, depth, seen, path):
+    if depth > PANEL_TRAVERSAL_DEPTH_BOUND:
+        raise ValueError(
+            "panel traversal bound reached at " + (path or "root")
+            + ": the value stands deeper than the stated bound of "
+            + str(PANEL_TRAVERSAL_DEPTH_BOUND)
+        )
+    if id(value) in seen:
+        raise ValueError(
+            "panel traversal found a cycle at " + (path or "root")
+        )
+
+
+def _panel_clean(value, _depth=0, _seen=None, _path=""):
+    if isinstance(value, (dict, list, tuple)):
+        seen = _seen if _seen is not None else set()
+        _panel_traversal_guard(value, _depth, seen, _path)
+        seen.add(id(value))
+        try:
+            if isinstance(value, dict):
+                return {
+                    key: _panel_clean(
+                        item, _depth + 1, seen, _path + "/" + str(key))
+                    for key, item in value.items()
+                    if not _panel_key_barred(key)
+                }
+            if isinstance(value, list):
+                return [
+                    _panel_clean(
+                        item, _depth + 1, seen,
+                        _path + "[" + str(index) + "]")
+                    for index, item in enumerate(value)
+                ]
+            return tuple(
+                _panel_clean(
+                    item, _depth + 1, seen,
+                    _path + "[" + str(index) + "]")
+                for index, item in enumerate(value)
+            )
+        finally:
+            seen.discard(id(value))
     return _freeze(value)
 
 
-def _panel_carries_barred(value):
-    if isinstance(value, dict):
-        return any(
-            _panel_key_barred(key) or _panel_carries_barred(item)
-            for key, item in value.items()
-        )
-    if isinstance(value, (list, tuple)):
-        return any(_panel_carries_barred(item) for item in value)
+def _panel_carries_barred(value, _depth=0, _seen=None, _path=""):
+    if isinstance(value, (dict, list, tuple)):
+        seen = _seen if _seen is not None else set()
+        _panel_traversal_guard(value, _depth, seen, _path)
+        seen.add(id(value))
+        try:
+            if isinstance(value, dict):
+                return any(
+                    _panel_key_barred(key) or _panel_carries_barred(
+                        item, _depth + 1, seen, _path + "/" + str(key))
+                    for key, item in value.items()
+                )
+            return any(
+                _panel_carries_barred(
+                    item, _depth + 1, seen,
+                    _path + "[" + str(index) + "]")
+                for index, item in enumerate(value)
+            )
+        finally:
+            seen.discard(id(value))
     return False
 
 
@@ -977,7 +1053,10 @@ def validate_panel_inputs(inputs):
     field derived from it, at any depth, fails."""
     if not isinstance(inputs, dict):
         return False
-    return not _panel_carries_barred(inputs)
+    try:
+        return not _panel_carries_barred(inputs)
+    except (ValueError, RecursionError):
+        return False
 
 
 def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,

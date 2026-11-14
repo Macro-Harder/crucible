@@ -36,10 +36,28 @@ class TestTG135(unittest.TestCase):
         self.assertFalse(failed["built"])
         self.assertIsNone(failed["unit"])
         self.assertEqual(failed["failure"]["name"], mod10.ONE_LOOKUP_FAILURE_NAME)
-        self.assertEqual(failed["failure"]["record"], "run-tg135-absent")
+        self.assertEqual(failed["failure"]["run_identifier"], "run-tg135-absent")
         self.assertEqual(family["named_failures"], [failed["failure"]])
         mod10.retain_run_record({"run_id": "run-tg135-resolves", "run_identifier": "run-tg135-resolves", "record_state": "as retained"})
         values = {field: "value for " + field for field in m.HEADLINE_UNIT_FIELDS if field not in ("checkability_fields", "run_registry_line")}
+        values["claim_sentence"] = (
+            "At the sampled points within the stated scope, the "
+            "result holds for the sampled points only, and nothing "
+            "is claimed beyond the stated limits.")
+        values["grounding_sentence"] = (
+            "This unit rests on the retained run records within "
+            "the stated scope, and its limits are that nothing is "
+            "claimed beyond the sampled points in this unit.")
+        values["qualifiers_and_markings_block"] = (
+            "seam status: no cross seam effect; "
+            "kill check: self checked only; "
+            "dependence mark: DQ-164 confirmation form, recording "
+            "that DQ-164 stands settled as confirmation only; "
+            "Parley Q3 statement: no part of the result encodes "
+            "Parley Q3 behaviour; "
+            "core only qualifier: this unit is a core only result; "
+            "anchor scenario statement: no anchor scenario is "
+            "used in this unit.")
         built = m.build_headline_unit_from_run("run-tg135-resolves", values)
         self.assertTrue(built["built"])
         self.assertIsNone(built["failure"])

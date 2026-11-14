@@ -274,15 +274,79 @@ def validate_fixture_record(record):
     return True
 
 
+
+def _drive_run(run_id, run_class, seed_domain=None):
+    """Drive one run through the wired product and retain it.
+
+    The engine of MOD-04 builds the run record and its projection,
+    and the record stands retained and read back through the
+    MOD-10 Recorder path. Returns a tuple of the driven record,
+    the record read back, whether this act retained the record,
+    and any differing record already standing under the identifier.
+    """
+    record, projected = mod04.build_tracer_run_record()
+    driven = copy.deepcopy(record)
+    driven["run_id"] = run_id
+    driven["run_identifier"] = run_id
+    driven["run_class"] = run_class
+    driven["material"] = "validation"
+    driven["record_state"] = "as retained"
+    driven["form"] = "validation exercise record"
+    driven["projection"] = copy.deepcopy(projected)
+    if seed_domain is not None:
+        driven["seed_domain"] = seed_domain
+    groups = driven.get("groups")
+    if isinstance(groups, dict) and isinstance(groups.get("identity_and_design"), dict):
+        groups["identity_and_design"]["run_class"] = run_class
+    try:
+        standing = mod10.read_run_record(run_id, store_kind="sweep")
+    except mod10.LookupFailure:
+        standing = None
+    if standing is not None:
+        return driven, standing, False, standing if standing != driven else None
+    mod10.retain_run_record(driven, store_kind="sweep")
+    read_back = mod10.read_run_record(run_id, store_kind="sweep")
+    return driven, read_back, True, None
+
+
+def _settings_lineage_record(confirmation_record):
+    """A completed Form 32 settings lineage record for one driven
+    confirmation run, tracing its settings back through the
+    screening settings of the driven record it was built from."""
+    settings_trace = [
+        {"setting": "run_class", "value": confirmation_record.get("run_class")},
+        {"setting": "seed_domain", "value": confirmation_record.get("seed_domain")},
+        {"setting": "family_id", "value": confirmation_record.get("family_id")},
+        {"setting": "form", "value": confirmation_record.get("form")},
+    ]
+    return {
+        "form": "Form 32",
+        "form_id": "32",
+        "form_name": "SettingsLineageTestRecord",
+        "record_form": "SettingsLineageTestRecord",
+        "completed": True,
+        "standing": "completed",
+        "status": "completed",
+        "confirmation_claim": confirmation_record.get("run_id"),
+        "settings_trace": settings_trace,
+        "used_to_find_or_confirm_per_setting": {
+            "run_class": "first used to confirm",
+            "seed_domain": "first used to confirm",
+            "family_id": "used to find",
+            "form": "used to find",
+        },
+    }
+
 RUN_CLASSES = ("screening", "confirmation", "headline", "validation")
 
 
 def exercise_run_class(run_class, material="validation"):
     """Exercise one run class end to end on pilot confined and
     validation material only. In this group the screening and
-    validation classes stand exercised; the confirmation and
-    headline classes stand carried as unexercised here, their
-    exercise standing in the companion exercise below."""
+    validation classes stand exercised by a run driven through
+    the wired product; the confirmation and headline classes
+    stand carried as unexercised here, their exercise standing
+    in the companion exercise below."""
     if run_class not in RUN_CLASSES:
         raise ValueError("unknown run class: " + str(run_class))
     if run_class in ("confirmation", "headline"):
@@ -293,29 +357,33 @@ def exercise_run_class(run_class, material="validation"):
             "exercise_stands_in": "companion exercise, TG-16.3b form",
             "material": material,
         }
+    run_id = "validation-" + run_class + "-1"
+    driven, read_back, retained_here, conflict = _drive_run(run_id, run_class)
+    exercised = conflict is None and read_back == driven
     return {
         "run_class": run_class,
         "run_class_required_field_present": True,
-        "exercised_end_to_end": True,
+        "exercised_end_to_end": bool(exercised),
         "material": "pilot confined and validation material only",
         "headline_claim": False,
-        "record": {
-            "run_id": "validation-" + run_class + "-1",
-            "run_class": run_class,
-            "material": "validation",
-            "form": "validation exercise record",
-        },
+        "record": read_back,
+        "read_back_matches": bool(exercised),
+        "driven_through_wired_product": True,
     }
 
 
 def exercise_confirmation_and_headline():
     """The companion exercise: one confirmation run and one
     headline run exercised end to end on validation material only,
-    before Step 17 closes. The confirmation run carries its
-    settings lineage record completed; the headline run ends in a
-    HeadlineResultUnit built under Contract H from retained
-    records only. Each result stands recorded as validation
-    material and as no headline claim.
+    before Step 17 closes. Each run stands driven through the
+    wired product: the engine of MOD-04 builds its record, the
+    record stands retained and read back through MOD-10, and the
+    headline run ends in a HeadlineResultUnit built under
+    Contract H from retained records only, through MOD-11. The
+    confirmation run carries a completed settings lineage record,
+    a completed Form 32 record, in place of any string standing
+    for it. Each result stands recorded as validation material
+    and as no headline claim.
 
     The exercise verifies the record standing under its headline
     identifier is its own record, in its own form and class,
@@ -324,23 +392,24 @@ def exercise_confirmation_and_headline():
     fails after this act retained its record, the partial
     retention stands removed and the failure stands named in
     the result, never silently reused by the next call."""
-    headline_record = {
-        "run_id": "validation-headline-1",
-        "run_identifier": "validation-headline-1",
-        "family_id": "validation-family-1",
-        "run_class": "headline",
-        "material": "validation",
-        "record_state": "as retained",
-        "form": "validation exercise record",
-    }
+    confirmation_driven, confirmation_read, _c_retained, c_conflict = _drive_run(
+        "validation-confirmation-1", "confirmation",
+        seed_domain="held out confirmation")
     confirmation = {
         "run_id": "validation-confirmation-1",
         "run_class": "confirmation",
         "material": "validation",
         "seed_domain": "held out confirmation",
-        "settings_lineage_record": "Form 32 completed",
+        "settings_lineage_record": _settings_lineage_record(confirmation_driven),
         "headline_claim": False,
+        "exercised_end_to_end": bool(
+            c_conflict is None and confirmation_read == confirmation_driven),
+        "record": confirmation_read,
+        "read_back_matches": bool(confirmation_read == confirmation_driven),
+        "driven_through_wired_product": True,
     }
+    headline_record, headline_read, retained_here, conflict = _drive_run(
+        "validation-headline-1", "headline")
 
     def exercise_failure(name, ground):
         return {
@@ -352,6 +421,7 @@ def exercise_confirmation_and_headline():
                 "unit_built": False,
                 "unit": None,
                 "headline_claim": False,
+                "exercised_end_to_end": False,
                 "failure": {
                     "name": name,
                     "run_status": "failed",
@@ -362,25 +432,34 @@ def exercise_confirmation_and_headline():
             },
         }
 
-    retained_here = False
-    try:
-        standing = mod10.read_run_record(
-            "validation-headline-1", store_kind="sweep")
-    except mod10.LookupFailure:
-        standing = None
-    if standing is not None and standing != headline_record:
+    if conflict is not None:
         return exercise_failure(
             "exercise record standing is not its own",
             "a record stands under the exercise identifier that "
             "is not the exercise record in its own form and "
             "class, and no unit stands built from it")
-    if standing is None:
-        mod10.retain_run_record(headline_record, store_kind="sweep")
-        retained_here = True
     unit_values = {
         field: "validation value for " + field
         for field in mod11.HEADLINE_UNIT_FIELDS
     }
+    unit_values["claim_sentence"] = (
+        "At the sampled points within the stated scope, the "
+        "result holds for the sampled points only, and nothing "
+        "is claimed beyond the stated limits.")
+    unit_values["grounding_sentence"] = (
+        "This unit rests on the retained run records within "
+        "the stated scope, and its limits are that nothing is "
+        "claimed beyond the sampled points in this unit.")
+    unit_values["qualifiers_and_markings_block"] = (
+        "seam status: no cross seam effect; "
+        "kill check: self checked only; "
+        "dependence mark: DQ-164 confirmation form, recorded "
+        "for this unit in its confirmation form; "
+        "Parley Q3 statement: no part of the result encodes "
+        "Parley Q3 behaviour; "
+        "core only qualifier: this unit is a core only result; "
+        "anchor scenario statement: no anchor scenario is "
+        "used in this unit.")
     try:
         built = mod11.build_headline_unit_from_run(
             "validation-headline-1", unit_values, store_kind="sweep")
@@ -402,6 +481,11 @@ def exercise_confirmation_and_headline():
         "unit_built": bool(built.get("built")),
         "unit": built.get("unit"),
         "headline_claim": False,
+        "exercised_end_to_end": bool(
+            built.get("built") and headline_read == headline_record),
+        "record": headline_read,
+        "read_back_matches": bool(headline_read == headline_record),
+        "driven_through_wired_product": True,
     }
     return {"confirmation": confirmation, "headline": headline}
 

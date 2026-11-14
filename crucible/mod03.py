@@ -338,6 +338,24 @@ def _stream_values(stream_state, preferred_key=None):
     return []
 
 
+def _guard_farm_size(farm_size, form):
+    """Guard a farm size as a non negative whole count.
+
+    None stands as no farm size stated and reads as zero. Every
+    other form that is not a non negative whole count, including
+    a boolean, a fractional number, and a text form, fails in
+    the named failure form.
+    """
+    if farm_size is None:
+        return 0
+    if isinstance(farm_size, bool) or not isinstance(
+            farm_size, int) or farm_size < 0:
+        raise NamedGeneratorFailure(
+            form + ": the farm size is not a non negative whole "
+            "count: " + repr(farm_size))
+    return farm_size
+
+
 def _records_by_id(archetype_records):
     by_id = {}
     for record in archetype_records or ():
@@ -400,7 +418,7 @@ def build_cast(point, archetype_records, stream_state=None,
     assignment = []
     for identifier, count in mix.items():
         assignment.extend([identifier] * count)
-    farm_size = point.get("farm_size") or 0
+    farm_size = _guard_farm_size(point.get("farm_size"), "cast rejected")
     farm_members = []
     agents = []
     farm_of = {}
@@ -439,13 +457,21 @@ def build_cast(point, archetype_records, stream_state=None,
                 "vouchee": edge.get("vouchee"),
                 "stake": edge.get("stake", 0),
             })
-        else:
+        elif isinstance(edge, (str, bytes)):
+            raise NamedGeneratorFailure(
+                "cast rejected: an initial edge stands as text, "
+                "not as a voucher and vouchee pair: " + repr(edge))
+        elif isinstance(edge, (list, tuple)) and len(edge) == 2:
             voucher, vouchee = edge
             edges.append({
                 "voucher": voucher,
                 "vouchee": vouchee,
                 "stake": 0,
             })
+        else:
+            raise NamedGeneratorFailure(
+                "cast rejected: an initial edge is not a voucher "
+                "and vouchee pair of size two: " + repr(edge))
     internal_counts = {}
     for farm in farms:
         internal_counts[farm["farm_id"]] = 0
@@ -532,6 +558,7 @@ def construct_farm(member_ids, farm_size=None, edges=None):
     With no edges stated, every internal count stands at zero.
     """
     members = list(member_ids or ())
+    farm_size = _guard_farm_size(farm_size, "farm rejected")
     if not farm_size:
         farms = []
         farm_of = {member: None for member in members}
@@ -674,7 +701,7 @@ def _value_carries_rule_state(value, _depth=0, _seen=None, _path=""):
                     key in RULE_STATE_FIELDS
                     or _value_carries_rule_state(
                         item, _depth + 1, seen, _path + "/" + str(key))
-                    for key, item in value.items()
+                    for key, item in dict.items(value)
                 )
             return any(
                 _value_carries_rule_state(
@@ -726,7 +753,7 @@ def _value_carries_ground_truth(value, _depth=0, _seen=None, _path=""):
                     _is_barred_key(key)
                     or _value_carries_ground_truth(
                         item, _depth + 1, seen, _path + "/" + str(key))
-                    for key, item in value.items()
+                    for key, item in dict.items(value)
                 )
             return any(
                 _value_carries_ground_truth(
@@ -765,7 +792,7 @@ def _strip_ground_truth_value(value, _depth=0, _seen=None, _path=""):
                 return {
                     key: _strip_ground_truth_value(
                         item, _depth + 1, seen, _path + "/" + str(key))
-                    for key, item in value.items()
+                    for key, item in dict.items(value)
                     if not _is_barred_key(key)
                 }
             if isinstance(value, list):
@@ -849,7 +876,7 @@ def validate_anchor_scenario(record):
     """Return True only for the three value form with the ruled mark."""
     if not isinstance(record, dict):
         return False
-    if set(record.keys()) != {
+    if set(dict.keys(record)) != {
             "scenario_identifier", "anchor_set_description", "mark"}:
         return False
     return record.get("mark") == DQ163_MARK
@@ -901,7 +928,11 @@ def cold_society_degree(day, envelope=None, gate_passing_share=None):
     stand supplied, and otherwise returns the gated standing with
     no degree stated.
     """
-    if int(day) <= COLD_SOCIETY_FIRST_DAYS:
+    if isinstance(day, bool) or not isinstance(day, int):
+        raise NamedGeneratorFailure(
+            "cold society degree rejected: the stated day is not "
+            "a whole count day in its stated form: " + repr(day))
+    if day <= COLD_SOCIETY_FIRST_DAYS:
         return 0
     if envelope is None or gate_passing_share is None:
         return {
