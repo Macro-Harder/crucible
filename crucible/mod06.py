@@ -158,6 +158,21 @@ _HOMOGLYPH_MAP = {
     "\u03c7": "x",
 }
 
+# Sister readings the letter maps stand short on without this
+# block: Cyrillic ka reads as k, Cyrillic ve as b beside its
+# transliterated v, Greek phi as f beside its transliterated ph,
+# Greek theta as t beside its transliterated th, Cyrillic dje as
+# s, Cyrillic ghe with stroke as h, and Cyrillic short i as i
+# beside its transliterated y. The transliteration map below
+# inherits these entries and then records its own readings over
+# the ve, phi, theta, and short i entries, so each of those
+# letters carries both readings across the two maps.
+_HOMOGLYPH_MAP.update({
+    "\u043a": "k", "\u0432": "b", "\u03c6": "f",
+    "\u03b8": "t", "\u0439": "i", "\u0452": "s",
+    "\u0493": "h",
+})
+
 _HOMOGLYPH_MAP.update({
     "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
     "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
@@ -253,15 +268,33 @@ _MULTI_READINGS = {
 }
 
 
+_SHORT_I_PLACEHOLDER = "\ue000"
+
+
+def _decomposed_characters(key):
+    """The characters of one key after compatibility
+    decomposition: lowercased, compatibility decomposed and
+    lowercased again. Cyrillic short i is held apart from the
+    decomposition, which would otherwise reduce it to Cyrillic i
+    and lose its second recorded reading as y: the placeholder
+    stands in its place through the decomposition, and the letter
+    itself stands restored in the returned characters."""
+    source = str(key).lower().replace(
+        "\u0439", _SHORT_I_PLACEHOLDER)
+    decomposed = unicodedata.normalize("NFKD", source).lower()
+    return [
+        "\u0439" if character == _SHORT_I_PLACEHOLDER else character
+        for character in decomposed
+    ]
+
+
 def _fold_characters(key):
     """The characters of one key in folded form: lowercased,
     compatibility decomposed and lowercased again, so a modifier
     small capital letter reduces to the Latin letter it stands
     for, with combining marks dropped."""
-    decomposed = unicodedata.normalize(
-        "NFKD", str(key).lower()).lower()
     return [
-        character for character in decomposed
+        character for character in _decomposed_characters(key)
         if not unicodedata.category(character).startswith("M")
     ]
 
@@ -270,8 +303,13 @@ def _character_reading_options(character):
     """Every reading one character carries across the reading
     kinds of this module: the homoglyph reading, the
     transliteration reading, the vo variant readings of both, and
-    the multi readings where the character carries two. A
-    character recorded in no map reads as itself."""
+    the multi readings where the character carries two. A digit
+    carries its digit readings beside itself: the letter of each
+    leet map that records it, so the figure one carries both l
+    and i, and the dropped reading, so one digit position of a
+    key may take its leet letter reading while another takes the
+    dropped reading, the two combined position by position inside
+    one key. A character recorded in no map reads as itself."""
     options = set()
     if character in _MULTI_READINGS:
         options.update(_MULTI_READINGS[character])
@@ -281,6 +319,12 @@ def _character_reading_options(character):
     ):
         if character in letter_map:
             options.add(letter_map[character])
+    if character.isdigit():
+        options.add(character)
+        options.add("")
+        for leet_map in (_LEET_MAP, _LEET_MAP_I):
+            if character in leet_map:
+                options.add(leet_map[character])
     if not options:
         options.add(character)
     return tuple(sorted(options))
@@ -311,8 +355,7 @@ def _folded_readings(key):
         _HOMOGLYPH_MAP, _TRANSLITERATION_MAP,
         _HOMOGLYPH_MAP_VO, _TRANSLITERATION_MAP_VO,
     ):
-        decomposed = unicodedata.normalize(
-            "NFKD", str(key).lower()).lower()
+        decomposed = _decomposed_characters(key)
         base = "".join(
             letter_map.get(character, character)
             for character in decomposed
@@ -556,7 +599,7 @@ def _undirected_copy(value, _memo=None):
     return value
 
 
-def _payload_carries_barred(value, _depth=0, _seen=None):
+def _payload_carries_barred(value, _depth=0, _seen=None, _walked=None):
     """Screen a payload at any depth for the barred money and
     anchor forms: a real money value, an amount and currency pair,
     or a supplied anchor set, which DQ-162 and DQ-163 bar. The
@@ -580,7 +623,34 @@ def _payload_carries_barred(value, _depth=0, _seen=None):
     readings, and set and frozenset nesting stands traversed and
     bounded on the same terms as list and tuple nesting. Nesting
     standing in a dict key stands traversed and bounded on the
-    same terms as nesting standing in a dict value."""
+    same terms as nesting standing in a dict value. A container
+    the walk has already answered clean carries that walked
+    standing across every later path that reaches it, so a
+    container shared by two siblings stands walked once for each
+    depth at which it stands reached; the standing stands keyed
+    by the container and the depth together, so a reach at a
+    greater depth still stands judged at its own depth against
+    the bound, and no standing earned inside a cycle or past the
+    bound stands carried."""
+    if not isinstance(value, (dict, list, tuple, set, frozenset)):
+        return False
+    if _walked is None:
+        _walked = {}
+    standing_key = (id(value), _depth)
+    if standing_key in _walked:
+        return False
+    result = _payload_walk_barred(value, _depth, _seen, _walked)
+    if not result:
+        _walked[standing_key] = True
+    return result
+
+
+def _payload_walk_barred(value, _depth=0, _seen=None, _walked=None):
+    """The walk behind _payload_carries_barred, carrying the
+    path scoped seen set its cycle guard states and reaching its
+    children through _payload_carries_barred, so each child
+    stands answered under the walked standing that function
+    carries across paths."""
     if isinstance(value, dict):
         if _depth > _PAYLOAD_DEPTH_BOUND:
             return True
@@ -612,9 +682,9 @@ def _payload_carries_barred(value, _depth=0, _seen=None):
                 and item is not None
             ):
                 return True
-            if _payload_carries_barred(key, _depth + 1, seen):
+            if _payload_carries_barred(key, _depth + 1, seen, _walked):
                 return True
-            if _payload_carries_barred(item, _depth + 1, seen):
+            if _payload_carries_barred(item, _depth + 1, seen, _walked):
                 return True
         return False
     if isinstance(value, (list, tuple)):
@@ -626,7 +696,7 @@ def _payload_carries_barred(value, _depth=0, _seen=None):
         seen.add(id(value))
         base_iter = list.__iter__ if isinstance(value, list) else tuple.__iter__
         return any(
-            _payload_carries_barred(item, _depth + 1, seen)
+            _payload_carries_barred(item, _depth + 1, seen, _walked)
             for item in base_iter(value))
     if isinstance(value, (set, frozenset)):
         if _depth > _PAYLOAD_DEPTH_BOUND:
@@ -639,7 +709,7 @@ def _payload_carries_barred(value, _depth=0, _seen=None):
             frozenset.__iter__ if isinstance(value, frozenset)
             else set.__iter__)
         return any(
-            _payload_carries_barred(item, _depth + 1, seen)
+            _payload_carries_barred(item, _depth + 1, seen, _walked)
             for item in base_iter(value))
     return False
 

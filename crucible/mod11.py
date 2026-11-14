@@ -584,6 +584,16 @@ alternative exposure baseline duration percentage actually
 always amongst around barely been doing door ever possibly
 rarely something them took went were throughout mountain
 doctor autumn
+easily happily silently gently brightly darkly coldly gladly
+bravely foolishly escrow coverage calibration provenance
+verdict checkpoint retention promotion operator archive stake
+decay honest cumulative censored divergence finite aggregate
+identical width uncertainty observation summary fraction
+decimal integer maximum combined zero rebuilt reran brother
+animal golden angry hungry brave gentle polite quick bright
+dark clean dirty narrow empty healthy awake asleep alive
+proud lonely wonderful busy slow cool indian birds knew told
+heard black vowel hundred numeral english
 """.split())
 
 
@@ -730,23 +740,24 @@ def _anchor_ground_stated(other):
     scenarios, anchors scenarios with the plural head word,
     hyphenated or not, the verb wording anchored in a named
     scenario, the joined wording anchorscenario, the reversed
-    wordings that name the scenario before its anchor, or the
-    anchor test and anchor testing wordings the sources prove
-    beside it."""
+    joined wording scenarioanchor, the reversed wordings that
+    name the scenario before its anchor, or the anchor test
+    and anchor testing wordings the sources prove beside it.
+    The scenario or test word counts wherever in the statement
+    it stands in relation to the head word, in either word
+    order, at any token distance."""
     tokens = _ground_tokens(other)
     if any(token in ("anchorscenario", "anchorscenarios",
-                     "anchortest", "anchortests", "anchortesting")
+                     "anchortest", "anchortests", "anchortesting",
+                     "scenarioanchor", "scenariosanchor")
            for token in tokens):
         return True
-    for index, token in enumerate(tokens):
-        if token not in ("anchor", "anchors", "anchored",
-                         "anchoring"):
-            continue
-        window = tokens[max(0, index - 6):index + 7]
-        if any(word in ("scenario", "scenarios", "test", "tests",
-                        "testing")
-               for word in window):
-            return True
+    if any(token in ("anchor", "anchors", "anchored", "anchoring")
+           for token in tokens) \
+            and any(word in ("scenario", "scenarios", "test",
+                             "tests", "testing")
+                    for word in tokens):
+        return True
     return False
 
 
@@ -770,7 +781,12 @@ def _parley_grounds_stated(other):
     wording that states the word number before the number
     word, and the reversed wording that names the questions
     and their numbers before the Parley name stand read
-    beside those forms."""
+    beside those forms. The numbered wording that states the
+    word numbered before the number word, the wording that
+    states the numbers after the Parley name, and the ordinal
+    wording wherever the ordinal word, the question word, and
+    the Parley name stand together in the statement stand
+    read beside those forms."""
     tokens = _ground_tokens(other)
     grounds = set()
     ordinal_numbers = {
@@ -836,6 +852,27 @@ def _parley_grounds_stated(other):
                     and place + 1 < len(window) \
                     and window[place + 1] in _PARLEY_GROUND_NUMBERS:
                 grounds.add(_PARLEY_GROUND_NUMBERS[window[place + 1]])
+    if "parley" in tokens and any(
+            word in ("question", "questions") for word in tokens):
+        for index, token in enumerate(tokens):
+            if token in ordinal_numbers:
+                grounds.add(ordinal_numbers[token])
+            if token == "numbered" and index + 1 < len(tokens) \
+                    and tokens[index + 1] in _PARLEY_GROUND_NUMBERS:
+                grounds.add(
+                    _PARLEY_GROUND_NUMBERS[tokens[index + 1]])
+    for index, token in enumerate(tokens):
+        if token != "parley":
+            continue
+        rest = tokens[index + 1:]
+        for place, item in enumerate(rest):
+            if item not in ("number", "numbers"):
+                continue
+            for later in rest[place + 1:]:
+                if later in _PARLEY_GROUND_NUMBERS:
+                    grounds.add(_PARLEY_GROUND_NUMBERS[later])
+                if later in ordinal_numbers:
+                    grounds.add(ordinal_numbers[later])
     return grounds
 
 

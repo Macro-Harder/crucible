@@ -16,6 +16,9 @@ entry point returns the gated refusal stated in this module. Order and
 schedule independence stands as a stated invariant of this interface.
 """
 
+from decimal import Decimal
+from fractions import Fraction
+
 from crucible import mod01 as _mod01
 
 GATE_QUESTION = "DQ7-02"
@@ -275,7 +278,22 @@ def validate_stream_cardinality(counts=None, stream_set=None,
         elif isinstance(count, int):
             if not int.__eq__(int.__new__(int, count), 1):
                 return False
-        elif count != 1:
+        elif isinstance(count, float):
+            if not float.__eq__(float.__new__(float, count), 1):
+                return False
+        elif isinstance(count, Decimal):
+            if not Decimal.__eq__(
+                    Decimal.__new__(Decimal, count), Decimal(1)):
+                return False
+        elif isinstance(count, Fraction):
+            if not Fraction.__eq__(
+                    Fraction.__new__(Fraction, count), Fraction(1)):
+                return False
+        elif isinstance(count, complex):
+            if not complex.__eq__(
+                    complex.__new__(complex, count), complex(1)):
+                return False
+        else:
             return False
     return True
 

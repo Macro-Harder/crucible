@@ -13,7 +13,6 @@ no grid artefact in this module is presented as affordable and
 no sweep run starts here.
 """
 
-import copy
 import itertools
 import unicodedata
 
@@ -34,8 +33,51 @@ class NamedControllerFailure(Exception):
     """A failure stated by name, never a silent correction."""
 
 
-def _freeze(value):
-    return copy.deepcopy(value)
+def _freeze(value, _memo=None):
+    """Copy a value through base class readings only.
+
+    Dict parts stand read through the base dict items reading,
+    and list, tuple, set, and frozenset parts through their
+    base iteration readings, so no reading a part itself
+    supplies directs the copy. A set part stands rebuilt
+    through the plain set constructor and a frozenset part
+    through the plain frozenset constructor, never through a
+    constructor the part itself supplies. A part in no
+    container form stands copied as itself. Shared and cyclic
+    container parts stand preserved through the memo, as a
+    plain deep copy preserves them."""
+    if _memo is None:
+        _memo = {}
+    if isinstance(value, dict):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = {}
+        _memo[id(value)] = copied
+        for key, item in dict.items(value):
+            copied[_freeze(key, _memo)] = _freeze(item, _memo)
+        return copied
+    if isinstance(value, list):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = []
+        _memo[id(value)] = copied
+        copied.extend(
+            _freeze(item, _memo) for item in list.__iter__(value))
+        return copied
+    if isinstance(value, tuple):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = tuple(
+            _freeze(item, _memo) for item in tuple.__iter__(value))
+        _memo[id(value)] = copied
+        return copied
+    if isinstance(value, frozenset):
+        return frozenset(
+            _freeze(item, _memo) for item in frozenset.__iter__(value))
+    if isinstance(value, set):
+        return set(
+            _freeze(item, _memo) for item in set.__iter__(value))
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -741,8 +783,10 @@ def _base_children(value):
 def _base_count(value):
     """The count of a handed value through its base class length
     reading, never through a length reading the value itself
-    supplies. A value in no sized base form falls back to the
-    plain length call, whose TypeError the caller handles."""
+    supplies. A value in no sized base form carries no base
+    class length: the helper raises TypeError in the sister
+    form, and the caller handles that refusal, so no count
+    stands judged from a reading the value itself supplies."""
     if isinstance(value, list):
         return list.__len__(value)
     if isinstance(value, tuple):
@@ -759,7 +803,7 @@ def _base_count(value):
         return bytearray.__len__(value)
     if isinstance(value, bytes):
         return bytes.__len__(value)
-    return len(value)
+    raise TypeError("the handed value carries no base class length")
 
 
 _CONTAINER_TYPES = (dict, list, tuple, set, frozenset)

@@ -47,7 +47,7 @@ class B15Base(unittest.TestCase):
         self.assertEqual(mod14._normalise_actor(actor), "person")
         with self.assertRaises(ValueError):
             self.core_promote(actor)
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValueError):
             self.shell_promote(actor)
 
     def assert_both_promote(self, actor):
@@ -112,14 +112,8 @@ for _i, _a in enumerate(_NAMED_DRESSES):
 
 
 class TestPromotedControls(B15Base):
-    def test_seven_added_letters_promotes_at_both_acts(self):
-        self.assertEqual(
-            mod10._normalised_actor("personxxxxxxx"),
-            "personxxxxxxx")
-        self.assertEqual(
-            mod14._normalise_actor("personxxxxxxx"),
-            "personxxxxxxx")
-        self.assert_both_promote("personxxxxxxx")
+    def test_seven_added_letters_refused_at_both_acts(self):
+        self.assert_both_refuse_person("personxxxxxxx")
 
     def test_program_promotes_at_both_acts(self):
         self.assert_both_promote("program")

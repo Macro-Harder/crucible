@@ -682,9 +682,11 @@ def _guard_copyable(value, depth=0, seen=None, _walked=None):
         _walked.add((id(value), depth))
 
 
-def _carries_reserved_matter(value, _depth=0, _seen=None):
+def _carries_reserved_matter(value, _depth=0, _seen=None, _walked=None):
     if _seen is None:
         _seen = set()
+    if _walked is None:
+        _walked = {}
     if isinstance(value, str):
         return any(
             str.__eq__(value, reserved)
@@ -692,24 +694,32 @@ def _carries_reserved_matter(value, _depth=0, _seen=None):
         )
     if isinstance(value, dict):
         _traversal_guard(value, _depth, _seen)
+        if (id(value), _depth) in _walked:
+            return _walked[(id(value), _depth)]
         _seen.add(id(value))
         try:
-            return any(
-                _carries_reserved_matter(k, _depth + 1, _seen)
-                or _carries_reserved_matter(v, _depth + 1, _seen)
+            result = any(
+                _carries_reserved_matter(k, _depth + 1, _seen, _walked)
+                or _carries_reserved_matter(v, _depth + 1, _seen, _walked)
                 for k, v in dict.items(value)
             )
         finally:
             _seen.discard(id(value))
+        _walked[(id(value), _depth)] = result
+        return result
     if isinstance(value, (list, tuple, set, frozenset)):
         _traversal_guard(value, _depth, _seen)
+        if (id(value), _depth) in _walked:
+            return _walked[(id(value), _depth)]
         _seen.add(id(value))
         try:
-            return any(
-                _carries_reserved_matter(v, _depth + 1, _seen)
+            result = any(
+                _carries_reserved_matter(v, _depth + 1, _seen, _walked)
                 for v in _base_iter(value))
         finally:
             _seen.discard(id(value))
+        _walked[(id(value), _depth)] = result
+        return result
     return False
 
 
@@ -734,6 +744,7 @@ _LETTER_MAP = {
     "\u044e": "yu", "\u042e": "yu", "\u044f": "ya", "\u042f": "ya",
     "\u03b1": "a", "\u03bf": "o", "\u03b5": "e", "\u03b9": "i",
     "\u03b7": "e", "\u0397": "e",
+    "\u03b8": "t", "\u0398": "t", "\u03d1": "t",
     "\u03ba": "k", "\u03bc": "m", "\u03bd": "n", "\u03c1": "r",
     "\u03c4": "t", "\u03c5": "y", "\u03bb": "l", "\u03c3": "s",
     "\u03c8": "ps",
@@ -814,7 +825,11 @@ def _normalised_characters(text):
     # second recorded reading as y. The placeholder stands in its
     # place through the decomposition and the case folding, and the
     # letter itself stands restored in the returned characters.
-    source = str(text).replace(
+    # The characters stand taken from the text the value stores,
+    # read through the base class string form, never through a
+    # string reading the value itself supplies.
+    stored = str.__str__(text) if isinstance(text, str) else str(text)
+    source = stored.replace(
         "\u0419", _SHORT_I_PLACEHOLDER).replace(
         "\u0439", _SHORT_I_PLACEHOLDER)
     decomposed = unicodedata.normalize("NFKD", source)
@@ -1145,43 +1160,59 @@ _ANCHOR_VALUES_FIELD_FOLDED = _folded_money_key(
     "anchor_" + "scenario_values")
 
 
-def _carries_real_money_value(value, _depth=0, _seen=None):
+def _carries_real_money_value(value, _depth=0, _seen=None, _walked=None):
     if _seen is None:
         _seen = set()
+    if _walked is None:
+        _walked = {}
     if isinstance(value, dict):
         _traversal_guard(value, _depth, _seen)
+        if (id(value), _depth) in _walked:
+            return _walked[(id(value), _depth)]
         _seen.add(id(value))
-        amount_carried = any(
-            _folded_key_matches(key, "amount") and item is not None
-            for key, item in dict.items(value)
-        )
-        currency_carried = any(
-            _folded_key_matches(key, "currency")
-            for key in dict.keys(value)
-        )
         try:
+            amount_carried = any(
+                _folded_key_matches(key, "amount") and item is not None
+                for key, item in dict.items(value)
+            )
+            currency_carried = any(
+                _folded_key_matches(key, "currency")
+                for key in dict.keys(value)
+            )
             if amount_carried and currency_carried:
-                return True
-            for key, item in dict.items(value):
-                if _folded_key_carries(key, _MONEY_MARKER_FOLDED) and (
-                        item is not None):
-                    return True
-                if _carries_real_money_value(key, _depth + 1, _seen):
-                    return True
-                if _carries_real_money_value(item, _depth + 1, _seen):
-                    return True
-            return False
+                result = True
+            else:
+                result = False
+                for key, item in dict.items(value):
+                    if _folded_key_carries(key, _MONEY_MARKER_FOLDED) and (
+                            item is not None):
+                        result = True
+                        break
+                    if _carries_real_money_value(
+                            key, _depth + 1, _seen, _walked):
+                        result = True
+                        break
+                    if _carries_real_money_value(
+                            item, _depth + 1, _seen, _walked):
+                        result = True
+                        break
         finally:
             _seen.discard(id(value))
+        _walked[(id(value), _depth)] = result
+        return result
     if isinstance(value, (list, tuple, set, frozenset)):
         _traversal_guard(value, _depth, _seen)
+        if (id(value), _depth) in _walked:
+            return _walked[(id(value), _depth)]
         _seen.add(id(value))
         try:
-            return any(
-                _carries_real_money_value(v, _depth + 1, _seen)
+            result = any(
+                _carries_real_money_value(v, _depth + 1, _seen, _walked)
                 for v in _base_iter(value))
         finally:
             _seen.discard(id(value))
+        _walked[(id(value), _depth)] = result
+        return result
     return False
 
 
@@ -1296,40 +1327,44 @@ def _validate_record_inner(form_id, instance):
                 return False
     if fid == "15":
         for field, parts in JOINT_OUTCOME_COMPONENT_PARTS.items():
-            component = instance.get(field)
+            component = dict.get(instance, field)
             if not isinstance(component, dict):
                 return False
             for part in parts:
-                if component.get(part) is None:
+                if dict.get(component, part) is None:
                     return False
     if fid in CLOSED_FORMS:
         allowed = set(form_fields(fid))
-        if any(k not in allowed for k in instance):
+        if any(k not in allowed for k in dict.keys(instance)):
             return False
     if fid == "1":
         for slug in _COMPLETENESS_SLUGS:
-            value = instance.get(slug)
+            value = dict.get(instance, slug)
             if value is not None and not (
                 isinstance(value, str) and value.startswith(OPEN_MARKER_PREFIX)
             ):
                 return False
     if _carries_reserved_matter(instance):
         return False
-    if "calibration_claim_field" in instance:
-        if not validate_calibration_field(instance["calibration_claim_field"]):
+    if dict.__contains__(instance, "calibration_claim_field"):
+        if not validate_calibration_field(
+                dict.__getitem__(instance, "calibration_claim_field")):
             return False
-    if "store_kind" in instance:
-        if not validate_store_kind(instance["store_kind"]):
+    if dict.__contains__(instance, "store_kind"):
+        if not validate_store_kind(
+                dict.__getitem__(instance, "store_kind")):
             return False
-    if fid == "10" and "lien_state" in instance:
+    if fid == "10" and dict.__contains__(instance, "lien_state"):
         if not validate_lien_state(
-            instance["lien_state"],
-            cross_seam=bool(instance.get("cross_seam_effect", False)),
+            dict.__getitem__(instance, "lien_state"),
+            cross_seam=bool(dict.get(instance, "cross_seam_effect", False)),
         ):
             return False
-    if fid == "5" and "parameter_values" in instance:
-        values = instance["parameter_values"]
-        items = values if isinstance(values, (list, tuple)) else (values,)
+    if fid == "5" and dict.__contains__(instance, "parameter_values"):
+        values = dict.__getitem__(instance, "parameter_values")
+        items = (
+            _base_iter(values) if isinstance(values, (list, tuple))
+            else (values,))
         if any(not isinstance(v, str) for v in items):
             return False
     return True
@@ -1601,26 +1636,60 @@ def _is_share_value(value):
 
 def _stored_value_present(value):
     """Whether a handed value stands present, judged by what it
-    stores. A text value stands present where the text it stores
-    stands non empty, read through the base class length, so a
-    string storing no text reports itself absent whatever truth
-    reading it supplies. Any other value stands judged by its
-    plain truth reading, as before."""
+    stores, for every kind. A text value stands present where the
+    text it stores stands non empty, read through the base class
+    length. A container or bytes value stands present where the
+    contents it stores stand non empty, read through the base
+    class length of its kind. A boolean stands present where it
+    stands as True, and a number where the number it stores
+    stands apart from zero, each read through the base class
+    operations of its kind. A value of any other kind carries no
+    stored content a base class operation can read, so it stands
+    absent, whatever truth reading it supplies."""
     if value is None:
         return False
+    if isinstance(value, bool):
+        return value is True
     if isinstance(value, str):
         return str.__len__(value) > 0
-    return bool(value)
+    if isinstance(value, (
+            list, tuple, set, frozenset, dict, bytearray, bytes)):
+        return _base_len(value) > 0
+    if isinstance(value, int):
+        return int.__ne__(value, 0)
+    if isinstance(value, float):
+        return float.__ne__(value, 0.0)
+    return False
 
 
 def _stored_key(key):
-    """The stored form of a handed mapping key. A text key stands
-    as the text it stores, read through the base class, so a key
-    storing one text while its hash and equality readings answer
-    as another stands compared as the text it stores."""
+    """The stored form of a handed mapping key, as a tagged token
+    no handed reading can direct. A text key stands as the text
+    it stores, read through the base class. A boolean, a number,
+    and a bytes key each stand as the plain value they store,
+    read through the base class operations of their kind. A
+    tuple or frozenset key stands as the stored forms of its
+    parts, read through the base class iteration of its kind.
+    A key of any other kind stands as itself by identity alone,
+    so a non text key whose hash and equality readings answer
+    as a class name stands compared as no class name."""
     if isinstance(key, str):
-        return str.__str__(key)
-    return key
+        return ("text", str.__str__(key))
+    if isinstance(key, bool):
+        return ("bool", key is True)
+    if isinstance(key, int):
+        return ("int", int.__int__(key))
+    if isinstance(key, float):
+        return ("float", float.__float__(key))
+    if isinstance(key, bytes):
+        return ("bytes", bytes(key))
+    if isinstance(key, tuple):
+        return ("tuple", tuple(
+            _stored_key(part) for part in tuple.__iter__(key)))
+    if isinstance(key, frozenset):
+        return ("frozenset", frozenset(
+            _stored_key(part) for part in frozenset.__iter__(key)))
+    return ("identity", id(key))
 
 
 def validate_provenance_block(block):

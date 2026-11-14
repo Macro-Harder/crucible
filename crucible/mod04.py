@@ -70,7 +70,14 @@ def _gated_message(act):
 
 
 def _freeze(value):
-    return copy.deepcopy(value)
+    """Freeze one value through base class readings and plain
+    constructors only, in the form the guarded copy of this
+    module states: a set or frozenset part stands rebuilt by the
+    plain set or plain frozenset constructor over its base
+    iteration reading, and a part in no container form stands
+    copied as itself, so a constructor or a copy protocol a part
+    itself supplies is never called on a part this act copies."""
+    return _guarded_copy(value)
 
 
 def _guarded_copy(value, _memo=None):
@@ -229,93 +236,130 @@ _BARRED_KEY_PARTS = (
 
 
 _HOMOGLYPH_MAP = {
-    "\u0430": "a", "\u0441": "c", "\u0435": "e", "\u043e": "o",
-    "\u0440": "p", "\u0445": "x", "\u0443": "y", "\u0456": "i",
-    "\u0458": "j", "\u0455": "s", "\u04bb": "h", "\u043a": "k",
-    "\u043c": "m", "\u043d": "h", "\u0442": "t", "\u0432": "b",
-    "\u03b1": "a", "\u03b2": "b", "\u03b5": "e", "\u03b9": "i",
-    "\u03ba": "k", "\u03bc": "m", "\u03bf": "o", "\u03c1": "p",
-    "\u03c4": "t", "\u03c7": "x", "\u03c5": "u", "\u03bd": "n",
-    "\u03b3": "g", "\u03b4": "d", "\u03bb": "l", "\u03c3": "s",
-    "\u03c9": "w", "\u03b6": "z", "\u03b8": "t", "\u03c6": "f",
-    "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
-    "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
-    "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
-    "\u0167": "t",
-    "\u00c6": "ae", "\u0152": "oe", "\u00d8": "o", "\u0110": "d",
-    "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
-    "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
-    "\u0431": "b", "\u0433": "g", "\u0434": "d", "\u0438": "i",
-    "\u043f": "p", "\u03b7": "e", "\u03c0": "p", "\u03c2": "s",
-    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
-    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
-    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
-    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
-    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
-    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
-    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
-    "\u1d22": "z",
-    "\u1d31": "e", "\u1d38": "l", "\u1d3c": "o", "\u1d40": "t",
-    "\u0452": "s", "\u0493": "h",
-    "\u13d2": "r", "\uaba2": "r", "\u13ac": "e", "\uab7c": "e",
-    "\u13aa": "a", "\uab7a": "a", "\u13de": "l", "\uabae": "l",
-    "\u13b7": "m", "\uab87": "m", "\u13be": "o", "\uab8e": "o",
-    "\u13c1": "n", "\uab91": "n", "\u13ef": "y", "\uabbf": "y",
-    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
-    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
-    "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l", "\u00a5": "y",
-    "\u00a2": "c", "\u00a7": "s", "+": "t",
+    "а": "a", "с": "c", "е": "e", "о": "o",
+    "р": "p", "х": "x", "у": "y", "і": "i",
+    "ј": "j", "ѕ": "s", "һ": "h", "к": "k",
+    "м": "m", "н": "h", "т": "t", "в": "b",
+    "α": "a", "β": "b", "ε": "e", "ι": "i",
+    "κ": "k", "μ": "m", "ο": "o", "ρ": "p",
+    "τ": "t", "χ": "x", "υ": "u", "ν": "n",
+    "γ": "g", "δ": "d", "λ": "l", "σ": "s",
+    "ω": "w", "ζ": "z", "θ": "t", "φ": "f",
+    "æ": "ae", "œ": "oe", "ø": "o", "đ": "d",
+    "ł": "l", "ß": "ss", "þ": "th", "ð": "d",
+    "ħ": "h", "ŋ": "n", "ƒ": "f", "ı": "i",
+    "ŧ": "t",
+    "Æ": "ae", "Œ": "oe", "Ø": "o", "Đ": "d",
+    "Ł": "l", "ẞ": "ss", "Þ": "th", "Ð": "d",
+    "Ħ": "h", "Ŋ": "n", "Ƒ": "f", "Ŧ": "t",
+    "б": "b", "г": "g", "д": "d", "и": "i",
+    "п": "p", "η": "e", "π": "p", "ς": "s",
+    "օ": "o", "Օ": "o", "ւ": "n", "Ո": "n",
+    "ᴀ": "a", "ʙ": "b", "ᴄ": "c", "ᴅ": "d",
+    "ᴇ": "e", "ꜰ": "f", "ɢ": "g", "ʜ": "h",
+    "ɪ": "i", "ᴊ": "j", "ᴋ": "k", "ʟ": "l",
+    "ᴍ": "m", "ɴ": "n", "ᴏ": "o", "ᴘ": "p",
+    "ꞯ": "q", "ʀ": "r", "ꜱ": "s", "ᴛ": "t",
+    "ᴜ": "u", "ᴠ": "v", "ᴡ": "w", "ʏ": "y",
+    "ᴢ": "z",
+    "ᴇ": "e", "ʟ": "l", "ᴏ": "o", "ᴛ": "t",
+    "ђ": "s", "ѓ": "h",
+    "Ꮢ": "r", "ꪖ": "r", "Ꮼ": "e", "ꫜ": "e",
+    "Ꭺ": "a", "ꪊ": "a", "Ꮮ": "l", "ꪮ": "l",
+    "Ꮟ": "m", "ꪇ": "m", "Ᏸ": "o", "ꪎ": "o",
+    "Ꮑ": "n", "ꪑ": "n", "Ꮿ": "y", "꪿": "y",
+    "ⲣ": "r", "ⲉ": "e", "ⲁ": "a", "ⲗ": "l",
+    "ⲙ": "m", "ⲟ": "o", "ⲛ": "n", "ⲩ": "y",
+    "€": "e", "£": "l", "!": "l", "|": "l", "¥": "y",
+    "¢": "c", "§": "s", "+": "t",
 }
+# Transcription repair, stated in the open: entries of this map
+# stand keyed in this copy by a neighbouring codepoint in place
+# of the codepoint the merged tree records, and the four
+# modifier letter entries stand missing. Each entry stands set
+# here to its recorded codepoint, by number, before the
+# uppercase pass below runs, so the map this copy builds is the
+# map the merged tree builds.
+for _recorded, _reading, _neighbour in (
+        (0x0493, "h", 0x0453), (0x0578, "n", 0x0552),
+        (0x0548, "n", 0x0582), (0x13AC, "e", 0x13EC),
+        (0x13B7, "m", 0x13CF), (0x13BE, "o", 0x13F0),
+        (0xABA2, "r", 0xAA96), (0xAB7C, "e", 0xAADC),
+        (0xAB7A, "a", 0xAA8A), (0xABAE, "l", 0xAAAE),
+        (0xAB87, "m", 0xAA87), (0xAB8E, "o", 0xAA8E),
+        (0xAB91, "n", 0xAA91), (0xABBF, "y", 0xAABF),
+        (0x1D31, "e", None), (0x1D38, "l", None),
+        (0x1D3C, "o", None), (0x1D40, "t", None)):
+    if _neighbour is not None:
+        _HOMOGLYPH_MAP.pop(chr(_neighbour), None)
+    _HOMOGLYPH_MAP[chr(_recorded)] = _reading
 for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
     _HOMOGLYPH_MAP[_upper.upper()] = _lower
 
 _TRANSLITERATION_MAP = {
-    "\u0430": "a", "\u0431": "b", "\u0432": "v", "\u0433": "g",
-    "\u0434": "d", "\u0435": "e", "\u0451": "e", "\u0436": "zh",
-    "\u0437": "z", "\u0438": "i", "\u0439": "y", "\u043a": "k",
-    "\u043b": "l", "\u043c": "m", "\u043d": "n", "\u043e": "o",
-    "\u043f": "p", "\u0440": "r", "\u0441": "s", "\u0442": "t",
-    "\u0443": "u", "\u0444": "f", "\u0445": "h", "\u0446": "ts",
-    "\u0447": "ch", "\u0448": "sh", "\u0449": "shch",
-    "\u044a": "", "\u044b": "y", "\u044c": "", "\u044d": "e",
-    "\u044e": "yu", "\u044f": "ya",
-    "\u0455": "s", "\u04bb": "h", "\u0456": "i",
-    "\u0452": "s", "\u0493": "h",
-    "\u13d2": "r", "\uaba2": "r", "\u13ac": "e", "\uab7c": "e",
-    "\u13aa": "a", "\uab7a": "a", "\u13de": "l", "\uabae": "l",
-    "\u13b7": "m", "\uab87": "m", "\u13be": "o", "\uab8e": "o",
-    "\u13c1": "n", "\uab91": "n", "\u13ef": "y", "\uabbf": "y",
-    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
-    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
-    "\u03b1": "a", "\u03b2": "b", "\u03b3": "g", "\u03b4": "d",
-    "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "th",
-    "\u03b9": "i", "\u03ba": "k", "\u03bb": "l", "\u03bc": "m",
-    "\u03bd": "n", "\u03bf": "o", "\u03c0": "p", "\u03c1": "r",
-    "\u03c2": "s", "\u03c3": "s", "\u03c4": "t", "\u03c5": "u",
-    "\u03c6": "ph", "\u03c7": "h", "\u03c8": "ps", "\u03c9": "o",
-    "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
-    "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
-    "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
-    "\u0167": "t",
-    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
-    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
-    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
-    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
-    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
-    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
-    "\u1d22": "z",
-    "\u1d31": "e", "\u1d38": "l", "\u1d3c": "o", "\u1d40": "t",
-    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
-    "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
-    "\u00a5": "y", "$": "s", "\u00a2": "c", "\u00a7": "s", "+": "t",
+    "а": "a", "б": "b", "в": "v", "г": "g",
+    "д": "d", "е": "e", "ё": "e", "ж": "zh",
+    "з": "z", "и": "i", "й": "y", "к": "k",
+    "л": "l", "м": "m", "н": "n", "о": "o",
+    "п": "p", "р": "r", "с": "s", "т": "t",
+    "у": "u", "ф": "f", "х": "h", "ц": "ts",
+    "ч": "ch", "ш": "sh", "щ": "shch",
+    "ъ": "", "ы": "y", "ь": "", "э": "e",
+    "ю": "yu", "я": "ya",
+    "ѕ": "s", "һ": "h", "і": "i",
+    "ђ": "s", "ѓ": "h",
+    "Ꮢ": "r", "ꪖ": "r", "Ꮼ": "e", "ꫜ": "e",
+    "Ꭺ": "a", "ꪊ": "a", "Ꮮ": "l", "ꪮ": "l",
+    "Ꮟ": "m", "ꪇ": "m", "Ᏸ": "o", "ꪎ": "o",
+    "Ꮑ": "n", "ꪑ": "n", "Ꮿ": "y", "꪿": "y",
+    "ⲣ": "r", "ⲉ": "e", "ⲁ": "a", "ⲗ": "l",
+    "ⲙ": "m", "ⲟ": "o", "ⲛ": "n", "ⲩ": "y",
+    "α": "a", "β": "b", "γ": "g", "δ": "d",
+    "ε": "e", "ζ": "z", "η": "e", "θ": "th",
+    "ι": "i", "κ": "k", "λ": "l", "μ": "m",
+    "ν": "n", "ο": "o", "π": "p", "ρ": "r",
+    "ς": "s", "σ": "s", "τ": "t", "υ": "u",
+    "φ": "ph", "χ": "h", "ψ": "ps", "ω": "o",
+    "æ": "ae", "œ": "oe", "ø": "o", "đ": "d",
+    "ł": "l", "ß": "ss", "þ": "th", "ð": "d",
+    "ħ": "h", "ŋ": "n", "ƒ": "f", "ı": "i",
+    "ŧ": "t",
+    "ᴀ": "a", "ʙ": "b", "ᴄ": "c", "ᴅ": "d",
+    "ᴇ": "e", "ꜰ": "f", "ɢ": "g", "ʜ": "h",
+    "ɪ": "i", "ᴊ": "j", "ᴋ": "k", "ʟ": "l",
+    "ᴍ": "m", "ɴ": "n", "ᴏ": "o", "ᴘ": "p",
+    "ꞯ": "q", "ʀ": "r", "ꜱ": "s", "ᴛ": "t",
+    "ᴜ": "u", "ᴠ": "v", "ᴡ": "w", "ʏ": "y",
+    "ᴢ": "z",
+    "ᴇ": "e", "ʟ": "l", "ᴏ": "o", "ᴛ": "t",
+    "օ": "o", "Օ": "o", "ւ": "n", "Ո": "n",
+    "@": "a", "€": "e", "£": "l", "!": "l", "|": "l",
+    "¥": "y", "$": "s", "¢": "c", "§": "s", "+": "t",
 }
+# Transcription repair, stated in the open, in the form of the
+# repair at the homoglyph map above: each entry stands set here
+# to its recorded codepoint, by number, before the uppercase
+# pass below runs.
+for _recorded, _reading, _neighbour in (
+        (0x0493, "h", 0x0453), (0x0578, "n", 0x0552),
+        (0x0548, "n", 0x0582), (0x13AC, "e", 0x13EC),
+        (0x13B7, "m", 0x13CF), (0x13BE, "o", 0x13F0),
+        (0xABA2, "r", 0xAA96), (0xAB7C, "e", 0xAADC),
+        (0xAB7A, "a", 0xAA8A), (0xABAE, "l", 0xAAAE),
+        (0xAB87, "m", 0xAA87), (0xAB8E, "o", 0xAA8E),
+        (0xAB91, "n", 0xAA91), (0xABBF, "y", 0xAABF),
+        (0x1D31, "e", None), (0x1D38, "l", None),
+        (0x1D3C, "o", None), (0x1D40, "t", None)):
+    if _neighbour is not None:
+        _TRANSLITERATION_MAP.pop(chr(_neighbour), None)
+    _TRANSLITERATION_MAP[chr(_recorded)] = _reading
 for _upper, _lower in list(_TRANSLITERATION_MAP.items()):
     _TRANSLITERATION_MAP[_upper.upper()] = _lower
 
 _LEET_MAP = {
     "0": "o", "1": "l", "3": "e", "4": "a", "5": "s",
     "7": "t", "8": "b", "@": "a", "$": "s",
-    "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l", "\u00a5": "y",
+    "€": "e", "£": "l", "!": "l", "|": "l", "¥": "y",
 }
 
 
@@ -381,6 +425,16 @@ def _folded_readings(key):
             leet_one_as_i,
             "".join(character for character in plain
                     if not character.isdigit()),
+            # The digit readings mixed position by position: the
+            # leet reading stands taken at each digit position
+            # that carries one, and a digit carrying no leet
+            # reading stands dropped at its own position, so a
+            # word needing the leet reading at one digit position
+            # and the drop reading at another stands read whole.
+            "".join(character for character in leet_applied_first
+                    if character.isalpha()),
+            "".join(character for character in leet_one_as_i
+                    if character.isalpha()),
         ):
             if reading and reading not in readings:
                 readings.append(reading)
@@ -426,7 +480,7 @@ def _folded_readings(key):
             ))
             if character in letter_map:
                 options.add(letter_map[character])
-        if character == "\u0439":
+        if character == "й":
             options.update(("y", "i"))
         expanded = {
             prefix + option
@@ -451,6 +505,116 @@ _BARRED_FOLDED_EXACT = frozenset(
 _BARRED_FOLDED_PARTS = ("membership", "groundtruth", "canary")
 
 
+def _character_variants(character):
+    """Every folded form one original character can contribute
+    to a combined reading: each reading the combination limb of
+    _folded_readings records for the character, taken under the
+    readings _add_readings states inside that function, so the
+    leet reading at one position and the drop reading at
+    another combine inside one key."""
+    base_characters = [
+        part for part in unicodedata.normalize("NFKD", character)
+        if not unicodedata.category(part).startswith("M")
+    ]
+    options = set()
+    for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+        options.add("".join(
+            letter_map.get(part, part) for part in base_characters
+        ))
+        if character in letter_map:
+            options.add(letter_map[character])
+    if character == "й":
+        options.update(("y", "i"))
+    variants = set()
+    for option in options:
+        plain = "".join(
+            part for part in option if part.isalnum())
+        leet_first = "".join(
+            part for part in "".join(
+                _LEET_MAP.get(part, part) for part in option)
+            if part.isalnum())
+        leet_i = "".join(
+            part for part in "".join(
+                "i" if part == "1"
+                else _LEET_MAP.get(part, part)
+                for part in option)
+            if part.isalnum())
+        variants.update((
+            plain,
+            leet_first,
+            leet_i,
+            "".join(part for part in plain if not part.isdigit()),
+            "".join(part for part in leet_first if part.isalpha()),
+            "".join(part for part in leet_i if part.isalpha()),
+        ))
+    return variants
+
+
+def _combined_matches_exact(variant_sets, target):
+    states = {0}
+    for variants in variant_sets:
+        following = set()
+        for state in states:
+            for variant in variants:
+                if target.startswith(variant, state):
+                    following.add(state + len(variant))
+        states = following
+        if not states:
+            return False
+    return len(target) in states
+
+
+def _combined_prefix_state(pattern, state, character):
+    candidate = pattern[:state] + character
+    limit = min(len(pattern), state + 1)
+    for length in range(limit, -1, -1):
+        if candidate.endswith(pattern[:length]):
+            return length
+    return 0
+
+
+def _combined_carries(variant_sets, pattern):
+    full = len(pattern)
+    states = {0}
+    for variants in variant_sets:
+        following = set()
+        for state in states:
+            for variant in variants:
+                current = state
+                for character in variant:
+                    if current == full:
+                        break
+                    current = _combined_prefix_state(
+                        pattern, current, character)
+                following.add(current)
+        if full in following:
+            return True
+        states = following
+    return full in states
+
+
+def _combined_key_barred(key):
+    """Whether any combined reading of the key stands barred,
+    judged position by position over the per character variants
+    without enumerating the combined texts, so the judgement
+    stands the same inside the 4096 combined text bound and
+    past it, in the form the MOD-05 read takes. The forms
+    judged are the forms _is_barred_key judges on an enumerated
+    reading: a reading standing in the folded exact set of the
+    barred keys, and a reading carrying a folded barred part."""
+    variant_sets = [
+        _character_variants(character)
+        for character in str(key).lower()
+    ]
+    for target in _BARRED_FOLDED_EXACT:
+        if _combined_matches_exact(variant_sets, target):
+            return True
+    for part in _BARRED_FOLDED_PARTS:
+        if _combined_carries(variant_sets, part):
+            return True
+    return False
+
+
 def _is_barred_key(key):
     lowered = str(key).lower()
     if (
@@ -463,7 +627,7 @@ def _is_barred_key(key):
             return True
         if any(part in reading for part in _BARRED_FOLDED_PARTS):
             return True
-    return False
+    return _combined_key_barred(key)
 
 
 CLEANING_DEPTH_BOUND = 100
@@ -480,6 +644,14 @@ def _clean_leaf_copy(value):
 
 
 def _clean_value(value, _depth=0, _seen=None, _path=""):
+    """Clean one value for the projection. A container shared by
+    two siblings stands cleaned once at each depth at which it
+    stands reached: its cleaned form stands carried across every
+    path that reaches it at that depth, so the walk grows with
+    the size of the value, and a reach at a greater depth stands
+    recleaned at its own depth, where the cleaning bound is
+    judged afresh. A container standing on its own walk path
+    stands as a cycle and stands refused in the named form."""
     if isinstance(value, (dict, list, tuple, set, frozenset)):
         if _depth > CLEANING_DEPTH_BOUND:
             raise NamedFailure(
@@ -487,42 +659,51 @@ def _clean_value(value, _depth=0, _seen=None, _path=""):
                 + ": the value stands deeper than the stated bound of "
                 + str(CLEANING_DEPTH_BOUND)
             )
-        seen = _seen if _seen is not None else set()
-        if id(value) in seen:
+        if isinstance(_seen, dict):
+            state = _seen
+        else:
+            state = {"active": set(_seen or ()), "done": {}}
+        marker = (id(value), _depth)
+        if marker in state["done"]:
+            return state["done"][marker]
+        if id(value) in state["active"]:
             raise NamedFailure(
                 "projection cleaning found a cycle at " + (_path or "root")
             )
-        seen.add(id(value))
+        state["active"].add(id(value))
         try:
             if isinstance(value, dict):
-                return {
+                result = {
                     _clean_value(
-                        key, _depth + 1, seen, _path + "/" + str(key)):
-                    _clean_value(item, _depth + 1, seen, _path + "/" + str(key))
+                        key, _depth + 1, state, _path + "/" + str(key)):
+                    _clean_value(item, _depth + 1, state, _path + "/" + str(key))
                     for key, item in dict.items(value)
                     if not _is_barred_key(key)
                 }
-            if isinstance(value, list):
-                return [
-                    _clean_value(item, _depth + 1, seen, _path + "[" + str(index) + "]")
+            elif isinstance(value, list):
+                result = [
+                    _clean_value(item, _depth + 1, state, _path + "[" + str(index) + "]")
                     for index, item in _base_entries(value)
                 ]
-            if isinstance(value, tuple):
-                return tuple(
-                    _clean_value(item, _depth + 1, seen, _path + "[" + str(index) + "]")
+            elif isinstance(value, tuple):
+                result = tuple(
+                    _clean_value(item, _depth + 1, state, _path + "[" + str(index) + "]")
                     for index, item in _base_entries(value)
                 )
-            if isinstance(value, set):
-                return set(
-                    _clean_value(item, _depth + 1, seen, _path + "[" + str(index) + "]")
+            elif isinstance(value, set):
+                result = set(
+                    _clean_value(item, _depth + 1, state, _path + "[" + str(index) + "]")
                     for index, item in _base_entries(value)
                 )
-            return frozenset(
-                _clean_value(item, _depth + 1, seen, _path + "[" + str(index) + "]")
-                for index, item in _base_entries(value)
-            )
+            else:
+                result = frozenset(
+                    _clean_value(item, _depth + 1, state, _path + "[" + str(index) + "]")
+                    for index, item in _base_entries(value)
+                )
+            state["done"][marker] = result
+            return result
         finally:
-            seen.discard(id(value))
+            state["active"].discard(id(value))
     return _clean_leaf_copy(value)
 
 
@@ -541,7 +722,7 @@ def _clean_rule_records(raw):
     cleaned = []
     if isinstance(raw, (list, tuple)):
         for index, item in _base_entries(raw):
-            cleaned.append(_clean_value(item))
+            cleaned.append(_clean_value(item, 1, None, "[" + str(index) + "]"))
     return cleaned
 
 

@@ -194,7 +194,18 @@ _AMBIGUOUS_READINGS = {
     "\u0578": ("n", "un"),
     "\u043d": ("n", "h"),
     "\u0439": ("y", "i"),
+    "\u03b8": ("t", "th"),
+    "\u03b7": ("e",),
 }
+
+# Greek theta and eta stand in the table on the unified per
+# character counting basis the combined text bound stands on:
+# theta counts two readings, t and th, as the sister folds
+# record them, and eta counts one reading, e, as the sister
+# folds record it, each letter map of a sister fold recording
+# e for eta and no second reading standing beside it. Theta
+# therefore contributes two options to the expanded texts and
+# eta contributes one, as each does at the sister surfaces.
 
 
 def _base_iter(value):
@@ -294,6 +305,109 @@ def _fold_variants(key):
     return variants
 
 
+def _money_prefix_state(pattern, state, character):
+    candidate = pattern[:state] + character
+    limit = min(len(pattern), state + 1)
+    for length in range(limit, -1, -1):
+        if candidate.endswith(pattern[:length]):
+            return length
+    return 0
+
+
+def _money_segments_by_character(key):
+    """The folded segments one key can contribute, character by
+    character, with no enumeration of their combinations. Each
+    character of the key contributes the segments its readings
+    fold to: the readings the two letter maps and the ambiguous
+    reading table record for it, each taken with every digit
+    position reading as its leet letter or dropping out on its
+    own, as the combined reading of _add_fold_forms states, so a
+    name needing the leet reading at one position and the drop
+    reading at another stands read in full however many digit
+    positions it carries."""
+    segments_by_character = []
+    for character in str(key).casefold():
+        readings = set()
+        if character in _AMBIGUOUS_READINGS:
+            readings.update(_AMBIGUOUS_READINGS[character])
+        for letter_map in (_TRANSLITERATION_MAP, _HOMOGLYPH_MAP):
+            readings.add(_canonical_text(character, letter_map))
+        segments = set()
+        for reading in readings:
+            choices = []
+            for part in reading:
+                if part == "1":
+                    choices.append(("l", "i", ""))
+                elif part in _LEET_DIGITS:
+                    choices.append((_LEET_DIGITS[part], ""))
+                elif part in _SYMBOL_LEET_READINGS:
+                    choices.append((_SYMBOL_LEET_READINGS[part], ""))
+                elif part.isalnum():
+                    choices.append((part,))
+                else:
+                    choices.append(("",))
+            for combination in itertools.product(*choices):
+                segments.add("".join(combination))
+        segments_by_character.append(segments)
+    return segments_by_character
+
+
+def _money_segments_match(segments_by_character, target):
+    positions = {0}
+    for segments in segments_by_character:
+        next_positions = set()
+        for position in positions:
+            for segment in segments:
+                if target[position:position + len(segment)] == segment:
+                    next_positions.add(position + len(segment))
+        positions = next_positions
+        if not positions:
+            return False
+    return len(target) in positions
+
+
+def _money_segments_carry(segments_by_character, pattern):
+    full = len(pattern)
+    states = {0}
+    for segments in segments_by_character:
+        next_states = set()
+        for state in states:
+            for segment in segments:
+                current = state
+                for character in segment:
+                    if current == full:
+                        break
+                    current = _money_prefix_state(
+                        pattern, current, character)
+                next_states.add(current)
+        if full in next_states:
+            return True
+        states = next_states
+    return full in states
+
+
+def _money_key_matches(key, target):
+    """Whether a key reads as one money name, by the folded
+    variants or by the position by position reading above, so
+    the judgement stands the same inside the enumeration bound
+    of the variants and past it, in the sister form."""
+    if target in _fold_variants(key):
+        return True
+    return _money_segments_match(_money_segments_by_character(key), target)
+
+
+def _money_key_carries(key, marker):
+    """Whether a key carries the money marker, by the folded
+    variants or by the position by position reading above,
+    beside the recorded transliterated spelling correction."""
+    if any(marker in variant for variant in _fold_variants(key)):
+        return True
+    segments = _money_segments_by_character(key)
+    if _money_segments_carry(segments, marker):
+        return True
+    return _money_segments_carry(segments, "realmani")
+
+
 def _folded_money_key(key):
     return "".join(
         _LEET_DIGITS.get(character, character)
@@ -316,21 +430,28 @@ def _guard_retention_shape(value):
     retain_run_record surface states. The walk is iterative over
     dict, list, tuple, set, and frozenset parts, read through
     base class operations, so a deep shape stands refused in this
-    form and never as a bare RecursionError."""
-    done = set()
+    form and never as a bare RecursionError. The walked standing
+    carries the depth at which it stands earned: a container
+    reached again at a depth no greater than that depth stands
+    skipped, and a container reached at a greater depth stands
+    rewalked at that depth, so the bound stands judged on the
+    longest path that reaches the container, in either child
+    order."""
+    done = {}
     path = set()
     stack = [(value, 0, False)]
     while stack:
         node, depth, exiting = stack.pop()
         if exiting:
             path.discard(id(node))
-            done.add(id(node))
+            if id(node) not in done or depth > done[id(node)]:
+                done[id(node)] = depth
             continue
         if not isinstance(node, (dict, list, tuple, set, frozenset)):
             continue
         if depth > 100 or id(node) in path:
             raise ValueError(_DEEP_REFUSAL)
-        if id(node) in done:
+        if id(node) in done and done[id(node)] >= depth:
             continue
         path.add(id(node))
         stack.append((node, depth, True))
@@ -379,7 +500,7 @@ def _safe_copy(value, _memo=None):
     return value
 
 
-def _carries_real_money_field(value, _depth=0, _path=()):
+def _carries_real_money_field(value, _depth=0, _path=(), _walked=None):
     """Whether a value carries a real money field at any depth, by
     field name (a real money field name with a value standing) or
     by amount and currency shape. Field names and the shape keys
@@ -392,35 +513,53 @@ def _carries_real_money_field(value, _depth=0, _path=()):
     field matter standing in key position stand read as well.
     The read stands bounded: a value standing deeper than the
     bound, or carrying a cycle, stands refused in the stated
-    ValueError form instead of escaping as a bare RecursionError."""
+    ValueError form instead of escaping as a bare RecursionError.
+    The walk carries a walked standing across paths: a container
+    stands walked once for the paths that reach it at a depth no
+    greater than the depth its standing stands earned at, and a
+    reach at a greater depth stands rejudged at its own depth,
+    so a shared container is neither walked once for every path
+    nor judged by a shallower path than the one that reaches it."""
+    if _walked is None:
+        _walked = {}
     if isinstance(value, (dict, list, tuple, set, frozenset)):
         if _depth > 100 or id(value) in _path:
             raise ValueError(_DEEP_REFUSAL)
+        standing = _walked.get(id(value))
+        if standing is not None and standing[0] >= _depth:
+            return standing[1]
         _path = _path + (id(value),)
+        result = _carries_real_money_part(value, _depth, _path, _walked)
+        if standing is None or _depth > standing[0]:
+            _walked[id(value)] = (_depth, result)
+        return result
+    return False
+
+
+def _carries_real_money_part(value, _depth, _path, _walked):
     if isinstance(value, dict):
         amount_stands = any(
-            "amount" in _fold_variants(key) and item is not None
+            _money_key_matches(key, "amount") and item is not None
             for key, item in dict.items(value)
         )
         currency_stands = any(
-            "currency" in _fold_variants(key)
+            _money_key_matches(key, "currency")
             for key in dict.keys(value)
         )
         if amount_stands and currency_stands:
             return True
         for key, item in dict.items(value):
-            if _carries_real_money_field(key, _depth + 1, _path):
+            if _carries_real_money_field(key, _depth + 1, _path, _walked):
                 return True
-            if item is not None and any(
-                    _MONEY_MARKER_FOLDED in variant
-                    for variant in _fold_variants(key)):
+            if item is not None and _money_key_carries(
+                    key, _MONEY_MARKER_FOLDED):
                 return True
-            if _carries_real_money_field(item, _depth + 1, _path):
+            if _carries_real_money_field(item, _depth + 1, _path, _walked):
                 return True
         return False
     if isinstance(value, (list, tuple, set, frozenset)):
         return any(
-            _carries_real_money_field(item, _depth + 1, _path)
+            _carries_real_money_field(item, _depth + 1, _path, _walked)
             for item in _base_iter(value))
     return False
 
@@ -963,8 +1102,7 @@ def retain_event_log_entry(entry, store_kind="sweep"):
     """Retain one EventLog entry as an opaque payload, in delivery
     order. No completeness validation stands performed, and no
     ordering by journal position stands applied."""
-    if not _store_kind_stands(store_kind):
-        raise ValueError("unknown store kind: " + str(store_kind))
+    store_kind = _canonical_store_kind(store_kind)
     if not isinstance(entry, dict):
         raise ValueError(
             "identity less entry: an event log entry stands as a record, "
@@ -986,6 +1124,8 @@ def retain_event_log_entry(entry, store_kind="sweep"):
 def event_log_entries(run_id, store_kind="sweep"):
     """Read the retained EventLog entries of a run, in delivery
     order. Reading never writes."""
+    if _store_kind_stands(store_kind):
+        store_kind = _canonical_store_kind(store_kind)
     return _safe_copy(_EVENT_LOGS.get((store_kind, run_id), []))
 
 
@@ -993,8 +1133,7 @@ def retain_daily_snapshot(snapshot, store_kind="sweep"):
     """Retain one DailySnapshot as an opaque payload. No validation
     of the daily state contents stands performed, and no per viewer
     snapshot stands delivered from this path."""
-    if not _store_kind_stands(store_kind):
-        raise ValueError("unknown store kind: " + str(store_kind))
+    store_kind = _canonical_store_kind(store_kind)
     if not isinstance(snapshot, dict):
         raise ValueError(
             "identity less snapshot: a daily snapshot stands as a record, "
@@ -1016,6 +1155,8 @@ def retain_daily_snapshot(snapshot, store_kind="sweep"):
 def daily_snapshots(run_id, store_kind="sweep"):
     """Read the retained DailySnapshot records of a run. Reading
     never writes."""
+    if _store_kind_stands(store_kind):
+        store_kind = _canonical_store_kind(store_kind)
     return _safe_copy(_DAILY_SNAPSHOTS.get((store_kind, run_id), []))
 
 
@@ -1050,8 +1191,11 @@ def _timing_day(value):
     states, in plain decimal form, in exponent form, and with
     underscores standing between its digits, beside the stated
     non finite spellings, so each of those forms stands judged
-    before the timing comparison. Any other form stands as
-    itself and stands judged by no comparison."""
+    before the timing comparison. A day stated in a base
+    prefixed spelling (a hexadecimal, binary, or octal integer
+    spelling, or a hexadecimal float spelling) stands read as
+    the day it states on the same terms. Any other form stands
+    as itself and stands judged by no comparison."""
     whole = _whole_day(value)
     if isinstance(whole, int) and not isinstance(whole, bool):
         return whole
@@ -1073,6 +1217,15 @@ def _timing_day(value):
         if lowered in ("nan", "+nan", "-nan"):
             return math.nan
         unsigned = text[1:] if text[:1] in ("+", "-") else text
+        if unsigned[:2].lower() in ("0x", "0b", "0o"):
+            prefix = unsigned[:2].lower()
+            try:
+                if prefix == "0x" and any(
+                        mark in unsigned for mark in (".", "p", "P")):
+                    return float.fromhex(text)
+                return int(text, {"0x": 16, "0b": 2, "0o": 8}[prefix])
+            except ValueError:
+                return value
         if unsigned.count(".") == 1 and "e" not in lowered:
             whole_part, _, fraction_part = unsigned.partition(".")
             if (whole_part.isdigit() or not whole_part) and (
@@ -1088,8 +1241,7 @@ def _timing_day(value):
 
 def retain_checkpoint(manifest, store_kind="sweep"):
     """Retain one checkpoint manifest for a run."""
-    if not _store_kind_stands(store_kind):
-        raise ValueError("unknown store kind: " + str(store_kind))
+    store_kind = _canonical_store_kind(store_kind)
     if not isinstance(manifest, dict):
         raise ValueError(
             "identity less checkpoint: a checkpoint manifest stands as a "
@@ -1147,6 +1299,8 @@ def checkpoint_state_at(run_id, simulated_day, store_kind="sweep"):
     """Read the CheckpointState standing beside a retained
     checkpoint manifest, where one was written with it. Reading
     never writes: no state beside the manifest returns None."""
+    if _store_kind_stands(store_kind):
+        store_kind = _canonical_store_kind(store_kind)
     return copy.deepcopy(
         _CHECKPOINT_STATES.get(
             (store_kind, run_id, _whole_day(simulated_day))))
@@ -1155,6 +1309,8 @@ def checkpoint_state_at(run_id, simulated_day, store_kind="sweep"):
 def checkpoints_for_run(run_id, store_kind="sweep"):
     """Enumerate the retained checkpoints of a run by its
     CheckpointManifest set. Reading never writes."""
+    if _store_kind_stands(store_kind):
+        store_kind = _canonical_store_kind(store_kind)
     return _safe_copy(_CHECKPOINTS.get((store_kind, run_id), []))
 
 
@@ -1212,6 +1368,8 @@ def delete_checkpoint(run_id, checkpoint_day, store_kind="sweep",
         raise ValueError(
             "checkpoint deletion refused: a clause C8 protection stands "
             "on the checkpoint, and no checkpoint stands deleted")
+    if _store_kind_stands(store_kind):
+        store_kind = _canonical_store_kind(store_kind)
     bucket = _CHECKPOINTS.get((store_kind, run_id), [])
     kept = [
         item for item in bucket
@@ -1274,6 +1432,8 @@ def close_run_retention(run_id, tier, store_kind="sweep"):
     if tier not in ("Tier 0", "Tier 1", "Tier 2", "Tier 3"):
         raise ValueError(
             "unknown retention tier for the close act: " + str(tier))
+    if _store_kind_stands(store_kind):
+        store_kind = _canonical_store_kind(store_kind)
     bucket = _CHECKPOINTS.get((store_kind, run_id), [])
     days = sorted({
         _whole_day(item.get("simulated_day")) for item in bucket
@@ -1651,6 +1811,11 @@ def _resolve_actor_word(word):
     four letters dropped from a vocabulary word, and three
     transpositions also resolve, and one transposition
     together with three letters replaced resolves beside them.
+    One further level past that form, a word with seven added
+    letters struck also resolves, and five letters replaced
+    resolve where no two differing positions stand as a
+    transposed pair, in the form the shell resolver states
+    after fix wave 6.
     Transpositions composed with letters replaced also
     resolve in the shell form, where one or two
     transpositions stand with one to three remaining letters
@@ -1666,7 +1831,7 @@ def _resolve_actor_word(word):
         return word
     if _actor_segments_into_vocabulary(word, _ACTOR_VOCABULARY):
         return word
-    for added in (1, 2, 3, 4, 5, 6):
+    for added in (1, 2, 3, 4, 5, 6, 7):
         if len(word) > added:
             for cuts in itertools.combinations(
                     range(len(word)), added):
@@ -1849,6 +2014,20 @@ def _resolve_actor_word(word):
                 if left != right)
             if differences == 4:
                 return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            differing = [
+                index for index in range(len(word))
+                if candidate[index] != word[index]]
+            if len(differing) != 5:
+                continue
+            paired = any(
+                word[left] == candidate[right]
+                and word[right] == candidate[left]
+                for left, right in itertools.combinations(differing, 2))
+            if not paired:
+                return candidate
     return word
 
 
@@ -1903,6 +2082,8 @@ _ZERO_WIDTH_CHARS = frozenset((
     "\u202a", "\u202e", "\u2061", "\u2064",
 ))
 
+_BLANK_GLYPHS = frozenset(("\u2800", "\u115f"))
+
 
 def _has_stated_condition(fired):
     """Whether a fired condition list states at least one
@@ -1917,7 +2098,11 @@ def _has_stated_condition(fired):
     set: the soft hyphen, the Mongolian vowel separator, the
     left to right and right to left marks, the Arabic letter
     mark, the left to right and right to left embeddings, and
-    the invisible operator and invisible plus characters."""
+    the invisible operator and invisible plus characters. A
+    combining mark standing alone, with no base character it
+    modifies, and a blank glyph carry no readable text in the
+    same manner, so an entry holding only characters of those
+    kinds states no condition either."""
     if isinstance(fired, str):
         entries = [fired]
     elif isinstance(fired, (list, tuple, set, frozenset)):
@@ -1931,7 +2116,8 @@ def _has_stated_condition(fired):
             readable = "".join(
                 char for char in entry
                 if char not in _ZERO_WIDTH_CHARS
-                and unicodedata.category(char) != "Cf")
+                and char not in _BLANK_GLYPHS
+                and unicodedata.category(char) not in ("Cf", "Mn"))
             if readable.strip():
                 return True
         elif entry is not None:
@@ -2384,7 +2570,7 @@ def store_lookup(store_kinds=None, key=None, store_kind=None):
             "unknown store kind: " + str(kind) + "; a store kind stands "
             "among sweep, pilot, and live, and no record lookup stands "
             "performed on an unknown kind")
-    return _STORES[kind].read_run_record(key)
+    return _STORES[_canonical_store_kind(kind)].read_run_record(key)
 
 
 __all__ = [
@@ -2577,6 +2763,51 @@ _VIEW_BARRED_KEY_PARTS_FOLDED = (
 )
 
 
+def _view_segments_by_character(key):
+    """The folded segments one key can contribute at the view
+    surface, character by character, with no enumeration of
+    their combinations. Each character contributes the segments
+    its readings fold to under _add_fold_forms: the readings
+    the two letter maps and the ambiguous reading table record
+    for it, as the expanded texts of _expanded_texts state
+    them, so a name needing one reading at one position and
+    the other reading at another stands read in full however
+    many ambiguous positions it carries."""
+    segments_by_character = []
+    for character in str(key).casefold():
+        readings = set()
+        if character in _AMBIGUOUS_READINGS:
+            readings.update(_AMBIGUOUS_READINGS[character])
+        for letter_map in (_TRANSLITERATION_MAP, _HOMOGLYPH_MAP):
+            readings.add(_canonical_text(character, letter_map))
+        segments = set()
+        for reading in readings:
+            _add_fold_forms(segments, reading)
+        segments_by_character.append(segments)
+    return segments_by_character
+
+
+def _combined_view_key_barred(key):
+    """Whether any combined reading of the key stands barred
+    at the view surface, judged position by position over the
+    per character segments without enumerating the combined
+    texts, so the judgement stands the same inside the 4096
+    enumeration bound and past it, in the form the MOD-05 read
+    takes and the money read of this module already takes. The
+    forms judged are the forms _is_barred_view_key judges on
+    an enumerated variant: a variant standing in the folded
+    barred key set, and a variant carrying a folded barred
+    part."""
+    segments_by_character = _view_segments_by_character(key)
+    for target in _VIEW_BARRED_KEYS_FOLDED:
+        if _money_segments_match(segments_by_character, target):
+            return True
+    for part in _VIEW_BARRED_KEY_PARTS_FOLDED:
+        if _money_segments_carry(segments_by_character, part):
+            return True
+    return False
+
+
 def _is_barred_view_key(key):
     """Return whether a key stands barred under the one barred
     vocabulary. The key stands read through the canonicalised
@@ -2591,7 +2822,7 @@ def _is_barred_view_key(key):
             return True
         if any(part in variant for part in _VIEW_BARRED_KEY_PARTS_FOLDED):
             return True
-    return False
+    return _combined_view_key_barred(key)
 
 
 def _carries_barred_key(value):

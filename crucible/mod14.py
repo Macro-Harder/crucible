@@ -13,7 +13,6 @@ module at operator_runbook, and the public README states the
 operator procedure as that runbook.
 """
 
-import copy
 import itertools
 import unicodedata
 
@@ -77,7 +76,13 @@ def _freeze(value, _depth=0, _memo=None):
     or a reading the part itself supplies. Two distinct set
     or frozenset elements that freeze to the same form stand
     carried under distinct numbered forms, so no carried
-    element is silently dropped either."""
+    element is silently dropped either. A list part and a
+    tuple part stand read through their base iteration
+    readings, list.__iter__ and tuple.__iter__, on the same
+    standing. A part standing in no container form and in no
+    plain scalar form stands returned as itself: no copy
+    protocol the part supplies stands called, so no barred
+    form stands materialised out of such a part."""
     if value is None or isinstance(value, (str, bytes, int, float, bool)):
         return value
     if _depth > _FREEZE_DEPTH_BOUND and isinstance(
@@ -116,14 +121,15 @@ def _freeze(value, _depth=0, _memo=None):
             return memo[id(value)]
         copied = []
         memo[id(value)] = copied
-        for item in value:
+        for item in list.__iter__(value):
             copied.append(_freeze(item, _depth + 1, memo))
         return copied
     if isinstance(value, tuple):
         if id(value) in memo:
             return memo[id(value)]
         copied = tuple(
-            _freeze(item, _depth + 1, memo) for item in value)
+            _freeze(item, _depth + 1, memo)
+            for item in tuple.__iter__(value))
         memo[id(value)] = copied
         return copied
     if isinstance(value, (set, frozenset)):
@@ -155,10 +161,7 @@ def _freeze(value, _depth=0, _memo=None):
         except TypeError:
             copied = copied_items
         return copied
-    try:
-        return copy.deepcopy(value)
-    except Exception:
-        return _FREEZE_TOO_DEEP
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +390,19 @@ def _screen_pilot_key(key):
 _PILOT_ARTEFACT_DEPTH_BOUND = 100
 
 
-def _screen_pilot_artefact(value, _depth=0, _seen=None):
+def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None):
+    """Screen one artefact part, recursively. A dict part
+    stands read through the base dict items reading, a set or
+    frozenset part through its base iteration reading, and a
+    list or tuple part through its base iteration reading, so
+    no reading the part itself supplies hides a barred entry
+    from the screen. The walk carries a walked standing across
+    paths: a container whose walk stands completed at a stated
+    depth stands not walked again where another path reaches
+    it at that same depth, so a container shared by two
+    siblings stands walked once for each depth it stands at,
+    and a reach at a greater depth stands walked again and
+    judged at its own depth against the depth bound."""
     if isinstance(value, (dict, list, tuple, set, frozenset)):
         if _depth > _PILOT_ARTEFACT_DEPTH_BOUND:
             raise NamedShellFailure(
@@ -397,30 +412,42 @@ def _screen_pilot_artefact(value, _depth=0, _seen=None):
         if id(value) in seen:
             raise NamedShellFailure(
                 "pilot artefact carries a cycle")
+        walked = _walked if _walked is not None else {}
+        if (id(value), _depth) in walked:
+            return
         seen.add(id(value))
         try:
             if isinstance(value, dict):
-                for key, item in value.items():
-                    _screen_pilot_artefact(key, _depth + 1, seen)
+                for key, item in dict.items(value):
+                    _screen_pilot_artefact(key, _depth + 1, seen, walked)
                     if not isinstance(
                             key, (dict, list, tuple, set, frozenset)):
                         _screen_pilot_key(key)
-                    _screen_pilot_artefact(item, _depth + 1, seen)
+                    _screen_pilot_artefact(item, _depth + 1, seen, walked)
                 if not validate_pilot_claim(value):
                     raise NamedShellFailure(
                         "pilot artefact carries a claim the pilot check bars")
             elif isinstance(value, (list, tuple)):
-                if len(value) == 2 and isinstance(value[0], str):
-                    _screen_pilot_key(value[0])
-                for item in value:
-                    _screen_pilot_artefact(item, _depth + 1, seen)
+                if isinstance(value, list):
+                    items = list(list.__iter__(value))
+                else:
+                    items = list(tuple.__iter__(value))
+                if len(items) == 2 and isinstance(items[0], str):
+                    _screen_pilot_key(items[0])
+                for item in items:
+                    _screen_pilot_artefact(item, _depth + 1, seen, walked)
             else:
-                for item in value:
+                if isinstance(value, frozenset):
+                    base_iter = frozenset.__iter__
+                else:
+                    base_iter = set.__iter__
+                for item in base_iter(value):
                     if isinstance(item, str):
                         _screen_pilot_key(item)
-                    _screen_pilot_artefact(item, _depth + 1, seen)
+                    _screen_pilot_artefact(item, _depth + 1, seen, walked)
         finally:
             seen.discard(id(value))
+        walked[(id(value), _depth)] = True
 
 
 
@@ -594,17 +621,25 @@ _ZERO_WIDTH_CHARS = (
     "\u00ad\u180e\u200e\u200f\u061c\u202a\u202e\u2061\u2064")
 
 
+_BLANK_GLYPH_CHARS = ("\u2800", "\u115f")
+
+
 def _stated_text(entry):
     """Return the readable text an entry carries, with zero
     width characters, byte order mark characters, and the
     other invisible format characters in the stated set
-    removed. An entry carrying only such characters, or only
-    spacing, carries no readable text and states no
-    condition."""
+    removed, with characters of Unicode category Mn removed,
+    since a nonspacing mark standing alone reads as nothing,
+    and with the blank glyph characters removed, the braille
+    blank and the Hangul filler, which carry the shape of a
+    character and state nothing. An entry carrying only such
+    characters, or only spacing, carries no readable text
+    and states no condition."""
     cleaned = "".join(
         char for char in entry
         if char not in _ZERO_WIDTH_CHARS
-        and unicodedata.category(char) != "Cf")
+        and char not in _BLANK_GLYPH_CHARS
+        and unicodedata.category(char) not in ("Cf", "Mn"))
     return cleaned.strip()
 
 
@@ -884,10 +919,11 @@ def _segments_into_vocabulary(word, vocabulary):
 def _resolve_against(word, ordered, vocabulary):
     """Read one word as the vocabulary word it dresses, where
     it dresses one: the word itself where it stands plain, a
-    word with one, two, three, four, five, or six added
-    letters struck, a word with one letter dropped from a
-    vocabulary word, a word with one letter replaced, a word
-    with two adjacent letters transposed, and the compounded
+    word with one, two, three, four, five, six, or seven
+    added letters struck, a word with one letter dropped
+    from a vocabulary word, a word with one letter replaced,
+    a word with two adjacent letters transposed, and the
+    compounded
     forms, one letter dropped together with one letter
     replaced, one transposition together with one letter
     dropped, two letters replaced, two letters dropped from
@@ -899,7 +935,14 @@ def _resolve_against(word, ordered, vocabulary):
     word, three transpositions, and transpositions composed
     with replacements where the total number of changes
     stands past three, up to three replacements composed
-    with up to two transpositions. The
+    with up to two transpositions. Past those forms the
+    resolver also reads five letters replaced where no two
+    differing positions stand as a transposed pair, five
+    letters dropped from a vocabulary word, three adjacent
+    transpositions composed with three letters replaced, six
+    changes in total, and one, two, or three transpositions
+    of letter pairs standing anywhere in the word, adjacent
+    or not, read by pairing the differing positions. The
     dropped, replaced, and transposed limbs run on words of
     two letters as well, so a drop from a three letter word
     still resolves. A word of one letter stands read through
@@ -911,7 +954,7 @@ def _resolve_against(word, ordered, vocabulary):
         return word
     if _segments_into_vocabulary(word, vocabulary):
         return word
-    for added in (1, 2, 3, 4, 5, 6):
+    for added in (1, 2, 3, 4, 5, 6, 7):
         if len(word) > added:
             for cuts in itertools.combinations(range(len(word)), added):
                 reduced = "".join(
@@ -972,6 +1015,15 @@ def _resolve_against(word, ordered, vocabulary):
             if len(candidate) == len(word) + 4:
                 for cuts in itertools.combinations(
                         range(len(candidate)), 4):
+                    reduced = "".join(
+                        char for index, char in enumerate(candidate)
+                        if index not in cuts)
+                    if reduced == word:
+                        return candidate
+        for candidate in ordered:
+            if len(candidate) == len(word) + 5:
+                for cuts in itertools.combinations(
+                        range(len(candidate)), 5):
                     reduced = "".join(
                         char for index, char in enumerate(candidate)
                         if index not in cuts)
@@ -1068,6 +1120,52 @@ def _resolve_against(word, ordered, vocabulary):
         for candidate in ordered:
             if len(candidate) != len(word):
                 continue
+            differing = [
+                index for index in range(len(word))
+                if candidate[index] != word[index]]
+            if not differing or len(differing) > 6:
+                continue
+            if len(differing) % 2:
+                continue
+
+            def pairable(indices):
+                if not indices:
+                    return True
+                first = indices[0]
+                for spot in range(1, len(indices)):
+                    second = indices[spot]
+                    if (word[first] == candidate[second]
+                            and word[second] == candidate[first]):
+                        rest = indices[1:spot] + indices[spot + 1:]
+                        if pairable(rest):
+                            return True
+                return False
+
+            if pairable(differing):
+                return candidate
+        for candidate in ordered:
+            if len(candidate) != len(word):
+                continue
+            starts = [
+                index for index in range(len(candidate) - 1)
+                if word[index] == candidate[index + 1]
+                and word[index + 1] == candidate[index]]
+            for combo in itertools.combinations(starts, 3):
+                if any(combo[spot + 1] - combo[spot] < 2
+                        for spot in range(len(combo) - 1)):
+                    continue
+                variant = list(candidate)
+                for index in combo:
+                    variant[index], variant[index + 1] = (
+                        variant[index + 1], variant[index])
+                remaining = sum(
+                    1 for left, right in zip(variant, word)
+                    if left != right)
+                if remaining == 3:
+                    return candidate
+        for candidate in ordered:
+            if len(candidate) != len(word):
+                continue
             differences = sum(
                 1 for left, right in zip(candidate, word) if left != right)
             if differences == 3:
@@ -1078,6 +1176,20 @@ def _resolve_against(word, ordered, vocabulary):
             differences = sum(
                 1 for left, right in zip(candidate, word) if left != right)
             if differences == 4:
+                return candidate
+        for candidate in ordered:
+            if len(candidate) != len(word):
+                continue
+            differing = [
+                index for index in range(len(word))
+                if candidate[index] != word[index]]
+            if len(differing) != 5:
+                continue
+            paired = any(
+                word[left] == candidate[right]
+                and word[right] == candidate[left]
+                for left, right in itertools.combinations(differing, 2))
+            if not paired:
                 return candidate
         for candidate in ordered:
             if len(candidate) != len(word):
@@ -1189,15 +1301,23 @@ def _group_reading(fragments):
 def _reading_words(fragments):
     """Read a fragment sequence as words. The reading stands
     as the partition of the sequence with the highest score,
-    where a group of fragments joining into one vocabulary
-    word scores above the same fragments read one by one, an
-    exact vocabulary word scores above a resolved one, a
-    resolved word scores above a plain fragment, and dropping
-    an article standing between words scores above keeping it
-    as a plain fragment. A separator split inside one word
-    therefore reads as that word, even where a fragment on its
-    own resolves elsewhere or stands as an article, while
-    words standing apart keep their own readings."""
+    where a word scores by its standing for every fragment it
+    covers, an exact vocabulary word scores above a resolved
+    one, a resolved word scores above a plain fragment, and
+    dropping an article standing between words scores above
+    keeping it as a plain fragment. The group reading of a
+    whole fragment group stands judged beside the chunk
+    readings of its parts on the same points: where two
+    partitions stand at equal points, the partition reading
+    fewer words stands chosen, so one group reading covering
+    the whole group stands above rival chunk readings that
+    cover the same fragments in more words. A separator
+    split inside one word therefore reads as that word, even
+    where a fragment on its own resolves elsewhere or stands
+    as an article, while words standing apart keep their own
+    readings. The group search tries groups of up to thirty
+    two fragments, with the standing bound of twenty four
+    joined characters governing the groups it can read."""
     scores = {"exact": 20, "resolved": 15, "plain": 2}
     best = {}
 
@@ -1205,16 +1325,17 @@ def _reading_words(fragments):
         if start in best:
             return best[start]
         if start >= len(fragments):
-            return (0, ())
+            return (0, 0, ())
         options = []
         word, standing = _single_reading(fragments[start])
-        rest_score, rest_words = search(start + 1)
+        rest_score, rest_fewer, rest_words = search(start + 1)
         options.append((
-            scores[standing] + rest_score, (word,) + rest_words))
+            scores[standing] + rest_score, rest_fewer - 1,
+            (word,) + rest_words))
         if fragments[start] in _ARTICLES:
-            options.append((5 + rest_score, rest_words))
+            options.append((5 + rest_score, rest_fewer, rest_words))
         joined = [fragments[start]]
-        for size in range(2, min(16, len(fragments) - start) + 1):
+        for size in range(2, min(32, len(fragments) - start) + 1):
             joined.append(fragments[start + size - 1])
             if len("".join(joined)) > 24:
                 break
@@ -1222,15 +1343,16 @@ def _reading_words(fragments):
             if reading is None:
                 continue
             group_word, group_standing = reading
-            rest_score, rest_words = search(start + size)
-            group_score = scores[group_standing] * size + 10
+            rest_score, rest_fewer, rest_words = search(start + size)
+            group_score = scores[group_standing] * size
             options.append((
-                group_score + rest_score, (group_word,) + rest_words))
-        chosen = max(options, key=lambda option: option[0])
+                group_score + rest_score, rest_fewer - 1,
+                (group_word,) + rest_words))
+        chosen = max(options, key=lambda option: (option[0], option[1]))
         best[start] = chosen
         return chosen
 
-    return list(search(0)[1])
+    return list(search(0)[2])
 
 
 def _normalise_name(value):

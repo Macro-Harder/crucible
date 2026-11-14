@@ -68,24 +68,25 @@ _BARRED_KEY_PARTS = (
 )
 
 _HOMOGLYPH_MAP = {
-    "\u0430": "a", "\u0441": "c", "\u0435": "e", "\u043e": "o",
-    "\u0440": "p", "\u0445": "x", "\u0443": "y", "\u0456": "i",
-    "\u0439": "i",
-    "\u0458": "j", "\u0455": "s", "\u04bb": "h", "\u043a": "k",
-    "\u043c": "m", "\u043d": "h", "\u0442": "t", "\u0432": "b",
-    "\u03b1": "a", "\u03b2": "b", "\u03b5": "e", "\u03b9": "i",
-    "\u03ba": "k", "\u03bc": "m", "\u03bf": "o", "\u03c1": "p",
-    "\u03c4": "t", "\u03c7": "x", "\u03c5": "u", "\u03bd": "n",
-    "\u03b3": "g", "\u03b4": "d", "\u03bb": "l", "\u03c3": "s",
-    "\u03c9": "w", "\u03b6": "z", "\u03b8": "t", "\u03c6": "f",
-    "\u044d": "e", "\u043b": "l", "\u03c8": "ps",
-    "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
-    "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
-    "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
-    "\u0167": "t",
-    "\u00c6": "ae", "\u0152": "oe", "\u00d8": "o", "\u0110": "d",
-    "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
-    "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
+    "а": "a", "с": "c", "е": "e", "о": "o",
+    "р": "p", "х": "x", "у": "y", "і": "i",
+    "й": "i",
+    "ј": "j", "ѕ": "s", "һ": "h", "к": "k",
+    "м": "m", "н": "h", "т": "t", "в": "b",
+    "α": "a", "β": "b", "ε": "e", "ι": "i",
+    "κ": "k", "μ": "m", "ο": "o", "ρ": "p",
+    "τ": "t", "χ": "x", "υ": "u", "ν": "n",
+    "γ": "g", "δ": "d", "λ": "l", "σ": "s",
+    "ω": "w", "ζ": "z", "θ": "t", "φ": "f",
+    "η": "e",
+    "э": "e", "л": "l", "ψ": "ps",
+    "æ": "ae", "œ": "oe", "ø": "o", "đ": "d",
+    "ł": "l", "ß": "ss", "þ": "th", "ð": "d",
+    "ħ": "h", "ŋ": "n", "ƒ": "f", "ı": "i",
+    "ŧ": "t",
+    "Æ": "ae", "Œ": "oe", "Ø": "o", "Đ": "d",
+    "Ł": "l", "ẞ": "ss", "Þ": "th", "Ð": "d",
+    "Ħ": "h", "Ŋ": "n", "Ƒ": "f", "Ŧ": "t",
 }
 for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
     _HOMOGLYPH_MAP[_upper.upper()] = _lower
@@ -102,28 +103,44 @@ for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
 # the shared homoglyph map above stands as the parity map
 # its sister surfaces stand on.
 _WIDER_READING_MAP = {
-    "\u0431": "b", "\u0433": "g", "\u0434": "d", "\u0438": "i",
-    "\u043f": "p",
-    "\u0451": "e", "\u0452": "s", "\u0493": "h",
-    "\u03c2": "s",
-    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
-    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
-    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
-    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
-    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
-    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
-    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
-    "\u1d22": "z",
-    "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
-    "\u00a5": "y",
-    "\u00a2": "c", "\u00a7": "s", "+": "t",
-    "\u13d2": "r", "\u13ac": "e", "\u13aa": "a", "\u13de": "l",
-    "\u13b7": "m", "\u13be": "o", "\u13c1": "n", "\u13ef": "y",
-    "\uaba2": "r", "\uab7c": "e", "\uab7a": "a", "\uabae": "l",
-    "\uab87": "m", "\uab8e": "o", "\uab91": "n", "\uabbf": "y",
-    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
-    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
+    "б": "b", "г": "g", "д": "d", "и": "i",
+    "п": "p",
+    "ё": "e", "ђ": "s", "ѓ": "h",
+    "ς": "s",
+    "օ": "o", "Օ": "o", "ւ": "n", "Ո": "n",
+    "ᴀ": "a", "ʙ": "b", "ᴄ": "c", "ᴅ": "d",
+    "ᴇ": "e", "ꜰ": "f", "ɢ": "g", "ʜ": "h",
+    "ɪ": "i", "ᴊ": "j", "ᴋ": "k", "ʟ": "l",
+    "ᴍ": "m", "ɴ": "n", "ᴏ": "o", "ᴘ": "p",
+    "ꞯ": "q", "ʀ": "r", "ꜱ": "s", "ᴛ": "t",
+    "ᴜ": "u", "ᴠ": "v", "ᴡ": "w", "ʏ": "y",
+    "ᴢ": "z",
+    "€": "e", "£": "l", "!": "l", "|": "l",
+    "¥": "y",
+    "¢": "c", "§": "s", "+": "t",
+    "Ꮢ": "r", "Ꮼ": "e", "Ꭺ": "a", "Ꮮ": "l",
+    "Ꮟ": "m", "Ᏸ": "o", "Ꮑ": "n", "Ꮿ": "y",
+    "ꪖ": "r", "ꫜ": "e", "ꪊ": "a", "ꪮ": "l",
+    "ꪇ": "m", "ꪎ": "o", "ꪑ": "n", "꪿": "y",
+    "ⲣ": "r", "ⲉ": "e", "ⲁ": "a", "ⲗ": "l",
+    "ⲙ": "m", "ⲟ": "o", "ⲛ": "n", "ⲩ": "y",
 }
+# Transcription repair, stated in the open: fifteen entries of
+# the wider map above stand keyed in this copy by a neighbouring
+# codepoint in place of the codepoint the merged tree records.
+# Each entry stands moved here to its recorded codepoint, by
+# number, before the uppercase pass below runs, so the map this
+# copy builds is the map the merged tree builds.
+for _recorded, _reading, _neighbour in (
+        (0x0493, "h", 0x0453), (0x0578, "n", 0x0552),
+        (0x0548, "n", 0x0582), (0x13AC, "e", 0x13EC),
+        (0x13B7, "m", 0x13CF), (0x13BE, "o", 0x13F0),
+        (0xABA2, "r", 0xAA96), (0xAB7C, "e", 0xAADC),
+        (0xAB7A, "a", 0xAA8A), (0xABAE, "l", 0xAAAE),
+        (0xAB87, "m", 0xAA87), (0xAB8E, "o", 0xAA8E),
+        (0xAB91, "n", 0xAA91), (0xABBF, "y", 0xAABF)):
+    _WIDER_READING_MAP.pop(chr(_neighbour), None)
+    _WIDER_READING_MAP[chr(_recorded)] = _reading
 for _upper, _lower in list(_WIDER_READING_MAP.items()):
     _WIDER_READING_MAP[_upper.upper()] = _lower
 
@@ -137,10 +154,11 @@ _WIDE_LETTER_MAP.update(_WIDER_READING_MAP)
 # transliterates. These readings stand beside the homoglyph
 # reading above, never in place of it.
 _TRANSLITERATION_OVERRIDES = {
-    "\u0440": "r", "\u0445": "h", "\u0432": "v", "\u0441": "s",
-    "\u043d": "n", "\u0443": "u", "\u0439": "y",
-    "\u03b7": "e", "\u03c0": "p", "\u03c7": "h", "\u03c1": "r",
-    "\u03c9": "o",
+    "р": "r", "х": "h", "в": "v", "с": "s",
+    "н": "n", "у": "u", "й": "y",
+    "η": "e", "π": "p", "χ": "h", "ρ": "r",
+    "ω": "o",
+    "θ": "th", "ы": "y", "ю": "yu", "я": "ya",
 }
 _ALT_LETTER_MAP = dict(_WIDE_LETTER_MAP)
 _ALT_LETTER_MAP.update(_TRANSLITERATION_OVERRIDES)
@@ -148,13 +166,13 @@ for _upper, _lower in list(_TRANSLITERATION_OVERRIDES.items()):
     _ALT_LETTER_MAP[_upper.upper()] = _lower
 
 _DROPPED_INVISIBLE = frozenset(
-    ["\u200b", "\u200c", "\u200d", "\ufeff", "\u00ad", "\u2060"])
+    ["​", "‌", "‍", "﻿", "­", "⁠"])
 
 _LEET_MAP = {
     "0": "o", "1": "i", "3": "e", "4": "a",
     "5": "s", "7": "t", "8": "b", "@": "a", "$": "s",
-    "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
-    "\u00a5": "y", "\u00a2": "c", "\u00a7": "s", "+": "t",
+    "€": "e", "£": "l", "!": "l", "|": "l",
+    "¥": "y", "¢": "c", "§": "s", "+": "t",
 }
 
 
@@ -162,7 +180,7 @@ def _canonical_text(key, letter_map=None):
     mapping = _HOMOGLYPH_MAP if letter_map is None else letter_map
     chars = []
     for character in str(key):
-        if character.casefold() == "\u0439":
+        if character.casefold() == "й":
             # Cyrillic short i stands read as a whole letter,
             # never reduced by compatibility decomposition to
             # Cyrillic i plus a combining mark before any letter
@@ -171,7 +189,7 @@ def _canonical_text(key, letter_map=None):
             # and y in the alternate map.
             chars.append(mapping.get(
                 character,
-                mapping.get("\u0439", mapping.get("\u0419", "i"))))
+                mapping.get("й", mapping.get("Й", "i"))))
             continue
         decomposed = unicodedata.normalize("NFKD", character)
         for part in decomposed:
@@ -251,6 +269,83 @@ _BARRED_PARTS_FOLDED = frozenset(
     _fold_name(part) for part in _BARRED_KEY_PARTS)
 
 
+def _character_variants(character):
+    """Every folded form one original character can contribute
+    to a combined reading: each of its readings across the
+    letter maps, taken under the readings _readings_for states,
+    as the combination limb of _folded_readings builds them."""
+    variants = set()
+    for letter_map in (
+            _WIDE_LETTER_MAP, _HOMOGLYPH_MAP, _ALT_LETTER_MAP):
+        variants.update(
+            _readings_for(_canonical_text(character, letter_map)))
+    return variants
+
+
+def _combined_matches_exact(variant_sets, target):
+    states = {0}
+    for variants in variant_sets:
+        following = set()
+        for state in states:
+            for variant in variants:
+                if target.startswith(variant, state):
+                    following.add(state + len(variant))
+        states = following
+        if not states:
+            return False
+    return len(target) in states
+
+
+def _combined_prefix_state(pattern, state, character):
+    candidate = pattern[:state] + character
+    limit = min(len(pattern), state + 1)
+    for length in range(limit, -1, -1):
+        if candidate.endswith(pattern[:length]):
+            return length
+    return 0
+
+
+def _combined_carries(variant_sets, pattern):
+    full = len(pattern)
+    states = {0}
+    for variants in variant_sets:
+        following = set()
+        for state in states:
+            for variant in variants:
+                current = state
+                for character in variant:
+                    if current == full:
+                        break
+                    current = _combined_prefix_state(
+                        pattern, current, character)
+                following.add(current)
+        if full in following:
+            return True
+        states = following
+    return full in states
+
+
+def _combined_key_barred(key):
+    """Whether any combined reading of the key stands barred,
+    judged position by position over the per character variants
+    without enumerating the combined texts, so the judgement
+    stands the same inside the 4096 combined text bound and
+    past it, in the form the MOD-05 read takes. The forms
+    judged are the forms _is_barred_key judges on an enumerated
+    reading: a reading standing in the folded exact set of the
+    barred keys, and a reading carrying a folded barred part."""
+    variant_sets = [
+        _character_variants(character) for character in str(key)
+    ]
+    for target in _BARRED_EXACT_FOLDED:
+        if _combined_matches_exact(variant_sets, target):
+            return True
+    for part in _BARRED_PARTS_FOLDED:
+        if _combined_carries(variant_sets, part):
+            return True
+    return False
+
+
 def _is_barred_key(key):
     """Return whether a key stands barred under the standing vocabulary.
 
@@ -282,7 +377,7 @@ def _is_barred_key(key):
             return True
         if any(part in reading for part in _BARRED_PARTS_FOLDED):
             return True
-    return False
+    return _combined_key_barred(key)
 
 
 def _key_string_is_barred(key):
@@ -688,31 +783,56 @@ def generate_society(point, archetype_records, stream_state=None,
                       strategy_class, initial_edges)
 
 
+def _stored_member_key(name):
+    """Return the key a farm membership judgement stands on for
+    one name: for a text name, the stored text of the name, read
+    character by character through the base string reading, so
+    a hash or equality reading the name supplies directs
+    nothing; for any other name, the name itself."""
+    if isinstance(name, str):
+        return "".join(
+            str.__getitem__(name, index)
+            for index in range(str.__len__(name)))
+    return name
+
+
 def construct_farm(member_ids, farm_size=None, edges=None):
     """Construct farms over a member set and count internal edges.
 
     Returns the farm identities with their members and the internal
     edge count per farm identity, the count the run record carries.
     With no edges stated, every internal count stands at zero.
+
+    The member set and the edge set stand read through their base
+    class iteration, an edge pair stands read through the base
+    length and item readings of its kind, and the farm membership
+    of each name in a counted pair stands judged on the stored
+    text of the name, so no iteration, length, item, hash, or
+    equality reading a handed value supplies directs the count.
     """
-    members = list(member_ids or ())
+    if member_ids is None:
+        members = []
+    else:
+        members = list(_base_iter(member_ids))
     farm_size = _guard_farm_size(farm_size, "farm rejected")
     if not farm_size:
         farms = []
-        farm_of = {member: None for member in members}
+        farm_of = {_stored_member_key(member): None
+                   for member in members}
     else:
         grouped = {}
         farm_of = {}
         for index, member in enumerate(members):
             farm_id = "farm-%d" % (index // farm_size)
             grouped.setdefault(farm_id, []).append(member)
-            farm_of[member] = farm_id
+            farm_of[_stored_member_key(member)] = farm_id
         farms = [
             {"farm_id": farm_id, "member_ids": list(grouped[farm_id])}
             for farm_id in sorted(grouped)
         ]
     counts = {farm["farm_id"]: 0 for farm in farms}
-    for edge in edges or ():
+    edge_iter = () if edges is None else _base_iter(edges)
+    for edge in edge_iter:
         if isinstance(edge, dict):
             if dict.get(edge, "voucher") is None:
                 raise NamedGeneratorFailure(
@@ -730,14 +850,25 @@ def construct_farm(member_ids, farm_size=None, edges=None):
             raise NamedGeneratorFailure(
                 "farm rejected: an edge stands as text, not as a "
                 "voucher and vouchee pair: " + repr(edge))
-        elif isinstance(edge, (list, tuple)) and len(edge) == 2:
-            first, second = edge[0], edge[1]
+        elif isinstance(edge, (list, tuple)):
+            if isinstance(edge, list):
+                pair_size = list.__len__(edge)
+                pair_item = list.__getitem__
+            else:
+                pair_size = tuple.__len__(edge)
+                pair_item = tuple.__getitem__
+            if pair_size != 2:
+                raise NamedGeneratorFailure(
+                    "farm rejected: an edge is not a voucher and "
+                    "vouchee pair of size two: " + repr(edge))
+            first, second = pair_item(edge, 0), pair_item(edge, 1)
         else:
             raise NamedGeneratorFailure(
                 "farm rejected: an edge is not a voucher and "
                 "vouchee pair of size two: " + repr(edge))
-        farm_id = farm_of.get(first)
-        if farm_id is not None and farm_id == farm_of.get(second):
+        farm_id = farm_of.get(_stored_member_key(first))
+        if farm_id is not None and farm_id == farm_of.get(
+                _stored_member_key(second)):
             counts[farm_id] += 1
     return {
         "farms": farms,
@@ -884,35 +1015,54 @@ def _value_carries_rule_state(value, _depth=0, _seen=None, _path=""):
     carrying a cycle, each fail in the module named failure form,
     as the ground truth reading of this module fails, and no bare
     recursion error escapes.
+
+    A container shared by two siblings stands walked once at each
+    depth at which it stands reached: its walked standing stands
+    carried across every path that reaches it at that depth, so
+    the walk grows with the size of the value, and a reach at a
+    greater depth stands rejudged at its own depth, where the
+    traversal bound is judged afresh.
     """
     if isinstance(value, (dict, list, tuple, set, frozenset)):
-        seen = _seen if _seen is not None else set()
-        _traversal_guard(value, _depth, seen, _path)
-        seen.add(id(value))
+        if isinstance(_seen, dict):
+            state = _seen
+        else:
+            state = {"active": set(_seen or ()), "done": {}}
+        marker = (id(value), _depth)
+        if marker in state["done"]:
+            return state["done"][marker]
+        _traversal_guard(value, _depth, state["active"], _path)
+        state["active"].add(id(value))
         try:
+            result = False
             if isinstance(value, dict):
                 for key, item in dict.items(value):
                     if isinstance(
                             key, (dict, list, tuple, set, frozenset)):
                         if _value_carries_rule_state(
-                                key, _depth + 1, seen,
+                                key, _depth + 1, state,
                                 _path + "/key"):
-                            return True
+                            result = True
+                            break
                     if _key_carries_rule_state(key):
-                        return True
+                        result = True
+                        break
                     if _value_carries_rule_state(
-                            item, _depth + 1, seen,
+                            item, _depth + 1, state,
                             _path + "/" + str(key)):
-                        return True
-                return False
-            return any(
-                _value_carries_rule_state(
-                    item, _depth + 1, seen,
-                    _path + "[" + str(index) + "]")
-                for index, item in enumerate(_base_iter(value))
-            )
+                        result = True
+                        break
+            else:
+                for index, item in enumerate(_base_iter(value)):
+                    if _value_carries_rule_state(
+                            item, _depth + 1, state,
+                            _path + "[" + str(index) + "]"):
+                        result = True
+                        break
+            state["done"][marker] = result
+            return result
         finally:
-            seen.discard(id(value))
+            state["active"].discard(id(value))
     return False
 
 
@@ -946,22 +1096,27 @@ def _value_carries_ground_truth(value, _depth=0, _seen=None, _path=""):
     barred key nested inside a feature value, inside a rule
     record, or inside a container at any further depth still counts.
 
-    A container shared by two siblings stands walked once: its
-    walked standing stands carried across every path that reaches
-    it, so the walk grows with the size of the value. A container
-    that stands on its own walk path still stands as a cycle and
-    stands refused in the module named failure form.
+    A container shared by two siblings stands walked once at
+    each depth at which it stands reached: its walked standing
+    stands carried across every path that reaches it at that
+    depth, so the walk grows with the size of the value, and the
+    standing carries the depth at which it stands earned, so a
+    reach at a greater depth stands rejudged at its own depth
+    and the traversal guard stands called on that reach before
+    any cached standing stands returned. A container that stands
+    on its own walk path still stands as a cycle and stands
+    refused in the module named failure form.
     """
     if isinstance(value, (dict, list, tuple, set, frozenset)):
         if isinstance(_seen, dict):
             state = _seen
         else:
             state = {"active": set(_seen or ()), "done": {}}
-        marker = id(value)
+        marker = (id(value), _depth)
         if marker in state["done"]:
             return state["done"][marker]
         _traversal_guard(value, _depth, state["active"], _path)
-        state["active"].add(marker)
+        state["active"].add(id(value))
         try:
             result = False
             if isinstance(value, dict):
@@ -994,7 +1149,7 @@ def _value_carries_ground_truth(value, _depth=0, _seen=None, _path=""):
             state["done"][marker] = result
             return result
         finally:
-            state["active"].discard(marker)
+            state["active"].discard(id(value))
     return False
 
 
@@ -1015,11 +1170,24 @@ def _strip_ground_truth_value(value, _depth=0, _seen=None, _path=""):
     remaining content, cleaned in the same way. Lists and tuples
     keep their form, with each item cleaned in the same way.
     Content that carries no barred key passes through unchanged.
+
+    A container shared by two siblings stands stripped once at
+    each depth at which it stands reached: its stripped form
+    stands carried across every path that reaches it at that
+    depth, so the walk grows with the size of the value, and a
+    reach at a greater depth stands restripped at its own depth,
+    where the traversal bound is judged afresh.
     """
     if isinstance(value, (dict, list, tuple, set, frozenset)):
-        seen = _seen if _seen is not None else set()
-        _traversal_guard(value, _depth, seen, _path)
-        seen.add(id(value))
+        if isinstance(_seen, dict):
+            state = _seen
+        else:
+            state = {"active": set(_seen or ()), "done": {}}
+        marker = (id(value), _depth)
+        if marker in state["done"]:
+            return state["done"][marker]
+        _traversal_guard(value, _depth, state["active"], _path)
+        state["active"].add(id(value))
         try:
             if isinstance(value, dict):
                 stripped = {}
@@ -1027,7 +1195,7 @@ def _strip_ground_truth_value(value, _depth=0, _seen=None, _path=""):
                     if isinstance(
                             key, (dict, list, tuple, set, frozenset)):
                         new_key = _strip_ground_truth_value(
-                            key, _depth + 1, seen, _path + "/key")
+                            key, _depth + 1, state, _path + "/key")
                         if _key_string_is_barred(key):
                             continue
                     else:
@@ -1035,36 +1203,39 @@ def _strip_ground_truth_value(value, _depth=0, _seen=None, _path=""):
                             continue
                         new_key = key
                     stripped[new_key] = _strip_ground_truth_value(
-                        item, _depth + 1, seen,
+                        item, _depth + 1, state,
                         _path + "/" + str(key))
-                return stripped
-            if isinstance(value, list):
-                return [
+                result = stripped
+            elif isinstance(value, list):
+                result = [
                     _strip_ground_truth_value(
-                        item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                        item, _depth + 1, state, _path + "[" + str(index) + "]")
                     for index, item in enumerate(_base_iter(value))
                 ]
-            if isinstance(value, tuple):
-                return tuple(
+            elif isinstance(value, tuple):
+                result = tuple(
                     _strip_ground_truth_value(
-                        item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                        item, _depth + 1, state, _path + "[" + str(index) + "]")
                     for index, item in enumerate(_base_iter(value))
                 )
-            if isinstance(value, frozenset):
-                return frozenset(
+            elif isinstance(value, frozenset):
+                result = frozenset(
                     _strip_ground_truth_value(
-                        item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                        item, _depth + 1, state, _path + "[" + str(index) + "]")
                     for index, item in enumerate(_base_iter(value))
                 )
-            if isinstance(value, set):
-                return {
+            elif isinstance(value, set):
+                result = {
                     _strip_ground_truth_value(
-                        item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                        item, _depth + 1, state, _path + "[" + str(index) + "]")
                     for index, item in enumerate(_base_iter(value))
                 }
-            return value
+            else:
+                result = value
+            state["done"][marker] = result
+            return result
         finally:
-            seen.discard(id(value))
+            state["active"].discard(id(value))
     return value
 
 

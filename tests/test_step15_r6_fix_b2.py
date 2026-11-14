@@ -104,9 +104,8 @@ class TestActorControls(B2Base):
         self.assertEqual(
             self.promote("alice")["retention_tier"], "Tier 2")
 
-    def test_seven_added_letters_promotes_past_the_bound(self):
-        self.assertEqual(
-            self.promote("personxxxxxxx")["retention_tier"], "Tier 2")
+    def test_seven_added_letters_refused_past_the_bound(self):
+        self.assert_person_refused("personxxxxxxx")
 
 
 class EvilSet(set):

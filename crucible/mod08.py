@@ -292,7 +292,19 @@ def _folded_readings(key):
     lowered after decomposition, in the sister form at MOD-04,
     so a letter whose decomposition stands as a capital, as the
     modifier small capital letters decompose, reads as its small
-    letter."""
+    letter. The combination stands built over the original
+    characters of the key, before decomposition: each original
+    character contributes the reading of its decomposed base
+    under each map, the reading each map records for the
+    character itself where one stands recorded, and, for
+    Cyrillic short i, both of its recorded readings, y and i,
+    since decomposition alone would reduce that letter to its
+    i reading and lose the y reading its transliteration
+    records. Each character contributes those readings beside
+    their digit forms, the reading itself, the reading under
+    each digit substitution map, and the reading with digits
+    dropped, so the leet reading at one digit position and the
+    drop reading at another combine inside one key."""
     readings = []
 
     def add(transformed):
@@ -317,23 +329,41 @@ def _folded_readings(key):
                     for character in base))
         add("".join(character for character in base
                     if not character.isdigit()))
-    characters = [
-        character
-        for character in unicodedata.normalize(
-            "NFKD", str(key).lower()).lower()
-        if not unicodedata.category(character).startswith("M")
-    ]
     texts = {""}
     combined = True
-    for character in characters:
-        options = {
-            letter_map.get(character, character)
-            for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP)
-        }
+    for character in str(key).lower():
+        base_characters = [
+            part
+            for part in unicodedata.normalize(
+                "NFKD", character).lower()
+            if not unicodedata.category(part).startswith("M")
+        ]
+        options = set()
+        for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+            options.add("".join(
+                letter_map.get(part, part)
+                for part in base_characters))
+            if character in letter_map:
+                options.add(letter_map[character])
+        if character == "\u0439":
+            options.update(("y", "i"))
+        variants = set()
+        for option in options:
+            for transformed in (
+                option,
+                "".join(_LEET_MAP.get(part, part)
+                        for part in option),
+                "".join(_LEET_L_MAP.get(part, part)
+                        for part in option),
+                "".join(part for part in option
+                        if not part.isdigit()),
+            ):
+                variants.add("".join(
+                    part for part in transformed if part.isalnum()))
         expanded = {
-            prefix + option
+            prefix + variant
             for prefix in texts
-            for option in options
+            for variant in variants
         }
         if len(expanded) > 4096:
             combined = False
@@ -358,6 +388,108 @@ _BARRED_FOLDED_EXACT = frozenset(
 _BARRED_FOLDED_PARTS = ("membership", "groundtruth", "canary")
 
 
+def _character_variants(character):
+    """Every folded form one original character can contribute
+    to a combined reading: each reading the combination limb of
+    _folded_readings records for the character, taken plain,
+    under each digit substitution map, and with digits dropped,
+    as that limb builds them."""
+    base_characters = [
+        part
+        for part in unicodedata.normalize(
+            "NFKD", character).lower()
+        if not unicodedata.category(part).startswith("M")
+    ]
+    options = set()
+    for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+        options.add("".join(
+            letter_map.get(part, part)
+            for part in base_characters))
+        if character in letter_map:
+            options.add(letter_map[character])
+    if character == "й":
+        options.update(("y", "i"))
+    variants = set()
+    for option in options:
+        for transformed in (
+            option,
+            "".join(_LEET_MAP.get(part, part)
+                    for part in option),
+            "".join(_LEET_L_MAP.get(part, part)
+                    for part in option),
+            "".join(part for part in option
+                    if not part.isdigit()),
+        ):
+            variants.add("".join(
+                part for part in transformed if part.isalnum()))
+    return variants
+
+
+def _combined_matches_exact(variant_sets, target):
+    states = {0}
+    for variants in variant_sets:
+        following = set()
+        for state in states:
+            for variant in variants:
+                if target.startswith(variant, state):
+                    following.add(state + len(variant))
+        states = following
+        if not states:
+            return False
+    return len(target) in states
+
+
+def _combined_prefix_state(pattern, state, character):
+    candidate = pattern[:state] + character
+    limit = min(len(pattern), state + 1)
+    for length in range(limit, -1, -1):
+        if candidate.endswith(pattern[:length]):
+            return length
+    return 0
+
+
+def _combined_carries(variant_sets, pattern):
+    full = len(pattern)
+    states = {0}
+    for variants in variant_sets:
+        following = set()
+        for state in states:
+            for variant in variants:
+                current = state
+                for character in variant:
+                    if current == full:
+                        break
+                    current = _combined_prefix_state(
+                        pattern, current, character)
+                following.add(current)
+        if full in following:
+            return True
+        states = following
+    return full in states
+
+
+def _combined_key_barred(key):
+    """Whether any combined reading of the key stands barred,
+    judged position by position over the per character variants
+    without enumerating the combined texts, so the judgement
+    stands the same inside the 4096 combined text bound and
+    past it, in the form the MOD-05 read takes. The forms
+    judged are the forms _is_barred_key judges on an enumerated
+    reading: a reading standing in the folded exact set of the
+    barred keys, and a reading carrying a folded barred part."""
+    variant_sets = [
+        _character_variants(character)
+        for character in str(key).lower()
+    ]
+    for target in _BARRED_FOLDED_EXACT:
+        if _combined_matches_exact(variant_sets, target):
+            return True
+    for part in _BARRED_FOLDED_PARTS:
+        if _combined_carries(variant_sets, part):
+            return True
+    return False
+
+
 def _is_barred_key(key):
     lowered = str(key).lower()
     if lowered in _BARRED_EXACT_KEYS:
@@ -369,7 +501,7 @@ def _is_barred_key(key):
             return True
         if any(part in reading for part in _BARRED_FOLDED_PARTS):
             return True
-    return False
+    return _combined_key_barred(key)
 
 
 BARRED_SEARCH_DEPTH_BOUND = 100
@@ -389,7 +521,7 @@ def _base_iter(node):
     return iter(node)
 
 
-def _find_barred(node, path="", _depth=0, _seen=None):
+def _find_barred(node, path="", _depth=0, _seen=None, _walked=None):
     if isinstance(node, (dict, list, tuple, set, frozenset)):
         if _depth > BARRED_SEARCH_DEPTH_BOUND:
             raise NamedDetectionFailure(
@@ -404,6 +536,10 @@ def _find_barred(node, path="", _depth=0, _seen=None):
                 "delivery rejected: barred field search found a cycle at "
                 + (path or "root")
             )
+        walked = _walked if _walked is not None else {}
+        standing = walked.get((id(node), _depth))
+        if standing is not None:
+            return [path + suffix for suffix in standing]
         seen.add(id(node))
         try:
             hits = []
@@ -412,12 +548,17 @@ def _find_barred(node, path="", _depth=0, _seen=None):
                     here = path + "/" + str(key)
                     if _is_barred_key(key):
                         hits.append(here)
-                    hits.extend(_find_barred(key, here, _depth + 1, seen))
-                    hits.extend(_find_barred(value, here, _depth + 1, seen))
+                    hits.extend(_find_barred(
+                        key, here, _depth + 1, seen, walked))
+                    hits.extend(_find_barred(
+                        value, here, _depth + 1, seen, walked))
             else:
                 for index, item in enumerate(_base_iter(node)):
                     hits.extend(_find_barred(
-                        item, path + "[" + str(index) + "]", _depth + 1, seen))
+                        item, path + "[" + str(index) + "]",
+                        _depth + 1, seen, walked))
+            walked[(id(node), _depth)] = tuple(
+                hit[len(path):] for hit in hits)
             return hits
         finally:
             seen.discard(id(node))
@@ -816,7 +957,7 @@ _VERDICT_POSITION_KEYS = (
 )
 
 
-def _carries_barred_verdict(node, _depth=0, _seen=None):
+def _carries_barred_verdict(node, _depth=0, _seen=None, _walked=None):
     """Return whether a value carries a barred verdict reading.
 
     The read stands bounded, in the bounded form the delivery
@@ -825,16 +966,25 @@ def _carries_barred_verdict(node, _depth=0, _seen=None):
     carrying the barred form, so the caller returns False for the
     output as a whole and no bare RecursionError escapes. A part
     shared from two places on different paths carries no cycle
-    and stands read on each path."""
+    and stands read on each path. The walk carries a walked
+    standing across paths, keyed by identity and depth: a
+    container whose standing at one depth stands earned is not
+    walked again at that depth, and a reach at a greater depth
+    stands judged at its own depth."""
     if isinstance(node, (dict, list, tuple, set, frozenset)):
         if _depth > BARRED_SEARCH_DEPTH_BOUND:
             return True
         seen = _seen if _seen is not None else set()
         if id(node) in seen:
             return True
+        walked = _walked if _walked is not None else {}
+        standing = walked.get((id(node), _depth))
+        if standing is not None:
+            return standing
         seen.add(id(node))
         try:
             if isinstance(node, dict):
+                result = False
                 for key, value in dict.items(node):
                     lowered = str(key).lower()
                     if lowered in _VERDICT_POSITION_KEYS or (
@@ -842,15 +992,24 @@ def _carries_barred_verdict(node, _depth=0, _seen=None):
                         if isinstance(value, str) and (
                                 value.strip().lower() in
                                 _BARRED_VERDICT_VALUES):
-                            return True
-                    if _carries_barred_verdict(key, _depth + 1, seen):
-                        return True
-                    if _carries_barred_verdict(value, _depth + 1, seen):
-                        return True
-                return False
-            return any(
-                _carries_barred_verdict(item, _depth + 1, seen)
+                            result = True
+                            break
+                    if _carries_barred_verdict(
+                            key, _depth + 1, seen, walked):
+                        result = True
+                        break
+                    if _carries_barred_verdict(
+                            value, _depth + 1, seen, walked):
+                        result = True
+                        break
+                walked[(id(node), _depth)] = result
+                return result
+            result = any(
+                _carries_barred_verdict(
+                    item, _depth + 1, seen, walked)
                 for item in _base_iter(node))
+            walked[(id(node), _depth)] = result
+            return result
         finally:
             seen.discard(id(node))
     return False

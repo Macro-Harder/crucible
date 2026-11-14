@@ -69,14 +69,27 @@ def _freeze(value, _memo=None):
             return _memo[id(value)]
         copied = tuple(
             _freeze(item, _memo) for item in tuple.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
         _memo[id(value)] = copied
         return copied
     if isinstance(value, frozenset):
-        return frozenset(
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = frozenset(
             _freeze(item, _memo) for item in frozenset.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
     if isinstance(value, set):
-        return set(
-            _freeze(item, _memo) for item in set.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = set()
+        _memo[id(value)] = copied
+        for item in set.__iter__(value):
+            copied.add(_freeze(item, _memo))
+        return copied
     return value
 
 
@@ -156,7 +169,7 @@ def _base_sentence_items(sentences):
     return list(list.__iter__(sentences))
 
 
-def _strict_eq(first, second, _seen=None, _depth=0):
+def _strict_eq(first, second, _seen=None, _depth=0, _walked=None):
     """Judge two values by the values themselves, through base
     class comparisons that no part can override, at every nesting
     level. A part that overrides its own equality, for example a
@@ -172,7 +185,12 @@ def _strict_eq(first, second, _seen=None, _depth=0):
     standing at the end of a chain counts no depth of its own.
     On that basis a chain of 101 nested containers over a scalar
     leaf stands within the bound, and a chain of 102 stands past
-    it and stands refused."""
+    it and stands refused. A container pair that stands judged
+    stands carried in a walked standing across every path that
+    reaches it, keyed by the pair and by the depth at which it
+    stands reached, so the work grows with the size of the
+    values and a reach at a greater depth stands judged at its
+    own depth against the bound."""
     if _depth > COMPARISON_DEPTH_BOUND:
         if isinstance(first, (dict, list, tuple, set, frozenset)) or isinstance(
                 second, (dict, list, tuple, set, frozenset)):
@@ -205,10 +223,16 @@ def _strict_eq(first, second, _seen=None, _depth=0):
         pair = (id(first), id(second))
         if pair in _seen:
             return True
+        if _walked is None:
+            _walked = {}
+        walked_key = (pair[0], pair[1], _depth)
+        if walked_key in _walked:
+            return _walked[walked_key]
         _seen = _seen | {pair}
         first_items = list(dict.items(first))
         second_items = list(dict.items(second))
         if len(first_items) != len(second_items):
+            _walked[walked_key] = False
             return False
         used = [False] * len(second_items)
         for first_key, first_value in first_items:
@@ -217,13 +241,15 @@ def _strict_eq(first, second, _seen=None, _depth=0):
                 if used[index]:
                     continue
                 second_key, second_value = second_items[index]
-                if _strict_eq(first_key, second_key, _seen, _depth + 1) and _strict_eq(
-                        first_value, second_value, _seen, _depth + 1):
+                if _strict_eq(first_key, second_key, _seen, _depth + 1, _walked) and _strict_eq(
+                        first_value, second_value, _seen, _depth + 1, _walked):
                     used[index] = True
                     matched = True
                     break
             if not matched:
+                _walked[walked_key] = False
                 return False
+        _walked[walked_key] = True
         return True
     if isinstance(first, list) or isinstance(second, list):
         if not (isinstance(first, list) and isinstance(second, list)):
@@ -233,14 +259,22 @@ def _strict_eq(first, second, _seen=None, _depth=0):
         pair = (id(first), id(second))
         if pair in _seen:
             return True
+        if _walked is None:
+            _walked = {}
+        walked_key = (pair[0], pair[1], _depth)
+        if walked_key in _walked:
+            return _walked[walked_key]
         _seen = _seen | {pair}
         if list.__len__(first) != list.__len__(second):
+            _walked[walked_key] = False
             return False
         for index in range(list.__len__(first)):
             if not _strict_eq(
                     list.__getitem__(first, index),
-                    list.__getitem__(second, index), _seen, _depth + 1):
+                    list.__getitem__(second, index), _seen, _depth + 1, _walked):
+                _walked[walked_key] = False
                 return False
+        _walked[walked_key] = True
         return True
     if isinstance(first, tuple) or isinstance(second, tuple):
         if not (isinstance(first, tuple) and isinstance(second, tuple)):
@@ -250,14 +284,22 @@ def _strict_eq(first, second, _seen=None, _depth=0):
         pair = (id(first), id(second))
         if pair in _seen:
             return True
+        if _walked is None:
+            _walked = {}
+        walked_key = (pair[0], pair[1], _depth)
+        if walked_key in _walked:
+            return _walked[walked_key]
         _seen = _seen | {pair}
         if tuple.__len__(first) != tuple.__len__(second):
+            _walked[walked_key] = False
             return False
         for index in range(tuple.__len__(first)):
             if not _strict_eq(
                     tuple.__getitem__(first, index),
-                    tuple.__getitem__(second, index), _seen, _depth + 1):
+                    tuple.__getitem__(second, index), _seen, _depth + 1, _walked):
+                _walked[walked_key] = False
                 return False
+        _walked[walked_key] = True
         return True
     if isinstance(first, (set, frozenset)) or isinstance(
             second, (set, frozenset)):
@@ -269,10 +311,16 @@ def _strict_eq(first, second, _seen=None, _depth=0):
         pair = (id(first), id(second))
         if pair in _seen:
             return True
+        if _walked is None:
+            _walked = {}
+        walked_key = (pair[0], pair[1], _depth)
+        if walked_key in _walked:
+            return _walked[walked_key]
         _seen = _seen | {pair}
         first_items = _base_set_items(first)
         second_items = _base_set_items(second)
         if len(first_items) != len(second_items):
+            _walked[walked_key] = False
             return False
         used = [False] * len(second_items)
         for first_item in first_items:
@@ -280,12 +328,14 @@ def _strict_eq(first, second, _seen=None, _depth=0):
             for index in range(len(second_items)):
                 if used[index]:
                     continue
-                if _strict_eq(first_item, second_items[index], _seen, _depth + 1):
+                if _strict_eq(first_item, second_items[index], _seen, _depth + 1, _walked):
                     used[index] = True
                     matched = True
                     break
             if not matched:
+                _walked[walked_key] = False
                 return False
+        _walked[walked_key] = True
         return True
     if isinstance(first, int) and isinstance(second, int):
         result = int.__eq__(first, second)

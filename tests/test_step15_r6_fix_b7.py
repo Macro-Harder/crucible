@@ -205,7 +205,7 @@ class TestR5005ActorNormaliserPastCuredBounds(unittest.TestCase):
 
     def _refused(self, actor):
         record = self._record()
-        with self.assertRaises(Exception, msg=actor):
+        with self.assertRaises(ValueError, msg=actor):
             mod14.flag_evaluation(
                 record, inputs=self._inputs(),
                 outcome="promote", tier="Tier 3", actor=actor)

@@ -14,7 +14,6 @@ only on MOD-01 types, with draws reaching it only as stream state
 values passed in.
 """
 
-import copy
 import math
 import unicodedata
 
@@ -133,8 +132,61 @@ def _get(record, *names, default=None):
     return default
 
 
-def _freeze(value):
-    return copy.deepcopy(value)
+def _freeze(value, _memo=None):
+    """Copy a value through base class readings only.
+
+    Dict parts stand read through the base dict items reading,
+    and list, tuple, set, and frozenset parts through their
+    base iteration readings, so no reading a part itself
+    supplies directs the copy. A set part stands rebuilt
+    through the plain set constructor and a frozenset part
+    through the plain frozenset constructor, never through a
+    constructor the part itself supplies. A part in no
+    container form stands copied as itself. Shared and cyclic
+    container parts stand preserved through the memo, as a
+    plain deep copy preserves them."""
+    if _memo is None:
+        _memo = {}
+    if isinstance(value, dict):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = {}
+        _memo[id(value)] = copied
+        for key, item in dict.items(value):
+            copied[_freeze(key, _memo)] = _freeze(item, _memo)
+        return copied
+    if isinstance(value, list):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = []
+        _memo[id(value)] = copied
+        copied.extend(
+            _freeze(item, _memo) for item in list.__iter__(value))
+        return copied
+    if isinstance(value, tuple):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = tuple(
+            _freeze(item, _memo) for item in tuple.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
+    if isinstance(value, frozenset):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = frozenset(
+            _freeze(item, _memo) for item in frozenset.__iter__(value))
+        _memo[id(value)] = copied
+        return copied
+    if isinstance(value, set):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = set(
+            _freeze(item, _memo) for item in set.__iter__(value))
+        _memo[id(value)] = copied
+        return copied
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -901,7 +953,7 @@ _HOMOGLYPH_MAP = {
     "\u03ba": "k", "\u03bc": "m", "\u03bf": "o", "\u03c1": "p",
     "\u03c4": "t", "\u03c7": "x", "\u03c5": "u", "\u03bd": "n",
     "\u03b3": "g", "\u03b4": "d", "\u03bb": "l", "\u03c3": "s",
-    "\u03c9": "w", "\u03b6": "z", "\u03b8": "t", "\u03c6": "f",
+    "\u03c9": "w", "\u03b6": "z", "\u03b7": "e", "\u03b8": "t", "\u03c6": "f",
     "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
     "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
     "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
@@ -1219,8 +1271,12 @@ def _panel_leaf_copy(value):
     return value
 
 
-def _panel_clean(value, _depth=0, _seen=None, _path=""):
+def _panel_clean(value, _depth=0, _seen=None, _path="", _walked=None):
     if isinstance(value, (dict, list, tuple, set, frozenset)):
+        walked = _walked if _walked is not None else {}
+        walked_key = (id(value), _depth)
+        if walked_key in walked:
+            return walked[walked_key]
         seen = _seen if _seen is not None else set()
         _panel_traversal_guard(value, _depth, seen, _path)
         seen.add(id(value))
@@ -1231,63 +1287,85 @@ def _panel_clean(value, _depth=0, _seen=None, _path=""):
                     if _panel_key_barred(key):
                         continue
                     cleaned_key = _panel_clean(
-                        key, _depth + 1, seen, _path + "/" + str(key))
+                        key, _depth + 1, seen, _path + "/" + str(key),
+                        walked)
                     cleaned[cleaned_key] = _panel_clean(
-                        item, _depth + 1, seen, _path + "/" + str(key))
+                        item, _depth + 1, seen, _path + "/" + str(key),
+                        walked)
+                walked[walked_key] = cleaned
                 return cleaned
             if isinstance(value, list):
-                return [
+                cleaned = [
                     _panel_clean(
                         item, _depth + 1, seen,
-                        _path + "[" + str(index) + "]")
+                        _path + "[" + str(index) + "]", walked)
                     for index, item in enumerate(_base_iter(value))
                 ]
+                walked[walked_key] = cleaned
+                return cleaned
             if isinstance(value, tuple):
-                return tuple(
+                cleaned = tuple(
                     _panel_clean(
                         item, _depth + 1, seen,
-                        _path + "[" + str(index) + "]")
+                        _path + "[" + str(index) + "]", walked)
                     for index, item in enumerate(_base_iter(value))
                 )
+                walked[walked_key] = cleaned
+                return cleaned
             if isinstance(value, frozenset):
-                return frozenset(
+                cleaned = frozenset(
                     _panel_clean(
                         item, _depth + 1, seen,
-                        _path + "[" + str(index) + "]")
+                        _path + "[" + str(index) + "]", walked)
                     for index, item in enumerate(_base_iter(value))
                 )
-            return {
+                walked[walked_key] = cleaned
+                return cleaned
+            cleaned = {
                 _panel_clean(
                     item, _depth + 1, seen,
-                    _path + "[" + str(index) + "]")
+                    _path + "[" + str(index) + "]", walked)
                 for index, item in enumerate(_base_iter(value))
             }
+            walked[walked_key] = cleaned
+            return cleaned
         finally:
             seen.discard(id(value))
     return _panel_leaf_copy(value)
 
 
-def _panel_carries_barred(value, _depth=0, _seen=None, _path=""):
+def _panel_carries_barred(value, _depth=0, _seen=None, _path="",
+                            _walked=None):
     if isinstance(value, (dict, list, tuple, set, frozenset)):
+        walked = _walked if _walked is not None else {}
+        walked_key = (id(value), _depth)
+        if walked_key in walked:
+            return walked[walked_key]
         seen = _seen if _seen is not None else set()
         _panel_traversal_guard(value, _depth, seen, _path)
         seen.add(id(value))
         try:
             if isinstance(value, dict):
-                return any(
+                result = any(
                     _panel_key_barred(key)
                     or _panel_carries_barred(
-                        key, _depth + 1, seen, _path + "/" + str(key))
+                        key, _depth + 1, seen, _path + "/" + str(key),
+                        walked)
                     or _panel_carries_barred(
-                        item, _depth + 1, seen, _path + "/" + str(key))
+                        item, _depth + 1, seen, _path + "/" + str(key),
+                        walked)
                     for key, item in dict.items(value)
                 )
-            return any(
+                walked[walked_key] = result
+                return result
+            result = any(
                 _panel_carries_barred(
                     item, _depth + 1, seen,
-                    _path + "[" + str(index) + "]")
+                    _path + "[" + str(index) + "]", walked)
                 for index, item in enumerate(_base_iter(value))
             )
+            walked[walked_key] = result
+            return result
         finally:
             seen.discard(id(value))
     return False

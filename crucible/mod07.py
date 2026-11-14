@@ -49,14 +49,21 @@ _TRACER_FIELDS = mod01.form_fields("29")
 COPY_DEPTH_BOUND = 100
 
 
-def _copy_guard(value, _depth=0, _seen=None, _path="root"):
+def _copy_guard(value, _depth=0, _seen=None, _path="root",
+                _walked=None):
     """Walk a value the choice and seam copy surfaces are about
     to copy, under the stated depth bound of 100 and a cycle
     guard: a value standing deeper than the bound, or carrying a
     cycle, stands refused in named form, and no bare
     RecursionError escapes the copy. A value shared from two
     places on different paths carries no cycle and stands
-    admitted."""
+    admitted. The walk carries a walked standing across paths:
+    a container whose walk stands completed at a stated depth
+    stands not walked again where another path reaches it at
+    that same depth, so a container shared by two siblings
+    stands walked once for each depth it stands at, and a reach
+    at a greater depth stands walked again and judged at its
+    own depth against the depth bound."""
     if isinstance(value, (dict, list, tuple, set, frozenset)):
         if _depth > COPY_DEPTH_BOUND:
             raise ValueError(
@@ -68,23 +75,27 @@ def _copy_guard(value, _depth=0, _seen=None, _path="root"):
             raise ValueError(
                 "adapter copy stands refused in named form: a "
                 "value carries a cycle at " + _path)
+        walked = _walked if _walked is not None else {}
+        if (id(value), _depth) in walked:
+            return
         seen.add(id(value))
         try:
             if isinstance(value, dict):
                 for key, item in dict.items(value):
                     _copy_guard(
                         key, _depth + 1, seen,
-                        _path + "/key:" + str(key))
+                        _path + "/key:" + str(key), walked)
                     _copy_guard(
                         item, _depth + 1, seen,
-                        _path + "/" + str(key))
+                        _path + "/" + str(key), walked)
             else:
                 for index, item in enumerate(value):
                     _copy_guard(
                         item, _depth + 1, seen,
-                        _path + "[" + str(index) + "]")
+                        _path + "[" + str(index) + "]", walked)
         finally:
             seen.discard(id(value))
+        walked[(id(value), _depth)] = True
 
 
 def seam_gap_counts():
@@ -358,7 +369,7 @@ def validate_tracer_passage_set(records, positive_control=None):
                         and not bytes(field_value).strip():
                     return False
                 if isinstance(field_value, memoryview) \
-                        and len(field_value) == 0:
+                        and not bytes(field_value).strip():
                     return False
                 if isinstance(
                         field_value,
