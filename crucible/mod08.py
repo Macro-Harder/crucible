@@ -274,6 +274,15 @@ _LEET_L_MAP = {
 }
 
 
+def _stored_text(value):
+    """The text a value stores, read through the base class
+    string form, never through a string reading the value
+    itself supplies."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return str(value)
+
+
 def _folded_readings(key):
     """The folded readings of one key, in the shared canonicalised
     form the barred surfaces at MOD-03, MOD-04 and MOD-05 read:
@@ -304,7 +313,11 @@ def _folded_readings(key):
     their digit forms, the reading itself, the reading under
     each digit substitution map, and the reading with digits
     dropped, so the leet reading at one digit position and the
-    drop reading at another combine inside one key."""
+    drop reading at another combine inside one key. The key text
+    stands taken from the stored characters through the base
+    class string form, in _stored_text, never through a string
+    reading the handed key itself supplies, and the same stored
+    text feeds _combined_key_barred and _is_barred_key."""
     readings = []
 
     def add(transformed):
@@ -316,7 +329,7 @@ def _folded_readings(key):
 
     for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
         decomposed = unicodedata.normalize(
-            "NFKD", str(key).lower()).lower()
+            "NFKD", _stored_text(key).lower()).lower()
         base = "".join(
             letter_map.get(character, character)
             for character in decomposed
@@ -331,7 +344,7 @@ def _folded_readings(key):
                     if not character.isdigit()))
     texts = {""}
     combined = True
-    for character in str(key).lower():
+    for character in _stored_text(key).lower():
         base_characters = [
             part
             for part in unicodedata.normalize(
@@ -479,7 +492,7 @@ def _combined_key_barred(key):
     barred keys, and a reading carrying a folded barred part."""
     variant_sets = [
         _character_variants(character)
-        for character in str(key).lower()
+        for character in _stored_text(key).lower()
     ]
     for target in _BARRED_FOLDED_EXACT:
         if _combined_matches_exact(variant_sets, target):
@@ -491,7 +504,7 @@ def _combined_key_barred(key):
 
 
 def _is_barred_key(key):
-    lowered = str(key).lower()
+    lowered = _stored_text(key).lower()
     if lowered in _BARRED_EXACT_KEYS:
         return True
     if any(part in lowered for part in _BARRED_KEY_PARTS):

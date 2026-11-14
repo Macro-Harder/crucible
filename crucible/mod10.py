@@ -223,10 +223,13 @@ def _base_iter(value):
 def _stored_text(value):
     """The text a value stores, read through the base class
     string form, never through a string reading the value
-    itself supplies."""
+    itself supplies. A value that is not a text form stores
+    no text, so no name stands judged from a string reading
+    a non text value itself supplies, and its stored text
+    stands as the empty text."""
     if isinstance(value, str):
         return str.__str__(value)
-    return str(value)
+    return ""
 
 
 def _canonical_text(value, letter_map):
@@ -903,7 +906,10 @@ def _day_sort_key(item):
     if isinstance(day, int) and not isinstance(day, bool):
         return (0, day, str(viewer))
     if isinstance(day, str) and day.isdigit():
-        return (0, int(day), str(viewer))
+        try:
+            return (0, int(day), str(viewer))
+        except ValueError:
+            return (1, 0, str(day) + ":" + str(viewer))
     return (1, 0, str(day) + ":" + str(viewer))
 
 
@@ -1985,6 +1991,12 @@ def _resolve_actor_word(word):
     replaced and the total number of changes stands past
     three, so totals of four and of five changes resolve and
     a total of three changes in that composition does not.
+    One, two, or three transpositions of letter pairs
+    standing anywhere in the word, adjacent or not, also
+    resolve, read by pairing the differing positions, and a
+    transposed pair in a composition stands counted at any
+    positions in the word, where the positions counted as
+    replacements carry no transposed pair of their own.
     The dropped, replaced, and transposed limbs run on words
     of two letters as well, so a drop from a three letter word
     still resolves. A word of one letter stands read through
@@ -2125,6 +2137,7 @@ def _resolve_actor_word(word):
                 if candidate[index] != word[index]]
             swaps = 0
             remaining = 0
+            remaining_positions = []
             position = 0
             while position < len(differing):
                 index = differing[position]
@@ -2136,12 +2149,72 @@ def _resolve_actor_word(word):
                     position += 2
                 else:
                     remaining += 1
+                    remaining_positions.append(index)
                     position += 1
             if swaps >= 1 and remaining == 0 and swaps <= 3:
                 return candidate
             if (1 <= swaps <= 2 and 1 <= remaining <= 3
-                    and swaps + remaining > 3):
+                    and swaps + remaining > 3
+                    and not _carries_transposed_pair(
+                        word, candidate, remaining_positions)):
                 return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            differing = [
+                index for index in range(len(word))
+                if candidate[index] != word[index]]
+            if not differing or len(differing) > 6:
+                continue
+            if len(differing) % 2:
+                continue
+
+            def pairable(indices):
+                if not indices:
+                    return True
+                first = indices[0]
+                for spot in range(1, len(indices)):
+                    second = indices[spot]
+                    if (word[first] == candidate[second]
+                            and word[second] == candidate[first]):
+                        rest = indices[1:spot] + indices[spot + 1:]
+                        if pairable(rest):
+                            return True
+                return False
+
+            if pairable(differing):
+                return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            differing = [
+                index for index in range(len(word))
+                if candidate[index] != word[index]]
+            if len(differing) < 4 or len(differing) > 7:
+                continue
+            pair_options = [
+                (first, second)
+                for first, second in itertools.combinations(differing, 2)
+                if word[first] == candidate[second]
+                and word[second] == candidate[first]]
+            for swap_count in (1, 2):
+                for chosen in itertools.combinations(
+                        pair_options, swap_count):
+                    used = [
+                        index for pair in chosen for index in pair]
+                    if len(set(used)) != len(used):
+                        continue
+                    rest = [
+                        index for index in differing
+                        if index not in used]
+                    if not 1 <= len(rest) <= 3:
+                        continue
+                    if swap_count + len(rest) <= 3:
+                        continue
+                    if _carries_transposed_pair(
+                            word, candidate, rest):
+                        continue
+                    return candidate
         for candidate in _ACTOR_VOCABULARY_ORDERED:
             if len(candidate) != len(word):
                 continue
@@ -2272,7 +2345,11 @@ def _has_stated_condition(fired):
     combining mark standing alone, with no base character it
     modifies, and a blank glyph carry no readable text in the
     same manner, so an entry holding only characters of those
-    kinds states no condition either."""
+    kinds states no condition either. A lone surrogate, an
+    unassigned code point, and a private use character carry
+    no readable text in the same manner, so an entry holding
+    only characters of those kinds states no condition
+    either."""
     if isinstance(fired, str):
         entries = [fired]
     elif isinstance(fired, (list, tuple, set, frozenset)):
@@ -2289,7 +2366,7 @@ def _has_stated_condition(fired):
                 and char not in _BLANK_GLYPHS
                 and char not in _HANGUL_FILLER_CHARS
                 and unicodedata.category(char)
-                not in ("Cf", "Mn", "Cc", "Mc", "Me"))
+                not in ("Cf", "Mn", "Cc", "Mc", "Me", "Cs", "Cn", "Co"))
             if readable.strip():
                 return True
         elif entry is not None:
@@ -2569,21 +2646,27 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
     same day stated as an integer names the one day. A handed
     store kind stands judged through the canonical kind, by its
     stored text, at the kind test and at the bucket filter, and
-    never through a reading the handed kind supplies."""
+    never through a reading the handed kind supplies. The handed
+    checkpoint itself stands read through base class dict
+    operations, so its run identifier, its store kind, its day,
+    and the form compared against the retained checkpoint all
+    stand taken from its stored contents, never through a get
+    or items reading the handed checkpoint supplies."""
     if not isinstance(checkpoint, dict):
         raise ValueError(
             "identity less checkpoint: a resume stands on a checkpoint "
             "record, and no other form stands resumed")
-    run_id = checkpoint.get("run_identifier") or checkpoint.get("run_id")
+    run_id = dict.get(checkpoint, "run_identifier") or dict.get(
+        checkpoint, "run_id")
     if run_id is None:
         raise ValueError(
             "identity less checkpoint: no run identifier stands on the "
             "checkpoint, and no resume stands performed")
-    kind = store_kind or checkpoint.get("store_kind")
+    kind = store_kind or dict.get(checkpoint, "store_kind")
     if kind is not None:
         kind = _canonical_store_kind(kind)
     handed_form = {
-        key: value for key, value in checkpoint.items()
+        key: value for key, value in dict.items(checkpoint)
         if key not in ("journal_event_count_at_checkpoint", "store_kind")
     }
     candidates = []
@@ -2593,8 +2676,8 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
         if kind is not None and bucket_kind != kind:
             continue
         for retained in bucket:
-            if _whole_day(retained.get("simulated_day")) == _whole_day(
-                    checkpoint.get("simulated_day")):
+            if _whole_day(dict.get(retained, "simulated_day")) == _whole_day(
+                    dict.get(checkpoint, "simulated_day")):
                 candidates.append(retained)
     if not candidates:
         if kind is not None:
@@ -2615,7 +2698,7 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
     handed_compared = _comparison_form(handed_form)
     for retained in candidates:
         retained_form = {
-            key: value for key, value in retained.items()
+            key: value for key, value in dict.items(retained)
             if key not in ("journal_event_count_at_checkpoint", "store_kind")
         }
         if _comparison_form(retained_form) == handed_compared:
@@ -2947,9 +3030,12 @@ def _view_segments_by_character(key):
     for it, as the expanded texts of _expanded_texts state
     them, so a name needing one reading at one position and
     the other reading at another stands read in full however
-    many ambiguous positions it carries."""
+    many ambiguous positions it carries. Each character stands
+    taken from the stored characters of the key through the
+    base class string form, in the form _stored_text states,
+    never from a string reading the handed key supplies."""
     segments_by_character = []
-    for character in str(key).casefold():
+    for character in _stored_text(key).casefold():
         readings = set()
         if character in _AMBIGUOUS_READINGS:
             readings.update(_AMBIGUOUS_READINGS[character])

@@ -1051,6 +1051,77 @@ def validate_rerun_reading(reading):
     return reading.get("read_as") in (None, "difference between two rule sets only")
 
 
+_HISTORY_CONTAINER_TYPES = (dict, list, tuple, set, frozenset)
+
+
+def _history_base_children(value):
+    if isinstance(value, dict):
+        return list(dict.keys(value)) + list(dict.values(value))
+    if isinstance(value, list):
+        return list(list.__iter__(value))
+    if isinstance(value, tuple):
+        return list(tuple.__iter__(value))
+    if isinstance(value, frozenset):
+        return list(frozenset.__iter__(value))
+    return list(set.__iter__(value))
+
+
+def _shape_exceeds_bound(value):
+    """True where a value stands deeper than the stated bound
+    of COMPARISON_DEPTH_BOUND or carries a cycle on one of its
+    paths, on the containers only basis the comparison reading
+    states: a chain of 101 nested containers over a scalar leaf
+    stands within the bound, and a chain of 102 stands past it.
+    Every container stands read through base class operations
+    only, and the walk runs on explicit stacks over the graph
+    of distinct containers, reading the longest container path
+    from the root, so a hostile shape stands reported in this
+    form and never as a bare RecursionError, and a container
+    shared by two siblings costs one walk, not one per path."""
+    if not isinstance(value, _HISTORY_CONTAINER_TYPES):
+        return False
+    children_by_id = {}
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        if id(current) in children_by_id:
+            continue
+        child_containers = [
+            child for child in _history_base_children(current)
+            if isinstance(child, _HISTORY_CONTAINER_TYPES)]
+        children_by_id[id(current)] = [
+            id(child) for child in child_containers]
+        for child in child_containers:
+            if id(child) not in children_by_id:
+                pending.append(child)
+    root_id = id(value)
+    heights = {}
+    on_path = {root_id}
+    stack = [(root_id, iter(children_by_id[root_id]))]
+    while stack:
+        node_id, child_iter = stack[-1]
+        advanced = False
+        for child_id in child_iter:
+            if child_id in on_path:
+                return True
+            if child_id in heights:
+                continue
+            on_path.add(child_id)
+            stack.append((child_id, iter(children_by_id[child_id])))
+            advanced = True
+            break
+        if not advanced:
+            stack.pop()
+            on_path.discard(node_id)
+            child_ids = children_by_id[node_id]
+            if child_ids:
+                heights[node_id] = 1 + max(
+                    heights[child_id] for child_id in child_ids)
+            else:
+                heights[node_id] = 0
+    return heights[root_id] > COMPARISON_DEPTH_BOUND
+
+
 def extend_history(history, segment):
     """Extend a history past its first horizon: the extension
     appends a new linked segment, linked by run identifier and
@@ -1058,13 +1129,23 @@ def extend_history(history, segment):
     it extends, rewriting no part of the segment it extends. The
     seed derivation limb of an extension stands gated on DQ7-02
     wherever it would consume derived seeds, and stands in no
-    part of this act."""
+    part of this act. The handed history and the appended
+    segment stand under the stated bound of
+    COMPARISON_DEPTH_BOUND before any copy stands made: a shape
+    past the bound or carrying a cycle stands refused in
+    NamedReplicationFailure form, never as a bare
+    RecursionError."""
     if not isinstance(history, (list, tuple)) or not history:
         raise NamedReplicationFailure("a history extension extends an existing segment")
     if not isinstance(segment, dict):
         raise NamedReplicationFailure(
             "a history extension appends a segment record: the appended value stands in no record form"
         )
+    if _shape_exceeds_bound(history) or _shape_exceeds_bound(segment):
+        raise NamedReplicationFailure(
+            "a history extension stands deeper than the stated bound of "
+            + str(COMPARISON_DEPTH_BOUND)
+            + " or carries a cycle: the handed history or the appended segment stands past the bound")
     segments = [_freeze(item) for item in history]
     first = segments[0]
     if not isinstance(first, dict) or not first.get("rule_set_version"):

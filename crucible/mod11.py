@@ -616,6 +616,13 @@ ledger mechanism partition probability reputation settlement
 anxiously eagerly nervously furthermore nevertheless
 nonetheless consequently accordingly precision reliability
 validity boy girl eye
+apple bamboo bathroom beach bedroom bird blue boat bronze
+brown butter camera canyon carrot cheese chicken cinnamon
+cliff clock cloud coast cold completeness conformance duck
+fold frog garlic gate ginger grape graph grey honey hostile
+juice lake lemon lion lookup melon passage peach pepper
+qualifier resume sheep snake tiger timber token tracer
+vanilla
 """.split())
 
 
@@ -813,7 +820,10 @@ def _parley_grounds_stated(other):
     read beside those forms. The spaced Q form, the question
     number form, and the numbered form stand read wherever
     in the statement they stand, at any token distance from
-    the Parley name and from the question word."""
+    the Parley name and from the question word. The wording
+    that states the number word before the question word, or
+    before the Parley name where the question word follows
+    the name, stands read beside those forms."""
     tokens = _ground_tokens(other)
     grounds = set()
     ordinal_numbers = {
@@ -923,6 +933,25 @@ def _parley_grounds_stated(other):
                     if later in _PARLEY_GROUND_NUMBERS:
                         grounds.add(
                             _PARLEY_GROUND_NUMBERS[later])
+    if "parley" in tokens and any(
+            word in ("question", "questions") for word in tokens):
+        question_places = [
+            place for place, word in enumerate(tokens)
+            if word in ("question", "questions")]
+        parley_places = [
+            place for place, word in enumerate(tokens)
+            if word == "parley" and any(
+                place < question_place
+                for question_place in question_places)]
+        for index, token in enumerate(tokens):
+            if token not in _PARLEY_GROUND_NUMBERS:
+                continue
+            if any(index < question_place
+                   for question_place in question_places):
+                grounds.add(_PARLEY_GROUND_NUMBERS[token])
+            if any(index < parley_place
+                   for parley_place in parley_places):
+                grounds.add(_PARLEY_GROUND_NUMBERS[token])
     return grounds
 
 

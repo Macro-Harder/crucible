@@ -135,6 +135,139 @@ def _base_iter(value):
     return iter(value)
 
 
+def _base_text_eq(value, stated):
+    """Return whether a handed text value stores the stated text,
+    judged through the base string equality on the stored text,
+    never through an equality reading the value supplies."""
+    if not isinstance(value, str):
+        return False
+    return str.__eq__(str.__str__(value), stated) is True
+
+
+def _plain_number(value):
+    """Return a plain number holding the value a handed number
+    stores, built through base class operations, or None where
+    the value stands in no number form this module reads."""
+    if isinstance(value, bool):
+        return int.__new__(int, int.__int__(value))
+    if isinstance(value, int):
+        return int.__new__(int, int.__int__(value))
+    if isinstance(value, float):
+        return float.__new__(float, float.__float__(value))
+    if isinstance(value, Decimal):
+        return Decimal.__new__(Decimal, value)
+    if isinstance(value, Fraction):
+        return Fraction.__new__(Fraction, value)
+    if isinstance(value, complex):
+        return complex.__new__(complex, value)
+    return None
+
+
+def _base_value_eq(left, right):
+    """Return whether two handed values agree on their stored
+    contents, judged through base class operations at every
+    level, never through an equality, get, keys, or iteration
+    reading a handed value supplies."""
+    if left is None or right is None:
+        return left is right
+    if isinstance(left, str) or isinstance(right, str):
+        if not isinstance(left, str) or not isinstance(right, str):
+            return False
+        return str.__eq__(
+            str.__str__(left), str.__str__(right)) is True
+    if isinstance(left, dict) or isinstance(right, dict):
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            return False
+        if dict.__len__(left) != dict.__len__(right):
+            return False
+        for key in dict.__iter__(left):
+            matched = None
+            found = False
+            for other_key in dict.__iter__(right):
+                if _base_value_eq(key, other_key):
+                    matched = other_key
+                    found = True
+                    break
+            if not found:
+                return False
+            if not _base_value_eq(
+                    dict.__getitem__(left, key),
+                    dict.__getitem__(right, matched)):
+                return False
+        return True
+    if isinstance(left, (list, tuple)) or isinstance(
+            right, (list, tuple)):
+        if not isinstance(left, (list, tuple)) or not isinstance(
+                right, (list, tuple)):
+            return False
+        if isinstance(left, list) != isinstance(right, list):
+            return False
+        if isinstance(left, list):
+            left_items = list(list.__iter__(left))
+            right_items = list(list.__iter__(right))
+        else:
+            left_items = list(tuple.__iter__(left))
+            right_items = list(tuple.__iter__(right))
+        if len(left_items) != len(right_items):
+            return False
+        return all(
+            _base_value_eq(a, b)
+            for a, b in zip(left_items, right_items))
+    if isinstance(left, (set, frozenset)) or isinstance(
+            right, (set, frozenset)):
+        if not isinstance(left, (set, frozenset)) or not isinstance(
+                right, (set, frozenset)):
+            return False
+        return _base_set_eq(left, right)
+    left_number = _plain_number(left)
+    right_number = _plain_number(right)
+    if left_number is not None or right_number is not None:
+        if left_number is None or right_number is None:
+            return False
+        return left_number == right_number
+    if isinstance(left, bytes) and isinstance(right, bytes):
+        return bytes.__eq__(left, right) is True
+    return left is right
+
+
+def _base_set_eq(left, right):
+    """Return whether two handed sets hold matching stored
+    elements, matched through base value equality."""
+    left_items = []
+    for item in (set.__iter__(left) if isinstance(left, set)
+                 else frozenset.__iter__(left)):
+        left_items.append(item)
+    right_items = []
+    for item in (set.__iter__(right) if isinstance(right, set)
+                 else frozenset.__iter__(right)):
+        right_items.append(item)
+    if len(left_items) != len(right_items):
+        return False
+    remaining = list(right_items)
+    for item in left_items:
+        matched = None
+        for index, candidate in enumerate(remaining):
+            if _base_value_eq(item, candidate):
+                matched = index
+                break
+        if matched is None:
+            return False
+        remaining.pop(matched)
+    return True
+
+
+def _base_dict_get(mapping, key, default=None):
+    """Return the value a handed mapping stores under a key,
+    found by scanning the stored keys through base value
+    equality and read through the base dict getitem, never
+    through a get, keys, or equality reading the mapping or
+    the key supplies."""
+    for stored_key in dict.__iter__(mapping):
+        if _base_value_eq(stored_key, key):
+            return dict.__getitem__(mapping, stored_key)
+    return default
+
+
 def _stream_set_classes(stream_set):
     """Return the stream class names a run StreamSet carries, or
     None where no StreamSet stands handed in. A StreamSet stands
@@ -668,7 +801,8 @@ def battery_record_counts_as_run(record):
     """Return True only where the size stands stated in advance."""
     if not isinstance(record, dict):
         return False
-    return record.get("advance_sample_size_stated") is True
+    return _base_dict_get(
+        record, "advance_sample_size_stated") is True
 
 
 def validate_battery_record(record):
@@ -679,14 +813,14 @@ def validate_battery_record(record):
     """
     if not isinstance(record, dict):
         return False
-    single = record.get("single_stream_results")
-    inter = record.get("inter_stream_element")
-    if not isinstance(single, dict) or not single:
+    single = _base_dict_get(record, "single_stream_results")
+    inter = _base_dict_get(record, "inter_stream_element")
+    if not isinstance(single, dict) or dict.__len__(single) == 0:
         return False
     if not isinstance(inter, dict):
         return False
-    for family in single:
-        if not inter.get(family):
+    for family in dict.__iter__(single):
+        if not _base_dict_get(inter, family):
             return False
     return True
 
@@ -705,8 +839,11 @@ def battery_verdict_state(inter_stream_element_recorded=False,
         return GATED
     if not verdict_recorded:
         return GATED
-    if verdict in _BATTERY_RESULT_STATES:
-        return verdict
+    if isinstance(verdict, str):
+        stored = str.__str__(verdict)
+        for stated in _BATTERY_RESULT_STATES:
+            if str.__eq__(stored, stated):
+                return stated
     return GATED
 
 
@@ -728,9 +865,9 @@ def determinism_statement_permitted(battery_state=None,
     version and bars its runs from reportable use until a corrected
     version passes a fresh battery. A gated battery permits none.
     """
-    if battery_state == "passed":
+    if _base_text_eq(battery_state, "passed"):
         return True
-    if battery_state == "failed":
+    if _base_text_eq(battery_state, "failed"):
         return bool(corrected_battery_passed)
     return False
 
@@ -833,7 +970,7 @@ def resume_consumed_generator_state(run_id=None, scope=None,
 
 def validate_generator_state_carriage(held, consumed):
     """Return True only where held and consumed state agree in full."""
-    return held == consumed
+    return _base_value_eq(held, consumed)
 
 
 def exposure_log_fields():
@@ -858,8 +995,13 @@ def validate_exposure_log_entry(entry):
     """Return True only where an entry carries all thirteen fields."""
     if not isinstance(entry, dict):
         return False
-    return tuple(entry.keys()) == _EXPOSURE_LOG_FIELDS or all(
-        field in entry for field in _EXPOSURE_LOG_FIELDS)
+    stored_keys = list(dict.__iter__(entry))
+    for field in _EXPOSURE_LOG_FIELDS:
+        if not any(
+                _base_value_eq(stored_key, field)
+                for stored_key in stored_keys):
+            return False
+    return True
 
 
 def exposure_reading_rule():
@@ -911,9 +1053,9 @@ def open_limb_names():
 def validate_open_limb_standing(limb, named_as=None):
     """Return True only where an open limb stands named as open."""
     names = [name for name, _item in _OPEN_LIMBS]
-    if limb not in names:
+    if not any(_base_text_eq(limb, name) for name in names):
         return False
-    return named_as == "open"
+    return _base_text_eq(named_as, "open")
 
 
 def suite_fixes_open_limb(limb):

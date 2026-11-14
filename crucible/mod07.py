@@ -340,18 +340,26 @@ def positive_control_record():
 
 _PASSAGE_BLANK_GLYPHS = frozenset(("\u2800", "\u115f"))
 
+_PASSAGE_HANGUL_FILLER_CHARS = frozenset(("\u1160", "\u3164", "\uffa0"))
+
 
 def _passage_text_states_something(text):
     """Return True only where a text carries readable text, in
     the form of row R6-032: characters of Unicode category Cf,
     characters of Unicode category Mn, and the blank glyphs
     carry no readable text, and spacing alone carries none.
+    The blank class settled at the flag acts stands in the
+    same form here: characters of Unicode category Cc, lone
+    combining marks of Unicode categories Mc and Me, and the
+    Hangul filler characters also carry no readable text.
     The text stands read from its stored characters, never
     through a strip reading the handed value supplies."""
     cleaned = "".join(
         char for char in text
         if char not in _PASSAGE_BLANK_GLYPHS
-        and unicodedata.category(char) not in ("Cf", "Mn"))
+        and char not in _PASSAGE_HANGUL_FILLER_CHARS
+        and unicodedata.category(char)
+        not in ("Cf", "Mn", "Cc", "Mc", "Me"))
     return bool(str.strip(cleaned))
 
 

@@ -1052,10 +1052,24 @@ def _carries_under_every_reading(key, folded_marker):
     ]
     if _segments_carry_pattern(combined_segments, folded_marker):
         return True
+    # The transliterated spelling stands read under the same
+    # digit readings as every other spelling: a name needing the
+    # transliteration correction and a digit reading in a single
+    # reading, a leet letter at one position or a dropped digit
+    # at one, still reads as the marker, in the sister form.
     for source, target in _TRANSLITERATED_SPELLINGS:
-        if folded_marker == target and _segments_carry_pattern(
-                [tuple(options) for options in options_by_character],
-                source):
+        if folded_marker != target:
+            continue
+        for mode in _FOLDED_MODES:
+            segments_by_character = [
+                tuple(
+                    _folded_segment(reading, mode)
+                    for reading in options)
+                for options in options_by_character
+            ]
+            if _segments_carry_pattern(segments_by_character, source):
+                return True
+        if _segments_carry_pattern(combined_segments, source):
             return True
     return False
 
@@ -1304,7 +1318,15 @@ def store_index(kind):
 def validate_store_addressing(addressing):
     """A record addressed to exactly one store kind validates in that
     namespace. A record addressed across two stores fails."""
-    kinds = tuple(addressing)
+    # The handed container stands read through base class
+    # operations on the contents it stores, never through an
+    # iteration reading the container itself supplies.
+    if isinstance(addressing, dict):
+        kinds = list(dict.keys(addressing))
+    elif isinstance(addressing, (list, tuple, set, frozenset)):
+        kinds = list(_base_iter(addressing))
+    else:
+        kinds = tuple(addressing)
     if len(kinds) != 1:
         return False
     kind = kinds[0]
@@ -1410,9 +1432,18 @@ def _validate_record_inner(form_id, instance):
                 if dict.get(component, part) is None:
                     return False
     if fid in CLOSED_FORMS:
-        allowed = set(form_fields(fid))
-        if any(k not in allowed for k in dict.keys(instance)):
-            return False
+        # Each handed field name stands judged by the text it
+        # stores, read through base class operations, never
+        # through a hash or equality reading the key supplies.
+        allowed = form_fields(fid)
+        for key in dict.keys(instance):
+            if isinstance(key, str):
+                stored = str.__str__(key)
+                if not any(
+                        str.__eq__(stored, field) for field in allowed):
+                    return False
+            elif key not in allowed:
+                return False
     if fid == "1":
         for slug in _COMPLETENESS_SLUGS:
             value = dict.get(instance, slug)

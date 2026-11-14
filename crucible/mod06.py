@@ -271,6 +271,15 @@ _MULTI_READINGS = {
 _SHORT_I_PLACEHOLDER = "\ue000"
 
 
+def _stored_text(value):
+    """The text a value stores, read through the base class
+    string form, never through a string reading the value
+    itself supplies."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return str(value)
+
+
 def _decomposed_characters(key):
     """The characters of one key after compatibility
     decomposition: lowercased, compatibility decomposed and
@@ -278,8 +287,11 @@ def _decomposed_characters(key):
     decomposition, which would otherwise reduce it to Cyrillic i
     and lose its second recorded reading as y: the placeholder
     stands in its place through the decomposition, and the letter
-    itself stands restored in the returned characters."""
-    source = str(key).lower().replace(
+    itself stands restored in the returned characters. The key
+    text stands taken from the stored characters through the
+    base class string form, so a string reading a handed key
+    supplies never stands as the text judged."""
+    source = _stored_text(key).lower().replace(
         "\u0439", _SHORT_I_PLACEHOLDER)
     decomposed = unicodedata.normalize("NFKD", source).lower()
     return [
@@ -674,7 +686,7 @@ def _payload_walk_barred(value, _depth=0, _seen=None, _walked=None):
         if id(value) in seen:
             return True
         seen.add(id(value))
-        keys = {str(key).lower() for key in dict.keys(value)}
+        keys = {_stored_text(key).lower() for key in dict.keys(value)}
         if "amount" in keys and "currency" in keys:
             return True
         if (
@@ -683,7 +695,7 @@ def _payload_walk_barred(value, _depth=0, _seen=None, _walked=None):
         ):
             return True
         for key, item in dict.items(value):
-            lowered = str(key).lower()
+            lowered = _stored_text(key).lower()
             if "anchor_set" in lowered or (
                 "real_money" in lowered and item is not None
             ):

@@ -166,7 +166,11 @@ def seal_family_record(record):
     record; no hash form is computed in this act. A sweep
     manifest stands produced beside the seal. From the seal, any
     edit creates a new family identifier and runs under it start
-    again."""
+    again. The record stands under the same depth bound and
+    cycle guard as the sister record acts of this module,
+    checked before the copy: a shape past the bound or carrying
+    a cycle stands refused in the named form, never as a bare
+    RecursionError."""
     missing = [
         item for item in FAMILY_COMPLETENESS_ITEMS
         if not isinstance(record, dict) or not record.get(item)
@@ -175,6 +179,12 @@ def seal_family_record(record):
         raise NamedControllerFailure(
             "family record cannot seal, completeness items missing: "
             + ", ".join(missing))
+    if _shape_exceeds_bounds(record):
+        raise NamedControllerFailure(
+            "family record cannot seal: the record stands "
+            "deeper than the stated bound of "
+            + str(_MAX_BARRED_READ_DEPTH)
+            + " or carries a cycle")
     sealed = _freeze(record)
     sealed["sealed"] = True
     sealed["seal"] = {
@@ -557,19 +567,24 @@ def _canonicalise_mapped(mapped, letter_map=None):
 def _stored_text(value):
     """The text a value stores, read through the base class
     string form, never through a string reading the value
-    itself supplies."""
+    itself supplies. A value that is not a text form stores
+    no text at all, in the cured MOD-01 form: the helper
+    returns None for one, so no name stands judged from a
+    string reading a non text key itself supplies."""
     if isinstance(value, str):
         return str.__str__(value)
-    return str(value)
+    return None
 
 
 def _canonicalised_name(key, letter_map=None):
     if letter_map is None:
         letter_map = _LETTER_MAP
+    if not isinstance(key, str):
+        return ""
     mapped = "".join(
         letter_map.get(character, letter_map.get(
             character.lower(), character))
-        for character in str(key)
+        for character in str.__str__(key)
     )
     return _canonicalise_mapped(mapped, letter_map)
 
@@ -597,6 +612,8 @@ def _folded_money_variants(key):
     forms = set()
     bases = set()
     stored = _stored_text(key)
+    if stored is None:
+        stored = ""
     for letter_map in _CANONICAL_MAPS:
         bases.add(_canonicalised_name(stored, letter_map))
     options = []
@@ -676,7 +693,10 @@ _FOLDED_READ_MODES = (None, "leet", "drop", "leetdrop")
 
 def _base_reading_options(key):
     options = []
-    for character in _stored_text(key):
+    stored = _stored_text(key)
+    if stored is None:
+        return options
+    for character in stored:
         raw = set()
         for form in _reading_characters(character):
             alt = _ALT_READINGS.get(

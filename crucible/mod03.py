@@ -80,6 +80,7 @@ _HOMOGLYPH_MAP = {
     "ω": "w", "ζ": "z", "θ": "t", "φ": "f",
     "η": "e",
     "э": "e", "л": "l", "ф": "f", "ш": "sh", "ψ": "ps",
+    "ъ": "", "ь": "",
     "æ": "ae", "œ": "oe", "ø": "o", "đ": "d",
     "ł": "l", "ß": "ss", "þ": "th", "ð": "d",
     "ħ": "h", "ŋ": "n", "ƒ": "f", "ı": "i",
@@ -157,7 +158,7 @@ _TRANSLITERATION_OVERRIDES = {
     "р": "r", "х": "h", "в": "v", "с": "s",
     "н": "n", "у": "u", "й": "y",
     "η": "e", "π": "p", "χ": "h", "ρ": "r",
-    "ω": "o", "υ": "y",
+    "ω": "o", "υ": "y", "φ": "ph",
     "θ": "th", "ы": "y", "ю": "yu", "я": "ya",
 }
 _ALT_LETTER_MAP = dict(_WIDE_LETTER_MAP)
@@ -176,10 +177,19 @@ _LEET_MAP = {
 }
 
 
+def _stored_text(value):
+    """The text a value stores, read through the base class
+    string form, never through a string reading the value
+    itself supplies."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return str(value)
+
+
 def _canonical_text(key, letter_map=None):
     mapping = _HOMOGLYPH_MAP if letter_map is None else letter_map
     chars = []
-    for character in str(key):
+    for character in _stored_text(key):
         if character.casefold() == "й":
             # Cyrillic short i stands read as a whole letter,
             # never reduced by compatibility decomposition to
@@ -235,7 +245,7 @@ def _folded_readings(key):
     # MOD-05, and MOD-10.
     texts = {""}
     overflow = False
-    for character in str(key):
+    for character in _stored_text(key):
         options = set()
         for letter_map in (
                 _WIDE_LETTER_MAP, _HOMOGLYPH_MAP, _ALT_LETTER_MAP):
@@ -335,7 +345,7 @@ def _combined_key_barred(key):
     reading: a reading standing in the folded exact set of the
     barred keys, and a reading carrying a folded barred part."""
     variant_sets = [
-        _character_variants(character) for character in str(key)
+        _character_variants(character) for character in _stored_text(key)
     ]
     for target in _BARRED_EXACT_FOLDED:
         if _combined_matches_exact(variant_sets, target):
@@ -365,7 +375,7 @@ def _is_barred_key(key):
     a name carrying extra letters beside it reads as a different
     name, as before.
     """
-    lowered = str(key).lower()
+    lowered = _stored_text(key).lower()
     if lowered in GROUND_TRUTH_FIELDS:
         return True
     if lowered in BARRED_PROJECTION_KEYS:

@@ -9,8 +9,8 @@ returns its outputs or its named failure. The shell computes
 no reputation, no verdict, and no retention tier. Slice S-15
 states expressly that the operator procedure stands as this
 slice runbook deliverable: the operator runbook stands in this
-module at operator_runbook, and the public README states the
-operator procedure as that runbook.
+module at operator_runbook, in the code of this module, and
+that code stands as its only locus in the shipped product.
 """
 
 import itertools
@@ -392,10 +392,12 @@ _PILOT_BARRED_KEY_MARKERS = ("money", "anchor_" + "set")
 def _stored_text(value):
     """The text a value stores, read through the base class
     string form, never through a string reading the value
-    itself supplies."""
+    itself supplies. A value that stores no text at all
+    judges no name: the empty text stands returned for one,
+    in the cured MOD-01 form."""
     if isinstance(value, str):
         return str.__str__(value)
-    return str(value)
+    return ""
 
 
 def _pilot_key_form(key):
@@ -663,16 +665,19 @@ def _stated_text(entry):
     since a nonspacing mark standing alone reads as nothing,
     and with the blank glyph characters removed, the braille
     blank and the Hangul filler, which carry the shape of a
-    character and state nothing. An entry carrying only such
-    characters, or only spacing, carries no readable text
-    and states no condition."""
+    character and state nothing. A lone surrogate, an
+    unassigned code point, and a private use character state
+    nothing readable either, so characters of categories Cs,
+    Cn, and Co stand removed in the same manner. An entry
+    carrying only such characters, or only spacing, carries
+    no readable text and states no condition."""
     cleaned = "".join(
         char for char in entry
         if char not in _ZERO_WIDTH_CHARS
         and char not in _BLANK_GLYPH_CHARS
         and char not in _HANGUL_FILLER_CHARS
         and unicodedata.category(char)
-        not in ("Cf", "Mn", "Cc", "Mc", "Me"))
+        not in ("Cf", "Mn", "Cc", "Mc", "Me", "Cs", "Cn", "Co"))
     return cleaned.strip()
 
 
@@ -888,7 +893,8 @@ _LEET_DIGITS = {
 
 
 def _canonicalise_text(value):
-    decomposed = unicodedata.normalize("NFKD", str(value or ""))
+    stored = str.__str__(value) if isinstance(value, str) else ""
+    decomposed = unicodedata.normalize("NFKD", stored)
     chars = []
     for char in decomposed:
         if unicodedata.combining(char):
@@ -1042,6 +1048,44 @@ def _anywhere_transposition_resolves(word, candidate):
             if index not in (first, second)]
         if not _carries_transposed_pair(word, candidate, remaining):
             return True
+    return False
+
+
+def _two_pairs_composed_resolves(word, candidate, differing):
+    """Whether the differing positions of a word stand as
+    two transposed pairs standing at any positions of the
+    word, composed with the remaining differing positions
+    standing as replaced letters. The differing positions
+    number six or seven: four positions standing as the two
+    pairs and two or three positions standing as
+    replacements, a change total of four or five, inside
+    the stated composition form of up to two transpositions
+    composed with up to three replacements where the total
+    number of changes stands past three. The remaining
+    positions stand as replacements only where no two of
+    them stand as a transposed pair of their own, in the
+    form the anywhere transposition reading states: a word
+    whose remaining positions carry such a pair stands
+    built from a further transposition and does not resolve
+    under this reading."""
+    if len(differing) not in (6, 7):
+        return False
+    pairs = [
+        (first, second)
+        for first, second in itertools.combinations(differing, 2)
+        if word[first] == candidate[second]
+        and word[second] == candidate[first]]
+    for spot, first_pair in enumerate(pairs):
+        for second_pair in pairs[spot + 1:]:
+            if set(first_pair) & set(second_pair):
+                continue
+            remaining = [
+                index for index in differing
+                if index not in first_pair
+                and index not in second_pair]
+            if not _carries_transposed_pair(
+                    word, candidate, remaining):
+                return True
     return False
 
 
@@ -1229,6 +1273,7 @@ def _resolve_against(word, ordered, vocabulary):
                 if candidate[index] != word[index]]
             swaps = 0
             remaining = 0
+            remaining_positions = []
             position = 0
             while position < len(differing):
                 index = differing[position]
@@ -1240,11 +1285,14 @@ def _resolve_against(word, ordered, vocabulary):
                     position += 2
                 else:
                     remaining += 1
+                    remaining_positions.append(index)
                     position += 1
             if swaps >= 1 and remaining == 0 and swaps <= 3:
                 return candidate
             if (1 <= swaps <= 2 and 1 <= remaining <= 3
-                    and swaps + remaining > 3):
+                    and swaps + remaining > 3
+                    and not _carries_transposed_pair(
+                        word, candidate, remaining_positions)):
                 return candidate
         for candidate in ordered:
             if len(candidate) != len(word):
@@ -1271,6 +1319,14 @@ def _resolve_against(word, ordered, vocabulary):
                 return False
 
             if pairable(differing):
+                return candidate
+        for candidate in ordered:
+            if len(candidate) != len(word):
+                continue
+            differing = [
+                index for index in range(len(word))
+                if candidate[index] != word[index]]
+            if _two_pairs_composed_resolves(word, candidate, differing):
                 return candidate
         for candidate in ordered:
             if len(candidate) != len(word):
@@ -1700,9 +1756,9 @@ _RUNBOOK_STEPS = (
 def operator_runbook():
     """The operator procedure of this product, standing as the
     runbook deliverable of slice S-15 in the product own form.
-    The public README states this same procedure as the runbook;
-    where the two texts differ, the difference stands named on
-    the record of the wave that finds it."""
+    The runbook stands in this module at operator_runbook, in
+    the code of this module, and that code stands as its only
+    locus in the shipped product."""
     return {
         "form": "operator runbook",
         "deliverable_of": "slice S-15",

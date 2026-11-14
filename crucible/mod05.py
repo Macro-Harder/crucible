@@ -1026,6 +1026,15 @@ _LETTER_MAPS = (
 COMBINED_TEXT_BOUND = 4096
 
 
+def _stored_text(value):
+    """The text a value stores, read through the base class
+    string form, never through a string reading the value
+    itself supplies."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return str(value)
+
+
 def _decomposed_characters(key):
     """The characters the fold reads, on the counting basis the
     combined text bound stands on: the key lowercased, put
@@ -1034,9 +1043,12 @@ def _decomposed_characters(key):
     form, with combining marks dropped. The modifier small
     capital letters reduce under this decomposition to the
     capital letters they stand for, and so stand read through
-    the readings the letter maps record for them."""
+    the readings the letter maps record for them. The key text
+    stands taken from the stored characters through the base
+    class string form, so a string reading a handed key supplies
+    never stands as the text judged."""
     decomposed = unicodedata.normalize(
-        "NFKD", str(key).lower()).lower()
+        "NFKD", _stored_text(key).lower()).lower()
     return [
         character for character in decomposed
         if not unicodedata.category(character).startswith("M")
@@ -1219,7 +1231,7 @@ _PANEL_BARRED_FOLDED_EXACT = frozenset(
 
 
 def _panel_key_barred(key):
-    lowered = str(key).lower()
+    lowered = _stored_text(key).lower()
     if "ground_truth" in lowered or lowered in _PANEL_BARRED_KEYS:
         return True
     for reading in _folded_readings(key):

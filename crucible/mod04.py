@@ -148,6 +148,10 @@ class ContractAHandover:
     __slots__ = ("_point", "_assumption_record", "_seed_input_set", "_family_id", "_sealed")
 
     def __init__(self, point, assumption_record, seed_input_set, family_id):
+        _view_copy_guard(point)
+        _view_copy_guard(assumption_record)
+        _view_copy_guard(seed_input_set)
+        _view_copy_guard(family_id)
         object.__setattr__(self, "_point", _freeze(point))
         object.__setattr__(self, "_assumption_record", _freeze(assumption_record))
         object.__setattr__(self, "_seed_input_set", _freeze(seed_input_set))
@@ -403,6 +407,16 @@ def _base_entries(value):
     return list(enumerate(value))
 
 
+def _stored_text(value):
+    """The text a value stores, read through the base class
+    string form, never through a string reading the value
+    itself supplies. A value that is not a text form stands
+    read through the plain string call, as before."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return str(value)
+
+
 def _folded_readings(key):
     """The folded readings of one key, in the canonicalised form
     the Round 5 register states for the barred surfaces. The base
@@ -416,7 +430,7 @@ def _folded_readings(key):
     stand for, and one with digits dropped, so a digit standing
     inside a word as a split reads as the word it splits."""
     decomposed = unicodedata.normalize(
-        "NFKD", str(key).lower()).lower()
+        "NFKD", _stored_text(key).lower()).lower()
     characters = [
         character for character in decomposed
         if not unicodedata.category(character).startswith("M")
@@ -463,7 +477,7 @@ def _folded_readings(key):
         ))
         _add_readings("".join(
             letter_map.get(character, character)
-            for character in str(key).lower()
+            for character in _stored_text(key).lower()
         ))
     # Position by position combination of the two maps, in the
     # form the MOD-10 fold states: each character contributes the
@@ -485,7 +499,7 @@ def _folded_readings(key):
     # combined texts built on that per character option basis.
     texts = {""}
     combined = True
-    for character in str(key).lower():
+    for character in _stored_text(key).lower():
         base_characters = [
             part for part in unicodedata.normalize("NFKD", character)
             if not unicodedata.category(part).startswith("M")
@@ -621,7 +635,7 @@ def _combined_key_barred(key):
     barred keys, and a reading carrying a folded barred part."""
     variant_sets = [
         _character_variants(character)
-        for character in str(key).lower()
+        for character in _stored_text(key).lower()
     ]
     for target in _BARRED_FOLDED_EXACT:
         if _combined_matches_exact(variant_sets, target):
@@ -633,7 +647,7 @@ def _combined_key_barred(key):
 
 
 def _is_barred_key(key):
-    lowered = str(key).lower()
+    lowered = _stored_text(key).lower()
     if (
         lowered in BARRED_PROJECTION_KEYS
         or any(part in lowered for part in _BARRED_KEY_PARTS)
@@ -994,6 +1008,7 @@ def scheduling_order_record(family_id, order_identifier):
 def run_record_with_order(run_record, order_identifier):
     """Return a copy of a run record carrying the scheduling order
     identifier the run used, as every run record must."""
+    _view_copy_guard(run_record)
     record = _freeze(run_record)
     record["scheduling_order_identifier"] = order_identifier
     return record
@@ -1501,7 +1516,11 @@ def per_viewer_components(run_id="run-under-test", viewers=None, components=None
     singular vector. Where components stand handed in, they stand
     returned per viewer in the order given."""
     if components is not None:
-        return [_freeze(item) for item in components]
+        copied = []
+        for item in components:
+            _view_copy_guard(item)
+            copied.append(_freeze(item))
+        return copied
     viewers = list(viewers or ("viewer-1", "viewer-2"))
     result = []
     for index, viewer in enumerate(viewers):
