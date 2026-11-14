@@ -783,21 +783,30 @@ def _canonicalise_letters(text):
     return canonical
 
 
+def _character_readings(character):
+    if character in _MULTI_READINGS:
+        return _MULTI_READINGS[character]
+    if character in _SYMBOL_LEET_READINGS:
+        return (_SYMBOL_LEET_READINGS[character], character)
+    return (_primary_reading(character),)
+
+
 def _canonical_variants(text):
     # A symbol sign carries two readings in the variants: the letter
     # it stands for, and the sign itself, which the fold drops as it
     # drops every separator. A name therefore reads both ways, with
     # the sign standing for its letter and with the sign holding
-    # nothing apart.
+    # nothing apart. The expansion bound stands at 65536, wide enough
+    # for a name that combines the symbol substitutions with every
+    # both readings letter of the anchor field name in one name.
+    # Past that bound the matching reads below still read a name
+    # under every recorded reading, character by character, without
+    # enumerating the variants, so a combined dress that passes the
+    # bound still stands read in full.
     variants = [""]
     for character in _normalised_characters(text):
-        if character in _MULTI_READINGS:
-            readings = _MULTI_READINGS[character]
-        elif character in _SYMBOL_LEET_READINGS:
-            readings = (_SYMBOL_LEET_READINGS[character], character)
-        else:
-            readings = (_primary_reading(character),)
-        if len(variants) * len(readings) > 1024:
+        readings = _character_readings(character)
+        if len(variants) * len(readings) > 65536:
             readings = readings[:1]
         variants = [
             prefix + reading
@@ -810,6 +819,94 @@ def _canonical_variants(text):
             variant = variant.replace(source, target)
         canonical_variants.append(variant)
     return canonical_variants
+
+
+def _prefix_state(pattern, state, character):
+    candidate = pattern[:state] + character
+    limit = min(len(pattern), state + 1)
+    for length in range(limit, -1, -1):
+        if candidate.endswith(pattern[:length]):
+            return length
+    return 0
+
+
+def _segments_carry_pattern(segments_by_character, pattern):
+    full = len(pattern)
+    states = {0}
+    for options in segments_by_character:
+        next_states = set()
+        for state in states:
+            for segment in options:
+                current = state
+                for character in segment:
+                    if current == full:
+                        break
+                    current = _prefix_state(pattern, current, character)
+                next_states.add(current)
+        if full in next_states:
+            return True
+        states = next_states
+    return full in states
+
+
+def _folded_segment(reading, mode):
+    folded = "".join(
+        character for character in reading if character.isalnum())
+    if mode == "drop":
+        return "".join(
+            character for character in folded if not character.isdigit())
+    if mode is None:
+        return folded
+    return "".join(mode.get(character, character) for character in folded)
+
+
+_FOLDED_MODES = (None, _LEET_READING_ONE, _LEET_READING_TWO, "drop")
+
+
+def _matches_under_every_reading(key, folded_target):
+    options_by_character = [
+        _character_readings(character)
+        for character in _normalised_characters(key)
+    ]
+    for mode in _FOLDED_MODES:
+        positions = {0}
+        for options in options_by_character:
+            segments = {
+                _folded_segment(reading, mode) for reading in options
+            }
+            next_positions = set()
+            for position in positions:
+                for segment in segments:
+                    if folded_target[
+                            position:position + len(segment)] == segment:
+                        next_positions.add(position + len(segment))
+            positions = next_positions
+            if not positions:
+                break
+        if len(folded_target) in positions:
+            return True
+    return False
+
+
+def _carries_under_every_reading(key, folded_marker):
+    options_by_character = [
+        _character_readings(character)
+        for character in _normalised_characters(key)
+    ]
+    for mode in _FOLDED_MODES:
+        segments_by_character = [
+            tuple(
+                _folded_segment(reading, mode) for reading in options)
+            for options in options_by_character
+        ]
+        if _segments_carry_pattern(segments_by_character, folded_marker):
+            return True
+    for source, target in _TRANSLITERATED_SPELLINGS:
+        if folded_marker == target and _segments_carry_pattern(
+                [tuple(options) for options in options_by_character],
+                source):
+            return True
+    return False
 
 
 def _folded_money_key(key):
@@ -837,14 +934,18 @@ def _folded_key_variants(key):
 
 
 def _folded_key_matches(key, folded_target):
-    return folded_target in _folded_key_variants(key)
+    if folded_target in _folded_key_variants(key):
+        return True
+    return _matches_under_every_reading(key, folded_target)
 
 
 def _folded_key_carries(key, folded_marker):
-    return any(
+    if any(
         folded_marker in variant
         for variant in _folded_key_variants(key)
-    )
+    ):
+        return True
+    return _carries_under_every_reading(key, folded_marker)
 
 
 _MONEY_MARKER_FOLDED = ("real_" + "money").replace("_", "")
@@ -860,16 +961,16 @@ def _carries_real_money_value(value, _depth=0, _seen=None):
         _seen.add(id(value))
         amount_carried = any(
             _folded_key_matches(key, "amount") and item is not None
-            for key, item in value.items()
+            for key, item in dict.items(value)
         )
         currency_carried = any(
             _folded_key_matches(key, "currency")
-            for key in value.keys()
+            for key in dict.keys(value)
         )
         try:
             if amount_carried and currency_carried:
                 return True
-            for key, item in value.items():
+            for key, item in dict.items(value):
                 if _folded_key_carries(key, _MONEY_MARKER_FOLDED) and (
                         item is not None):
                     return True
@@ -985,7 +1086,7 @@ def _validate_record_inner(form_id, instance):
     if fid == "4":
         if _carries_real_money_value(instance):
             return False
-        for key, anchor_values in instance.items():
+        for key, anchor_values in dict.items(instance):
             if not _folded_key_matches(key, _ANCHOR_VALUES_FIELD_FOLDED):
                 continue
             try:
@@ -1238,6 +1339,37 @@ class ProvenanceBlock:
         }
 
 
+def _is_count_value(value):
+    # A count of cases stands in numeric form only: a whole number,
+    # never a boolean, never a text value, and never a fraction of
+    # one case. A float that stands at a whole number counts, because
+    # its value is a whole count; a fractional float does not.
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        return (
+            value == value
+            and abs(value) != float("inf")
+            and float(value).is_integer()
+        )
+    return False
+
+
+def _is_share_value(value):
+    # A share stands in numeric form only: a number, never a boolean
+    # and never a text value. A fractional share stands, because a
+    # share is a part of the whole stated as a number.
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        return value == value and abs(value) != float("inf")
+    return False
+
+
 def validate_provenance_block(block):
     try:
         data = ProvenanceBlock.as_dict(block) if isinstance(
@@ -1257,6 +1389,10 @@ def validate_provenance_block(block):
     if any(value is None for value in counts.values()):
         return False
     if any(value is None for value in shares.values()):
+        return False
+    if any(not _is_count_value(value) for value in counts.values()):
+        return False
+    if any(not _is_share_value(value) for value in shares.values()):
         return False
     entries = data.get("entries")
     if not entries:

@@ -71,7 +71,10 @@ def _copy_guard(value, _depth=0, _seen=None, _path="root"):
         seen.add(id(value))
         try:
             if isinstance(value, dict):
-                for key, item in value.items():
+                for key, item in dict.items(value):
+                    _copy_guard(
+                        key, _depth + 1, seen,
+                        _path + "/key:" + str(key))
                     _copy_guard(
                         item, _depth + 1, seen,
                         _path + "/" + str(key))
@@ -165,6 +168,7 @@ def interpretation_log_entry(choice):
     """Return the InterpretationLogEntry of a choice, in the Form
     18 field order MOD-01 states, carrying the adapter choice mark
     beside the form fields."""
+    _copy_guard(choice)
     entry = {}
     for field in _LOG_FIELDS:
         entry[field] = copy.deepcopy(choice.get(field))
@@ -176,6 +180,7 @@ def run_record_entry(choice):
     """Return the run record entry of a choice: the same choice, in
     the same fields, as the interpretation choices group of the run
     record carries it."""
+    _copy_guard(choice)
     entry = {}
     for field in _LOG_FIELDS:
         entry[field] = copy.deepcopy(choice.get(field))
@@ -211,6 +216,7 @@ def validate_choice_pair(log_entry, run_entry):
 def append_reading(log, choice):
     """Append a later reading for a rule point as a new entry. No
     earlier entry stands edited in place."""
+    _copy_guard(log)
     updated = [copy.deepcopy(entry) for entry in log]
     updated.append(interpretation_log_entry(choice))
     return updated
@@ -222,6 +228,7 @@ def reading_for_result(log, choice_identifier):
     point."""
     for entry in log:
         if entry.get("choice_identifier") == choice_identifier:
+            _copy_guard(entry)
             return copy.deepcopy(entry)
     return None
 
@@ -339,10 +346,21 @@ def validate_tracer_passage_set(records, positive_control=None):
         for field in _TRACER_FIELDS:
             if record.get(field) is None:
                 return False
-            if field in ("what_in_fact_passed", "point_in_run") \
-                    and isinstance(record.get(field), str) \
-                    and not record.get(field).strip():
-                return False
+            if field in ("what_in_fact_passed", "point_in_run"):
+                field_value = record.get(field)
+                if isinstance(field_value, str) \
+                        and not field_value.strip():
+                    return False
+                if isinstance(field_value, bool) \
+                        and field_value is False:
+                    return False
+                if isinstance(
+                        field_value,
+                        (list, tuple, dict, set, frozenset)) \
+                        and len(field_value) == 0:
+                    return False
+        if not isinstance(record.get("open_semantic_item"), str):
+            return False
         if record.get("result") not in TRACER_RESULTS:
             return False
         items.append(record.get("open_semantic_item"))
@@ -567,6 +585,7 @@ def slash_outcome_report(outcome):
     escrow core carries no cost pool account on either wording of
     that entry as a settled fact of this report, and no remainder
     destination stands named as settled."""
+    _copy_guard(outcome)
     return {
         "effect": "slash",
         "reporting": INTERIM_REPORTING,

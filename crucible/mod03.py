@@ -77,6 +77,7 @@ _HOMOGLYPH_MAP = {
     "\u03c4": "t", "\u03c7": "x", "\u03c5": "u", "\u03bd": "n",
     "\u03b3": "g", "\u03b4": "d", "\u03bb": "l", "\u03c3": "s",
     "\u03c9": "w", "\u03b6": "z", "\u03b8": "t", "\u03c6": "f",
+    "\u044d": "e", "\u043b": "l", "\u03c8": "ps",
     "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
     "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
     "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
@@ -114,6 +115,13 @@ _WIDER_READING_MAP = {
     "\u1d22": "z",
     "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
     "\u00a5": "y",
+    "\u00a2": "c", "\u00a7": "s", "+": "t",
+    "\u13d2": "r", "\u13ac": "e", "\u13aa": "a", "\u13de": "l",
+    "\u13b7": "m", "\u13be": "o", "\u13c1": "n", "\u13ef": "y",
+    "\uaba2": "r", "\uab7c": "e", "\uab7a": "a", "\uabae": "l",
+    "\uab87": "m", "\uab8e": "o", "\uab91": "n", "\uabbf": "y",
+    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
+    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
 }
 for _upper, _lower in list(_WIDER_READING_MAP.items()):
     _WIDER_READING_MAP[_upper.upper()] = _lower
@@ -131,6 +139,7 @@ _TRANSLITERATION_OVERRIDES = {
     "\u0440": "r", "\u0445": "h", "\u0432": "v", "\u0441": "s",
     "\u043d": "n", "\u0443": "u",
     "\u03b7": "e", "\u03c0": "p", "\u03c7": "h", "\u03c1": "r",
+    "\u03c9": "o",
 }
 _ALT_LETTER_MAP = dict(_WIDE_LETTER_MAP)
 _ALT_LETTER_MAP.update(_TRANSLITERATION_OVERRIDES)
@@ -144,7 +153,7 @@ _LEET_MAP = {
     "0": "o", "1": "i", "3": "e", "4": "a",
     "5": "s", "7": "t", "8": "b", "@": "a", "$": "s",
     "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
-    "\u00a5": "y",
+    "\u00a5": "y", "\u00a2": "c", "\u00a7": "s", "+": "t",
 }
 
 
@@ -244,6 +253,15 @@ class NamedGeneratorFailure(ValueError):
 
 
 def _traversal_guard(value, depth, seen, path):
+    """Guard one traversal step under the stated bound of 100.
+
+    The counting basis for the bound is containers only: the
+    depth of a value counts the containers standing above it,
+    and a scalar leaf standing at the end of a chain counts
+    no depth of its own. On that basis a chain of 101 nested
+    containers over a scalar leaf stands within the bound,
+    and a chain of 102 stands past it and stands refused.
+    """
     if depth > TRAVERSAL_DEPTH_BOUND:
         raise NamedGeneratorFailure(
             "ground truth traversal bound reached at " + (path or "root")
@@ -638,6 +656,11 @@ def construct_farm(member_ids, farm_size=None, edges=None):
     counts = {farm["farm_id"]: 0 for farm in farms}
     for edge in edges or ():
         if isinstance(edge, dict):
+            if dict.get(edge, "vouchee") is None:
+                raise NamedGeneratorFailure(
+                    "farm rejected: an edge carries no vouchee, "
+                    "not as a voucher and vouchee pair: "
+                    + repr(edge))
             first, second = edge.get("voucher"), edge.get("vouchee")
         elif isinstance(edge, (str, bytes)):
             raise NamedGeneratorFailure(
@@ -834,12 +857,20 @@ def _value_carries_ground_truth(value, _depth=0, _seen=None, _path=""):
         seen.add(id(value))
         try:
             if isinstance(value, dict):
-                return any(
-                    _is_barred_key(key)
-                    or _value_carries_ground_truth(
-                        item, _depth + 1, seen, _path + "/" + str(key))
-                    for key, item in dict.items(value)
-                )
+                for key, item in dict.items(value):
+                    if isinstance(
+                            key, (dict, list, tuple, set, frozenset)):
+                        if _value_carries_ground_truth(
+                                key, _depth + 1, seen,
+                                _path + "/key"):
+                            return True
+                    elif _is_barred_key(key):
+                        return True
+                    if _value_carries_ground_truth(
+                            item, _depth + 1, seen,
+                            _path + "/" + str(key)):
+                        return True
+                return False
             return any(
                 _value_carries_ground_truth(
                     item, _depth + 1, seen, _path + "[" + str(index) + "]")
@@ -874,12 +905,20 @@ def _strip_ground_truth_value(value, _depth=0, _seen=None, _path=""):
         seen.add(id(value))
         try:
             if isinstance(value, dict):
-                return {
-                    key: _strip_ground_truth_value(
-                        item, _depth + 1, seen, _path + "/" + str(key))
-                    for key, item in dict.items(value)
-                    if not _is_barred_key(key)
-                }
+                stripped = {}
+                for key, item in dict.items(value):
+                    if isinstance(
+                            key, (dict, list, tuple, set, frozenset)):
+                        new_key = _strip_ground_truth_value(
+                            key, _depth + 1, seen, _path + "/key")
+                    else:
+                        if _is_barred_key(key):
+                            continue
+                        new_key = key
+                    stripped[new_key] = _strip_ground_truth_value(
+                        item, _depth + 1, seen,
+                        _path + "/" + str(key))
+                return stripped
             if isinstance(value, list):
                 return [
                     _strip_ground_truth_value(
@@ -964,7 +1003,11 @@ def validate_anchor_scenario(record):
     if set(dict.keys(record)) != {
             "scenario_identifier", "anchor_set_description", "mark"}:
         return False
-    return record.get("mark") == DQ163_MARK
+    mark = dict.get(record, "mark")
+    if not isinstance(mark, str):
+        return False
+    judged = str.__eq__(mark, DQ163_MARK)
+    return judged if isinstance(judged, bool) else False
 
 
 def empty_anchor_set_case():
@@ -1017,7 +1060,7 @@ def cold_society_degree(day, envelope=None, gate_passing_share=None):
         raise NamedGeneratorFailure(
             "cold society degree rejected: the stated day is not "
             "a whole count day in its stated form: " + repr(day))
-    if day <= COLD_SOCIETY_FIRST_DAYS:
+    if int.__le__(int.__new__(int, day), COLD_SOCIETY_FIRST_DAYS):
         return 0
     for operand, naming in ((envelope, "envelope"),
                             (gate_passing_share, "gate passing share")):
@@ -1034,7 +1077,21 @@ def cold_society_degree(day, envelope=None, gate_passing_share=None):
             "standing": "gated by the gate passing share",
             "provenance_label": COLD_SOCIETY_PROVENANCE,
         }
-    return envelope * gate_passing_share
+    plain_envelope = (
+        float.__new__(float, envelope) if isinstance(envelope, float)
+        else int.__new__(int, envelope))
+    plain_share = (
+        float.__new__(float, gate_passing_share)
+        if isinstance(gate_passing_share, float)
+        else int.__new__(int, gate_passing_share))
+    if isinstance(plain_envelope, float) or isinstance(
+            plain_share, float):
+        return float.__mul__(
+            plain_envelope if isinstance(plain_envelope, float)
+            else float.__new__(float, plain_envelope),
+            plain_share if isinstance(plain_share, float)
+            else float.__new__(float, plain_share))
+    return int.__mul__(plain_envelope, plain_share)
 
 
 def cold_degree_provenance():

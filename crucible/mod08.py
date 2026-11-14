@@ -206,19 +206,15 @@ def mod01_surface():
 
 
 _HOMOGLYPH_MAP = {
-    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p",
-    "\u0441": "c", "\u0445": "x", "\u0443": "y", "\u0456": "i",
-    "\u0458": "j", "\u0455": "s", "\u04bb": "h",
-    "\u03b1": "a", "\u03b5": "e", "\u03bf": "o", "\u03c1": "p",
-    "\u03c4": "t", "\u03ba": "k", "\u03b9": "i", "\u03bd": "n",
-    "\u03c7": "x", "\u0442": "t",
-    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
-    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
-    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
-    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
-    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
-    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
-    "\u1d22": "z",
+    "\u0430": "a", "\u0441": "c", "\u0435": "e", "\u043e": "o",
+    "\u0440": "p", "\u0445": "x", "\u0443": "y", "\u0456": "i",
+    "\u0458": "j", "\u0455": "s", "\u04bb": "h", "\u043a": "k",
+    "\u043c": "m", "\u043d": "h", "\u0442": "t", "\u0432": "b",
+    "\u03b1": "a", "\u03b2": "b", "\u03b5": "e", "\u03b9": "i",
+    "\u03ba": "k", "\u03bc": "m", "\u03bf": "o", "\u03c1": "p",
+    "\u03c4": "t", "\u03c7": "x", "\u03c5": "u", "\u03bd": "n",
+    "\u03b3": "g", "\u03b4": "d", "\u03bb": "l", "\u03c3": "s",
+    "\u03c9": "w", "\u03b6": "z", "\u03b8": "t", "\u03c6": "f",
     "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
     "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
     "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
@@ -226,47 +222,85 @@ _HOMOGLYPH_MAP = {
     "\u00c6": "ae", "\u0152": "oe", "\u00d8": "o", "\u0110": "d",
     "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
     "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
+    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
+    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
+    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
+    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
+    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
+    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
+    "\u1d22": "z",
+    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
+    "\u0452": "s", "\u0493": "h",
+    "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l", "\u00a5": "y",
 }
+for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
+    _HOMOGLYPH_MAP[_upper.upper()] = _lower
+
+_TRANSLITERATION_MAP = dict(_HOMOGLYPH_MAP)
+_TRANSLITERATION_MAP.update({
+    "\u0431": "b", "\u0432": "v", "\u0433": "g", "\u0434": "d",
+    "\u0451": "e", "\u0436": "zh", "\u0437": "z", "\u0438": "i",
+    "\u0439": "y", "\u043b": "l", "\u043c": "m", "\u043d": "n",
+    "\u043f": "p", "\u0440": "r", "\u0441": "s", "\u0442": "t",
+    "\u0443": "u", "\u0444": "f", "\u0445": "h", "\u0446": "ts",
+    "\u0447": "ch", "\u0448": "sh", "\u0449": "shch", "\u044a": "",
+    "\u044b": "y", "\u044c": "", "\u044d": "e", "\u044e": "yu",
+    "\u044f": "ya",
+    "\u03b2": "b", "\u03b3": "g", "\u03b4": "d", "\u03b6": "z",
+    "\u03b7": "e", "\u03b8": "th", "\u03bb": "l", "\u03bc": "m",
+    "\u03bd": "n", "\u03c0": "p", "\u03c1": "r", "\u03c2": "s",
+    "\u03c3": "s", "\u03c5": "u", "\u03c6": "ph", "\u03c7": "h",
+    "\u03c8": "ps", "\u03c9": "o",
+})
+for _upper, _lower in list(_TRANSLITERATION_MAP.items()):
+    _TRANSLITERATION_MAP[_upper.upper()] = _lower
 
 _LEET_MAP = {
-    "0": "o", "1": "l", "3": "e", "4": "a", "5": "s",
-    "7": "t", "8": "b", "@": "a", "$": "s",
+    "0": "o", "1": "i", "3": "e", "4": "a",
+    "5": "s", "7": "t", "8": "b", "@": "a", "$": "s",
+}
+
+_LEET_L_MAP = {
+    "0": "o", "1": "l", "3": "e", "4": "a",
+    "5": "s", "7": "t", "8": "b", "@": "a", "$": "s",
 }
 
 
 def _folded_readings(key):
     """The folded readings of one key, in the shared canonicalised
-    form the barred surfaces at MOD-03, MOD-04 and MOD-05 read: the
-    base reading lowercases the key, applies compatibility
-    decomposition with combining marks dropped, maps non Latin
-    homoglyph letters to the Latin letters they stand for, and
-    drops every character that is not a letter or a digit, so a
-    hyphen, a space, a separator, a zero width character, or a
-    soft hyphen standing inside a word holds the word apart no
-    longer. Two further readings stand beside it: one with digit
-    and symbol substitutions read as the letters they stand for,
-    and one with digits dropped, so a digit standing inside a word
-    as a split reads as the word it splits."""
-    decomposed = unicodedata.normalize("NFKD", str(key).lower())
-    base = "".join(
-        _HOMOGLYPH_MAP.get(character, character)
-        for character in decomposed
-        if not unicodedata.category(character).startswith("M")
-    )
-    plain = "".join(
-        character for character in base if character.isalnum())
+    form the barred surfaces at MOD-03, MOD-04 and MOD-05 read:
+    compatibility decomposition with combining marks dropped,
+    non Latin homoglyph letters mapped to the Latin letters they
+    stand for, separators and zero width characters dropped,
+    beside a reading with digit substitutions read as letters
+    and a reading with digits dropped. The barred vocabulary of
+    this module itself stands unmoved; only its reading gains
+    the folded form. The readings stand taken under both the
+    homoglyph map and the transliteration map."""
     readings = []
-    for reading in (
-        plain,
-        "".join(_LEET_MAP.get(character, character)
-                for character in plain),
-        "".join(character for character in plain
-                if not character.isdigit()),
-    ):
-        if reading and reading not in readings:
-            readings.append(reading)
-    return tuple(readings)
 
+    def add(transformed):
+        plain = "".join(
+            character for character in transformed
+            if character.isalnum())
+        if plain and plain not in readings:
+            readings.append(plain)
+
+    for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+        decomposed = unicodedata.normalize("NFKD", str(key).lower())
+        base = "".join(
+            letter_map.get(character, character)
+            for character in decomposed
+            if not unicodedata.category(character).startswith("M")
+        )
+        add(base)
+        add("".join(_LEET_MAP.get(character, character)
+                    for character in base))
+        add("".join(_LEET_L_MAP.get(character, character)
+                    for character in base))
+        add("".join(character for character in base
+                    if not character.isdigit()))
+    return tuple(readings)
 
 _BARRED_FOLDED_EXACT = frozenset(
     reading
@@ -330,6 +364,7 @@ def _find_barred(node, path="", _depth=0, _seen=None):
                     here = path + "/" + str(key)
                     if _is_barred_key(key):
                         hits.append(here)
+                    hits.extend(_find_barred(key, here, _depth + 1, seen))
                     hits.extend(_find_barred(value, here, _depth + 1, seen))
             else:
                 for index, item in enumerate(_base_iter(node)):
@@ -754,6 +789,8 @@ def _carries_barred_verdict(node, _depth=0, _seen=None):
                                 value.strip().lower() in
                                 _BARRED_VERDICT_VALUES):
                             return True
+                    if _carries_barred_verdict(key, _depth + 1, seen):
+                        return True
                     if _carries_barred_verdict(value, _depth + 1, seen):
                         return True
                 return False

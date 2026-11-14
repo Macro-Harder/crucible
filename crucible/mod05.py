@@ -151,8 +151,8 @@ def proportion_record(numerator, denominator):
 
 def _base_number(part):
     if isinstance(part, float):
-        return float(part)
-    return int(part)
+        return float.__float__(part)
+    return int.__int__(part)
 
 
 def validate_proportion(record):
@@ -918,7 +918,14 @@ _HOMOGLYPH_MAP = {
     "\u1d22": "z",
     "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
     "\u0452": "s", "\u0493": "h",
+    "\u13d2": "r", "\uaba2": "r", "\u13ac": "e", "\uab7c": "e",
+    "\u13aa": "a", "\uab7a": "a", "\u13de": "l", "\uabae": "l",
+    "\u13b7": "m", "\uab87": "m", "\u13be": "o", "\uab8e": "o",
+    "\u13c1": "n", "\uab91": "n", "\u13ef": "y", "\uabbf": "y",
+    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
+    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
     "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l", "\u00a5": "y",
+    "\u00a2": "c", "\u00a7": "s", "+": "t",
 }
 for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
     _HOMOGLYPH_MAP[_upper.upper()] = _lower
@@ -941,6 +948,11 @@ _TRANSLITERATION_MAP.update({
 })
 for _upper, _lower in list(_TRANSLITERATION_MAP.items()):
     _TRANSLITERATION_MAP[_upper.upper()] = _lower
+
+_HOMOGLYPH_MAP_VO = dict(
+    _HOMOGLYPH_MAP, **{"\u0578": "un", "\u0548": "un"})
+_TRANSLITERATION_MAP_VO = dict(
+    _TRANSLITERATION_MAP, **{"\u0578": "un", "\u0548": "un"})
 
 _LEET_MAP = {
     "0": "o", "1": "i", "3": "e", "4": "a",
@@ -972,7 +984,10 @@ def _folded_readings(key):
         if plain and plain not in readings:
             readings.append(plain)
 
-    for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+    for letter_map in (
+        _HOMOGLYPH_MAP, _TRANSLITERATION_MAP,
+        _HOMOGLYPH_MAP_VO, _TRANSLITERATION_MAP_VO,
+    ):
         decomposed = unicodedata.normalize("NFKD", str(key).lower())
         base = "".join(
             letter_map.get(character, character)
@@ -1038,6 +1053,17 @@ def _base_iter(value):
     return iter(value)
 
 
+def _panel_leaf_copy(value):
+    """Copy one leaf part of a checked panel record as itself.
+
+    The container parts of a panel record stand rebuilt through
+    base class readings in _panel_clean, so no part of the record
+    can direct the copy. A leaf part stands in no container form,
+    so it stands carried as itself and never through a copy
+    protocol the part itself supplies."""
+    return value
+
+
 def _panel_clean(value, _depth=0, _seen=None, _path=""):
     if isinstance(value, (dict, list, tuple, set, frozenset)):
         seen = _seen if _seen is not None else set()
@@ -1045,12 +1071,15 @@ def _panel_clean(value, _depth=0, _seen=None, _path=""):
         seen.add(id(value))
         try:
             if isinstance(value, dict):
-                return {
-                    key: _panel_clean(
+                cleaned = {}
+                for key, item in dict.items(value):
+                    if _panel_key_barred(key):
+                        continue
+                    cleaned_key = _panel_clean(
+                        key, _depth + 1, seen, _path + "/" + str(key))
+                    cleaned[cleaned_key] = _panel_clean(
                         item, _depth + 1, seen, _path + "/" + str(key))
-                    for key, item in dict.items(value)
-                    if not _panel_key_barred(key)
-                }
+                return cleaned
             if isinstance(value, list):
                 return [
                     _panel_clean(
@@ -1080,7 +1109,7 @@ def _panel_clean(value, _depth=0, _seen=None, _path=""):
             }
         finally:
             seen.discard(id(value))
-    return _freeze(value)
+    return _panel_leaf_copy(value)
 
 
 def _panel_carries_barred(value, _depth=0, _seen=None, _path=""):
@@ -1091,7 +1120,10 @@ def _panel_carries_barred(value, _depth=0, _seen=None, _path=""):
         try:
             if isinstance(value, dict):
                 return any(
-                    _panel_key_barred(key) or _panel_carries_barred(
+                    _panel_key_barred(key)
+                    or _panel_carries_barred(
+                        key, _depth + 1, seen, _path + "/" + str(key))
+                    or _panel_carries_barred(
                         item, _depth + 1, seen, _path + "/" + str(key))
                     for key, item in dict.items(value)
                 )
@@ -1148,7 +1180,9 @@ def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
         fail("the arbiter accuracy value stands outside its probability range")
     if outcome is None:
         outcome = "no determination"
-    elif outcome not in ("slashable", "not slashable"):
+    elif not (isinstance(outcome, str) and (
+            str.__eq__(outcome, "slashable")
+            or str.__eq__(outcome, "not slashable"))):
         fail("the adjudication outcome stands outside the stated vocabulary")
     formed = panel_inputs(case)
     if isinstance(case, dict):

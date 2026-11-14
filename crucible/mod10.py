@@ -23,6 +23,7 @@ inside the value itself, so no reader can take the form for a
 computed result without changing the value.
 """
 import copy
+import itertools
 import json
 import math
 import os
@@ -172,8 +173,11 @@ _SYMBOL_LEET_READINGS = {
 # Letters carrying two recorded readings, where one name may need
 # both readings at two positions in the same word: Cyrillic es as
 # s and as c, Cyrillic u and Greek upsilon as u and as y, Armenian
-# vo as n and as the pair un, and Cyrillic en as n and as h. The
-# folded variants of a name stand read under every combination of
+# vo as n and as the pair un, Cyrillic en as n and as h, and
+# Cyrillic short i as y and as i, the second reading standing as
+# its decomposition reading, where the letter reduces to
+# Cyrillic i with its combining mark dropped. The folded
+# variants of a name stand read under every combination of
 # these readings, position by position, beside the two whole map
 # readings.
 _AMBIGUOUS_READINGS = {
@@ -182,6 +186,7 @@ _AMBIGUOUS_READINGS = {
     "\u03c5": ("u", "y"),
     "\u0578": ("n", "un"),
     "\u043d": ("n", "h"),
+    "\u0439": ("y", "i"),
 }
 
 
@@ -385,7 +390,8 @@ class RecorderStore:
     the Recorder store reading path stand in this class."""
 
     def __init__(self, store_kind="sweep", path=None):
-        if store_kind not in STORE_KINDS:
+        if not (isinstance(store_kind, str) and any(
+                str.__eq__(store_kind, kind) for kind in STORE_KINDS)):
             raise ValueError("unknown store kind: " + str(store_kind))
         self.store_kind = store_kind
         self.path = path
@@ -1482,20 +1488,134 @@ _RUN_CLASS_TIERS = {
 _FLAG_OUTCOMES = ("promote", "demote")
 
 
+_ACTOR_VOCABULARY_ORDERED = ("person", "program")
+_ACTOR_VOCABULARY = frozenset(_ACTOR_VOCABULARY_ORDERED)
+_ACTOR_ARTICLES = ("the", "a", "an")
+
+
+def _actor_segments_into_vocabulary(word, vocabulary):
+    """Return whether a word stands as two or more vocabulary
+    words joined with no separator. Such a word stands read
+    by the folded joined reading, not as one dressed word, so
+    the resolver leaves it as itself."""
+    counts = [set() for _ in range(len(word) + 1)]
+    counts[0].add(0)
+    for start in range(len(word)):
+        if not counts[start]:
+            continue
+        for candidate in vocabulary:
+            if word.startswith(candidate, start):
+                for count in counts[start]:
+                    counts[start + len(candidate)].add(count + 1)
+    return any(count >= 2 for count in counts[len(word)])
+
+
+def _resolve_actor_word(word):
+    """Read one actor word as the actor word it dresses, where
+    it dresses one, against the actor vocabulary of person and
+    program: the word itself where it stands plain, a word
+    with one, two, or three added letters struck, a word with
+    one letter dropped from a vocabulary word, a word with
+    one letter replaced, a word with two adjacent letters
+    transposed, and the two compounded forms, one letter
+    dropped together with one letter replaced, and one
+    transposition together with one letter dropped. Any other
+    word stands as itself."""
+    if word in _ACTOR_VOCABULARY:
+        return word
+    if _actor_segments_into_vocabulary(word, _ACTOR_VOCABULARY):
+        return word
+    for added in (1, 2, 3):
+        if len(word) > added:
+            for cuts in itertools.combinations(
+                    range(len(word)), added):
+                reduced = "".join(
+                    char for index, char in enumerate(word)
+                    if index not in cuts)
+                if reduced in _ACTOR_VOCABULARY:
+                    return reduced
+    if len(word) >= 2:
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) == len(word) + 1:
+                for cut in range(len(candidate)):
+                    if candidate[:cut] + candidate[cut + 1:] == word:
+                        return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            for cut in range(len(word) - 1):
+                swapped = (
+                    candidate[:cut] + candidate[cut + 1]
+                    + candidate[cut] + candidate[cut + 2:])
+                if swapped == word:
+                    return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            differences = sum(
+                1 for left, right in zip(candidate, word)
+                if left != right)
+            if differences == 1:
+                return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word) + 1:
+                continue
+            for cut in range(len(candidate)):
+                dropped = candidate[:cut] + candidate[cut + 1:]
+                differences = sum(
+                    1 for left, right in zip(dropped, word)
+                    if left != right)
+                if differences == 1:
+                    return candidate
+                for swap in range(len(dropped) - 1):
+                    swapped = (
+                        dropped[:swap] + dropped[swap + 1]
+                        + dropped[swap] + dropped[swap + 2:])
+                    if swapped == word:
+                        return candidate
+    return word
+
+
+def _canonicalise_actor_word(word):
+    """Read one actor word through the leet reading: a digit
+    standing among letters reads as the letter it stands
+    for, under the recorded leet digit readings."""
+    if any(char.isalpha() for char in word) and any(
+            char.isdigit() for char in word):
+        word = "".join(
+            _LEET_DIGITS.get(char, char) for char in word)
+    return word
+
+
 def _normalised_actor(actor):
-    """Normalise an actor reading before the person check, to the
-    same form the MOD-14 shell applies: case is folded, spacing
-    is collapsed to single spaces, separator characters read as
-    spacing, and one leading article is dropped, so a person
-    actor in case, spacing, or article dress reads as the plain
-    actor it names."""
+    """Normalise an actor reading before the person check, to
+    the same form the MOD-14 shell applies: case is folded,
+    the text stands canonicalised, separator characters stand
+    read as spacing for the word reading, repeated leading
+    articles are dropped, and each word stands read through
+    the leet reading and the word resolver against the actor
+    vocabulary. The split parts of one actor word also stand
+    read joined, so a separator split dress of one word reads
+    as the word it names and is not split into a different
+    actor."""
     if not isinstance(actor, str):
         return actor
-    text = actor.lower().replace("_", " ").replace("-", " ")
-    words = text.split()
-    if words and words[0] in ("the", "a", "an"):
+    text = _canonical_text(actor, _TRANSLITERATION_MAP)
+    text = "".join(
+        char if char.isalnum() else " " for char in text)
+    words = [_canonicalise_actor_word(word) for word in text.split()]
+    while words and words[0] in _ACTOR_ARTICLES:
         words = words[1:]
-    return " ".join(words)
+    if not words:
+        return ""
+    joined = _resolve_actor_word("".join(words))
+    if joined in _ACTOR_VOCABULARY:
+        return joined
+    return " ".join(_resolve_actor_word(word) for word in words)
+
+
+_ZERO_WIDTH_CHARS = frozenset(
+    ("\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"))
 
 
 def _has_stated_condition(fired):
@@ -1503,7 +1623,10 @@ def _has_stated_condition(fired):
     condition: an entry states a condition where it stands as a
     string carrying text, or as a stated value other than None.
     A list holding only an empty string or only None states no
-    condition."""
+    condition. An entry carrying only zero width or byte order
+    mark characters, beside any spacing, reads as blank text
+    and states no condition, because those characters carry no
+    readable text."""
     if isinstance(fired, str):
         entries = [fired]
     elif isinstance(fired, (list, tuple, set, frozenset)):
@@ -1514,7 +1637,10 @@ def _has_stated_condition(fired):
         entries = [fired]
     for entry in entries:
         if isinstance(entry, str):
-            if entry.strip():
+            readable = "".join(
+                char for char in entry
+                if char not in _ZERO_WIDTH_CHARS)
+            if readable.strip():
                 return True
         elif entry is not None:
             return True
@@ -1782,7 +1908,15 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
     day and stands resumed where it matches the retained
     checkpoint of any one of them. A checkpoint differing from
     every retained checkpoint for its run and day stands refused
-    in named form, and no resume stands performed from it."""
+    in named form, and no resume stands performed from it. Where
+    a store kind stands named and that kind holds no retained
+    bucket for the run and day, the handed checkpoint stands
+    refused in the same checkpoint integrity refusal form
+    instead of standing returned unchecked. The checkpoint day
+    stands read through the one stated whole day form at the
+    final comparison, as the candidate selection already reads
+    it, so a day stated in string whole day form beside the
+    same day stated as an integer names the one day."""
     if not isinstance(checkpoint, dict):
         raise ValueError(
             "identity less checkpoint: a resume stands on a checkpoint "
@@ -1810,13 +1944,28 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
                     checkpoint.get("simulated_day")):
                 candidates.append(retained)
     if not candidates:
+        if kind is not None:
+            raise ValueError(
+                "checkpoint integrity refusal: the handed "
+                "checkpoint names a store kind holding no "
+                "retained checkpoint for its run and day, and "
+                "no resume stands performed from it")
         return copy.deepcopy(checkpoint)
+
+    def _comparison_form(form):
+        compared = dict(form)
+        if "simulated_day" in compared:
+            compared["simulated_day"] = _whole_day(
+                compared["simulated_day"])
+        return compared
+
+    handed_compared = _comparison_form(handed_form)
     for retained in candidates:
         retained_form = {
             key: value for key, value in retained.items()
             if key not in ("journal_event_count_at_checkpoint", "store_kind")
         }
-        if retained_form == handed_form:
+        if _comparison_form(retained_form) == handed_compared:
             return copy.deepcopy(checkpoint)
     raise ValueError(
         "checkpoint integrity refusal: the handed "
@@ -2226,9 +2375,10 @@ def run_view_leak_check(view_record):
             raise ValueError(
                 "view leak check failure: form field_validation, view "
                 + view_name + ", field " + field + " stands absent")
-    day = view_record.get("simulated_day")
+    day = _whole_day(view_record.get("simulated_day"))
     first_seen = view_record.get("first_seen_day_per_record") or {}
     for item, seen_day in first_seen.items():
+        seen_day = _whole_day(seen_day)
         if (isinstance(seen_day, int) and isinstance(day, int)
                 and seen_day > day):
             raise ValueError(

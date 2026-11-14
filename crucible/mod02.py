@@ -117,15 +117,31 @@ def validate_derivation_domain_use(purpose=None, seed_domain=None):
     return purpose == seed_domain
 
 
+def _base_iter(value):
+    """Iterate a list, tuple, set, or frozenset part through its
+    base class iteration, never through a reading the part
+    itself supplies."""
+    iter_by_base = {list: list.__iter__, tuple: tuple.__iter__,
+                    set: set.__iter__, frozenset: frozenset.__iter__}
+    for base, base_iter in iter_by_base.items():
+        if isinstance(value, base):
+            return base_iter(value)
+    return iter(value)
+
+
 def _stream_set_classes(stream_set):
     """Return the stream class names a run StreamSet carries, or
     None where no StreamSet stands handed in. A StreamSet stands
     read in its typed form, in record form, or as a plain list of
     class names, and each inventory entry stands read as a name
-    or as a record carrying its class name. A StreamSet that
-    stands handed in but cannot be read in any stated form stands
-    refused in this module named failure form, a ValueError, and
-    never falls back to the no StreamSet behaviour."""
+    or as a record carrying its class name. Every reading runs
+    through base class operations only, never through a protocol
+    the handed value supplies. A StreamSet that stands handed in
+    but cannot be read in any stated form stands refused in this
+    module named failure form, a ValueError, and never falls back
+    to the no StreamSet behaviour. A plain dict carrying no
+    inventory key stands in no stated form and stands refused
+    in the same form, instead of reading its keys as classes."""
     if stream_set is None:
         return None
     typed = False
@@ -133,34 +149,47 @@ def _stream_set_classes(stream_set):
         values = stream_set
     elif isinstance(stream_set, (list, tuple, set, frozenset)):
         values = stream_set
-    elif isinstance(getattr(stream_set, "values", None), dict):
-        values = stream_set.values
-        typed = True
     else:
-        raise ValueError(
-            "stream set stands in no stated form: "
-            + repr(stream_set))
+        stored = None
+        try:
+            instance_dict = object.__getattribute__(
+                stream_set, "__dict__")
+        except Exception:
+            instance_dict = None
+        if isinstance(instance_dict, dict) and dict.__contains__(
+                instance_dict, "values"):
+            stored = dict.__getitem__(instance_dict, "values")
+        if isinstance(stored, dict):
+            values = stored
+            typed = True
+        elif isinstance(getattr(stream_set, "values", None), dict):
+            values = stream_set.values
+            typed = True
+        else:
+            raise ValueError(
+                "stream set stands in no stated form: "
+                + repr(stream_set))
     inventory = None
     inventory_found = False
     if isinstance(values, dict):
         for key in ("stream_class_inventory", "stream_classes",
                     "inventory", "classes"):
-            if key in values:
-                inventory = values[key]
+            if dict.__contains__(values, key):
+                inventory = dict.__getitem__(values, key)
                 inventory_found = True
                 break
         if not inventory_found:
-            if typed:
-                raise ValueError(
-                    "stream set carries no stream class inventory")
-            inventory = list(values.keys())
+            raise ValueError(
+                "stream set carries no stream class inventory")
     elif isinstance(values, (list, tuple, set, frozenset)):
-        inventory = list(values)
+        inventory = list(_base_iter(values))
         inventory_found = True
     if inventory_found:
         if isinstance(inventory, dict):
-            inventory = list(inventory.keys())
-        elif not isinstance(inventory, (list, tuple, set, frozenset)):
+            inventory = list(dict.__iter__(inventory))
+        elif isinstance(inventory, (list, tuple, set, frozenset)):
+            inventory = list(_base_iter(inventory))
+        else:
             raise ValueError(
                 "stream class inventory stands in no stated form: "
                 + repr(inventory))
@@ -170,8 +199,8 @@ def _stream_set_classes(stream_set):
             name = None
             for key in ("stream_class_identifier", "stream_class",
                         "name", "identifier", "class"):
-                if entry.get(key) is not None:
-                    name = entry.get(key)
+                if dict.get(entry, key) is not None:
+                    name = dict.get(entry, key)
                     break
             if name is None:
                 raise ValueError(

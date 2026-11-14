@@ -185,6 +185,15 @@ _HOMOGLYPH_MAP.update({
     "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
     "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
     "\u00a5": "y", "$": "s",
+    "\u00a2": "c", "\u00a7": "s", "+": "t",
+    "\u13d2": "r", "\u13ac": "e", "\u13aa": "a", "\u13de": "l",
+    "\u13b7": "m", "\u13be": "o", "\u13c1": "n", "\u13ef": "y",
+    "\uaba2": "r", "\uab7c": "e", "\uab7a": "a", "\uabae": "l",
+    "\uab87": "m", "\uab8e": "o", "\uab91": "n", "\uabbf": "y",
+    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
+    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
+    "\u2ca2": "r", "\u2c88": "e", "\u2c80": "a", "\u2c96": "l",
+    "\u2c98": "m", "\u2c9e": "o", "\u2c9a": "n", "\u2ca8": "y",
 })
 
 # The transliterated reading: the same letters read by the Latin
@@ -229,6 +238,20 @@ _LEET_MAP_I = dict(_LEET_MAP, **{"1": "i"})
 _PAYLOAD_DEPTH_BOUND = 100
 
 
+# Letters that carry two recorded readings each, so one key may
+# need either reading at either position where the letter stands:
+# Cyrillic en reads as n and as h, and Cyrillic u and Greek
+# upsilon each read as u and as y. A single map reading takes one
+# reading for every position at once, so the folded readings also
+# stand generated position by position over these letters.
+_MULTI_READINGS = {
+    "\u043d": ("n", "h"),
+    "\u0443": ("u", "y"),
+    "\u03c5": ("u", "y"),
+    "\u0578": ("n", "un"),
+}
+
+
 def _folded_readings(key):
     """The folded readings of one key, in the same canonicalised
     form the barred surfaces read: compatibility decomposition
@@ -267,11 +290,105 @@ def _folded_readings(key):
             reading = reading.replace("realmani", "realmoney")
             if reading and reading not in readings:
                 readings.append(reading)
+    decomposed = unicodedata.normalize("NFKD", str(key).lower())
+    characters = [
+        character for character in decomposed
+        if not unicodedata.category(character).startswith("M")
+    ]
+    if any(character in _MULTI_READINGS for character in characters):
+        variants = [""]
+        for character in characters:
+            options = _MULTI_READINGS.get(character)
+            if options is None:
+                options = (
+                    _TRANSLITERATION_MAP.get(character, character),)
+            if len(variants) * len(options) > 1024:
+                break
+            variants = [
+                variant + option
+                for variant in variants for option in options
+            ]
+        for variant in variants:
+            plain = "".join(
+                character for character in variant if character.isalnum())
+            for reading in (
+                plain,
+                "".join(_LEET_MAP.get(character, character)
+                        for character in plain),
+                "".join(_LEET_MAP_I.get(character, character)
+                        for character in plain),
+                "".join(character for character in plain
+                        if not character.isdigit()),
+            ):
+                reading = reading.replace("realmani", "realmoney")
+                if reading and reading not in readings:
+                    readings.append(reading)
     return tuple(readings)
 
 
 def _key_reads_as(key, folded_name):
     return folded_name in _folded_readings(key)
+
+
+def _base_str_eq(first, second):
+    """Judge two values by base string equality, where both stand
+    in string form, so an equality reading a part supplies is
+    never the judgement. A value in no string form never stands
+    equal under this reading."""
+    if not isinstance(first, str) or not isinstance(second, str):
+        return False
+    result = str.__eq__(first, second)
+    return result if result is not NotImplemented else False
+
+
+def _base_member(value, options):
+    """Whether a value stands in a closed set of string options,
+    judged by base string value comparison only."""
+    return any(_base_str_eq(value, option) for option in options)
+
+
+def _undirected_copy(value, _memo=None):
+    """Copy a checked payload through base class readings only.
+
+    Dict parts stand read through the base dict items reading,
+    and list, tuple, set and frozenset parts through their base
+    iteration readings, so no copy protocol a part supplies is
+    ever invoked. A part in no container form stands copied as
+    itself, so a part that stands inert at the screen stays inert
+    in the stored copy and never materialises as another value.
+    """
+    if _memo is None:
+        _memo = {}
+    if isinstance(value, dict):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = {}
+        _memo[id(value)] = copied
+        for key, item in dict.items(value):
+            copied[_undirected_copy(key, _memo)] = (
+                _undirected_copy(item, _memo))
+        return copied
+    if isinstance(value, list):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = []
+        _memo[id(value)] = copied
+        copied.extend(
+            _undirected_copy(item, _memo)
+            for item in list.__iter__(value))
+        return copied
+    if isinstance(value, tuple):
+        return tuple(
+            _undirected_copy(item, _memo)
+            for item in tuple.__iter__(value))
+    if isinstance(value, (set, frozenset)):
+        base_iter = (
+            set.__iter__ if isinstance(value, set)
+            else frozenset.__iter__)
+        return type(value)(
+            _undirected_copy(item, _memo)
+            for item in base_iter(value))
+    return value
 
 
 def _payload_carries_barred(value, _depth=0, _seen=None):
@@ -289,14 +406,19 @@ def _payload_carries_barred(value, _depth=0, _seen=None):
     against cycles: a payload past the bound, or one that revisits
     a container on its own path, reads as barred, so the callers
     answer in their stated forms and never in a bare recursion
-    error. Records stand read through base class operations, so a
-    dict subclass cannot hide its stored contents behind its own
-    items, keys, iteration or get readings, and set and frozenset
-    nesting stands traversed and bounded on the same terms as list
-    and tuple nesting."""
-    if _depth > _PAYLOAD_DEPTH_BOUND:
-        return True
+    error. The bound counts containers only, on the common basis
+    the cured guard surfaces state: a chain of 101 containers
+    ending in a scalar leaf stands within the bound, and a chain
+    of 102 containers stands past it. Records stand read through
+    base class operations, so a dict subclass cannot hide its
+    stored contents behind its own items, keys, iteration or get
+    readings, and set and frozenset nesting stands traversed and
+    bounded on the same terms as list and tuple nesting. Nesting
+    standing in a dict key stands traversed and bounded on the
+    same terms as nesting standing in a dict value."""
     if isinstance(value, dict):
+        if _depth > _PAYLOAD_DEPTH_BOUND:
+            return True
         seen = set(_seen) if _seen is not None else set()
         if id(value) in seen:
             return True
@@ -320,9 +442,14 @@ def _payload_carries_barred(value, _depth=0, _seen=None):
                     "realmoney" in reading and item is not None
                 ):
                     return True
+            if _payload_carries_barred(key, _depth + 1, seen):
+                return True
             if _payload_carries_barred(item, _depth + 1, seen):
                 return True
+        return False
     if isinstance(value, (list, tuple)):
+        if _depth > _PAYLOAD_DEPTH_BOUND:
+            return True
         seen = set(_seen) if _seen is not None else set()
         if id(value) in seen:
             return True
@@ -332,6 +459,8 @@ def _payload_carries_barred(value, _depth=0, _seen=None):
             _payload_carries_barred(item, _depth + 1, seen)
             for item in base_iter(value))
     if isinstance(value, (set, frozenset)):
+        if _depth > _PAYLOAD_DEPTH_BOUND:
+            return True
         seen = set(_seen) if _seen is not None else set()
         if id(value) in seen:
             return True
@@ -356,7 +485,7 @@ def escrow_result(kind, variant="B-4", payload=None, contract_state=None):
         "kind": kind,
         "variant": variant,
         "core_only_qualifier": True,
-        "payload": copy.deepcopy(payload),
+        "payload": _undirected_copy(payload),
         "k1_and_l2_state": state.get("k1_and_l2_state", "carried; value set open at OP-21 G-10"),
         "lien_state": state.get("lien_state"),
         "verification_limit": VERIFICATION_LIMIT,
@@ -377,9 +506,9 @@ def escrow_contract_state(contract_identifier, variant="B-4", lien_state="no lie
     validated against their closed sets. The K1 and L2 state stands
     carried as a field whose value set stands unstated at
     OP-21 G-10, and no value is invented for it."""
-    if variant not in ("B-3", "B-4"):
+    if not _base_member(variant, ("B-3", "B-4")):
         raise ValueError("the escrow variant stands outside the B-3 and B-4 set: " + str(variant))
-    if lien_state not in mod01.LIEN_STATES:
+    if not _base_member(lien_state, mod01.LIEN_STATES):
         raise ValueError("the lien state stands outside the closed four value set: " + str(lien_state))
     state = {
         "contract_identifier": contract_identifier,
@@ -407,7 +536,8 @@ def validate_escrow_result(result):
         return False
     if dict.get(result, "core_only_qualifier") is not True:
         return False
-    if dict.get(result, "verification_limit") != VERIFICATION_LIMIT:
+    if not _base_str_eq(
+            dict.get(result, "verification_limit"), VERIFICATION_LIMIT):
         return False
     if not dict.get(result, "k1_and_l2_state"):
         return False

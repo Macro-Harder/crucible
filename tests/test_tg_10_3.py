@@ -42,12 +42,12 @@ class TestFlagRuleAmendmentForm(unittest.TestCase):
         """
         require_surface(self, "flag rule amendment written into the stored summary record", "summary_record_for_run", "apply_flag_evaluation")
         try:
-            SURFACE.read_run_record("run-under-test")
+            SURFACE.read_run_record("run-under-test-tg103-amendment")
         except Exception:
             SURFACE.retain_run_record(
-                {"run_id": "run-under-test",
-                 "run_identifier": "run-under-test"})
-        record = SURFACE.summary_record_for_run(run_id="run-under-test")
+                {"run_id": "run-under-test-tg103-amendment",
+                 "run_identifier": "run-under-test-tg103-amendment"})
+        record = SURFACE.summary_record_for_run(run_id="run-under-test-tg103-amendment")
         self.assertEqual(record["written_at"], "run_close")
         updated = SURFACE.apply_flag_evaluation(record, outcome="promote", tier="Tier 3", inputs={"flag_conditions_fired": ["condition-1"]})
         self.assertEqual(updated["retention_tier"], "Tier 3")
@@ -62,11 +62,13 @@ class TestFlagRuleAmendmentForm(unittest.TestCase):
         Failure: while the surface stands absent the test fails naming this behaviour and TG-10.3; with the surface present, acceptance of either act fails.
         """
         require_surface(self, "person promotion barred and demotion barred", "apply_flag_evaluation")
-        record = {"run_id": "r", "retention_tier": "Tier 2", "written_at": "run_close"}
-        with self.assertRaises(Exception):
-            SURFACE.apply_flag_evaluation(record, outcome="promote", tier="Tier 3", actor="person")
-        with self.assertRaises(Exception):
-            SURFACE.apply_flag_evaluation(record, outcome="demote", tier="Tier 1")
+        record = {"run_id": "r", "retention_tier": "Tier 2", "written_at": "run_close", "flag_conditions_fired": ["condition-1"]}
+        with self.assertRaises(ValueError) as person_caught:
+            SURFACE.apply_flag_evaluation(record, outcome="promote", tier="Tier 3", actor="person", inputs={"flag_conditions_fired": ["condition-1"]})
+        self.assertEqual(str(person_caught.exception), "promotion by a person after close is barred")
+        with self.assertRaises(ValueError) as demote_caught:
+            SURFACE.apply_flag_evaluation(record, outcome="demote", tier="Tier 1", inputs={"flag_conditions_fired": ["condition-1"]})
+        self.assertEqual(str(demote_caught.exception), "the flag rule never demotes")
 
     def test_interval_tier_presented_as_final_fails(self):
         """Fixture: a report built from interval records presenting an interval tier as final, as TG-10.3 states.

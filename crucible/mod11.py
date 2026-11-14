@@ -335,26 +335,289 @@ _PLAIN_WORDS_MIN = 4
 
 _READABLE_VOWELS = frozenset("aeiou")
 
+# The stated lexicon for the readable word reading. It carries
+# the ordinary words of the language that the sentences this
+# product states and checks are written in, together with the
+# domain words those sentences rest on. A letter string stands
+# as a readable word only where it stands in this lexicon, in
+# its plain form or as a regular inflection of a form standing
+# in it. An invented pronounceable string stands in no lexicon
+# of the language, so it counts as no word on this reading,
+# however regular its letters are.
+_READABLE_LEXICON = frozenset("""
+a about above across act acts after again against all also an
+anchor and another any applies are area as at awaiting accuracy
+arbiter are arm arms assumption assumptions at axis
+back band based before below beside between beyond block bound
+bounds brief built by
+call called carries carry case cases centre check checked claim
+claimed claims class classes closed code common commonly
+comparison complete computed condition conditions confirmation
+container content core count counted counts covers credit
+crossover current
+data date day days decided decision decisions delay dependence
+depends derived describes design distinct does done during
+each effect either element elements encodes entry envelope
+equal every excluded extent external
+fail fails failure farm field fields figure figures first five
+follow follows for form forms four from fully further
+gave general given grid ground grounding group groups
+handed has have headline held holding holds horizon how
+identifier in inside into is issue it its
+judged
+keep kind kinds known
+lands language layout letter letters level lien likelihood
+limit limits line list listed location locations long loss
+made make makes mark marks may means meets member middle more
+most moved
+name named names neither never no none not nothing number
+numbers
+of off on once one only open or order other outcome outcomes
+over own
+parley part parts patience pattern per point points position
+program provisional published
+quantity quotable quoted
+range rate ratio read reading record recorded records region
+release released replicate replicates report reported result
+results rest rests retained rule rules run runs
+same sampled scenario scope seam second self sentence sentences
+set sets settled share shares shift shown shows slash stated
+statement statements stands status step steps still string
+strings such
+table take taken team test text than that the their then these
+this those three through time to together too trace traces
+transition true two
+under unit units until use used uses
+value values version view viewer vouch
+was weekly weight where which while whole witness within word
+words work working would
+year years yet you
+about above absence absent accepted access account acting
+action actions added addition advance advice affect affected
+against agent agents agreement ahead aid aim air allow allowed
+almost alone along already also alter amount amounts analysis
+angle answer answered appear applied approach appropriate area
+areas argue argument arise arrangement article articles ask
+asked aspect aspects assess assigned associate assume assumed
+attach attack attempt attention attribute audit author average
+avoid aware away
+background balance base basic basis batch bear become bed
+begin behind being belong below benefit besides best better
+bias big bit block board body book both bottom branch break
+bridge brief bring broad broken build building bulk business
+calculate called calm can cannot capable capacity capital
+capture care careful carry case cast catch cause causes cell
+cells centre certain chain chance change channel chapter charge
+check choice choose chosen circle claim class clear clearly
+client close closed code collect colour column come comes
+command common community compare complete complex component
+compute concept concern condition conduct confirm conflict
+connect consider consist constant contact contain content
+context continue contract control convert copy correct cost
+costs could count course cover create created criteria critical
+cross culture current curve custom cycle
+daily damage data date day deal death decide decision deep
+default define degree delay deliver demand density depend
+depth describe design detail determine develop device diagram
+difference different difficult direct discover discuss disease
+display distance distinct divide document does domain dose
+double doubt down draw drive drop drug due during duty
+each early earth easy economic effect effort either element
+else enable end energy engine enough ensure enter entire entry
+environment equal equipment error especially establish estimate
+even event every evidence exact example except exchange exist
+expect experience explain export express extent extra
+face fact factor fail failure fair fall family famous farm
+fast fate father feature federal feel feeling few field fight
+figure file fill film final finance find fine finger finish
+firm first fish fit five fix flat flight floor flow fly focus
+follow food foot for force foreign forest forget form formal
+former forward found four frame free frequency fresh friend
+front full fully function fund further future
+gain game gap garden gas gather general generation get give
+given glass goal goes going gone good goods government great
+green ground group grow growth guard guess guest guide
+habit hair half hall hand handle happen happy hard harm hat
+have head health hear heart heat heavy height held hell help
+her here high him himself his history hit hold hole home hope
+horse hospital hot hotel hour house how however huge human
+hurt husband
+idea identify identity image imagine impact import important
+improve include income indeed index indicate individual
+industry infant infection inform initial injury inner input
+inquiry inside instance instead instrument insurance interest
+internal interpret interval interview into introduce invent
+investigate involve iron island issue item itself
+job join joint journey judge jump just
+keep key kick kid kill kind king kitchen knee know knowledge
+label labour lack lady land language large largely last late
+later laugh law layer lead leaf learn least leave led left
+leg legal length less lesson let letter level library lie
+life light like likely limit line link list listen little
+live load local locate lock long look loose lose loss lot
+loud love low lower luck lunch lung machine
+magazine main maintain major make male mall manage manner
+many map margin mark market marriage married mass master
+match material matter may meal mean meaning measure meat
+media medical meet member memory mental mention menu mere
+merely message metal method middle might mile military milk
+mind mine minimum minor minute miss mission mistake model
+modern moment money monitor month mood moon more morning most
+mother motion motor mount mouse mouth move movie much museum
+music must mutual myself
+name nation native natural near nearly neck need negative
+negotiate neighbour neither nerve never new news next nice
+night no nobody nod noise none nor normal north nose not
+note nothing notice notion now nuclear number nurse
+object observe obtain obvious occur ocean odd off offer
+officer official often oil old once one ongoing onion only
+onto open operate opinion opponent opportunity oppose option
+or order ordinary organ organisation other otherwise ought
+our ourselves out outcome outer output outside over overall
+own owner
+pace pack page pain pair panel paper parent park part
+participant participate particular partly partner party pass
+past patch path patient pattern pause pay payment peace peak
+people per percent perfect perhaps period permanent permit
+person personal perspective phase phone photo physical piano
+pick picture piece pig pile pilot pin pink pipe pitch place
+plain plan plane planet plant plastic plate platform play
+please plenty plus pocket poem poet point police policy poll
+pool poor popular population port pose position positive
+possess possible post pot potato potential pound pour powder
+power practical practice praise pray precise predict prefer
+premise prepare presence present president press pressure
+pretend prevent previous price pride priest primarily primary
+prime principal print prior prison private prize probably
+problem procedure proceed process produce profession professor
+profile profit program progress project promise prompt proof
+proper property proposal propose prospect protect prove
+provide public pull pupil pure purpose pursue push put
+qualify quality quantity quarter quickly quiet quite quota
+quote
+race radio rail rain raise range rapid rate rather rating
+ratio raw reach react read reader ready real rear reason
+recall receive recent recently recipe recognition recognise
+recommend record recover red refer reflect reform refuse
+regard region register regular reject relate relation release
+relevant relief rely remain remember remind remove rent repair
+repeat replace reply report represent request require rescue
+research resemble reservation resident resist resolution
+resolve resort resource respect respond response rest result
+retain return reveal revenue review reward rice rich rid ride
+right ring rise risk river road rock role roll roof room
+root rope rough roughly round route row rub rule run rural
+sad safe said sake salary sale salt same sample sanction sand
+satisfy save say scale scan scene schedule scheme school
+science scope score scratch screen search season seat second
+secretary section sector secure see seed seek seem segment
+select sell send senior sense sentence separate sequence
+series serious serve session set setting settle several
+severe sex sexual shake shall shame shape share sharp sheet
+shelf shell shift shine ship shirt shock shoe shoot shop
+short shot should shoulder shout show shower shut sick side
+sight sign signal significance significant similar simple
+simply since sing single sink sir sister sit site situation
+six size ski skill skin slave sleep slice slight slowly
+small smart smell smile smoke smooth snap snow so soccer
+social society sock soft soil solar sold soldier solid solve
+some son song soon sophisticated sorry sort soul sound soup
+source south space spare speak special species specific
+speech speed spend sphere spin spirit split sport spot spread
+spring square stable staff stage stair stand standard star
+start state statement station status stay steady steal steel
+step stick still stir stock stomach stone stop store storm
+story straight strange strategy stream street strength stress
+stretch strict strike string strip stroke strong structure
+student studio study stuff style subject submit substance
+succeed such sudden suffer sugar suggest suit summer super
+supply support suppose sure surface surgery surprise surround
+survey survive suspect sustain swear sweet swim swing symbol
+symptom system
+table tail take tale talent talk tall tank tap tape target
+task taste tax tea teach team tear technical technique
+technology teen telephone television tell temperature temple
+temporary ten tend tennis tension tent term terms terrible
+territory test text than thank that the their theme themselves
+then theory therapy there therefore these they thick thin
+thing think third this those though thought thousand threat
+three through throw thus ticket tie tight till time tin tiny
+tip tired title to tobacco today toe together tomato tomorrow
+ton tongue tonight too tool tooth top topic toss total touch
+tough tour toward towel tower town toy trace track trade
+tradition traffic train transfer transform transport travel
+treat treatment treaty tree trend trial tribe trick trip
+troop trouble truck true truly trust truth try tube turn
+twelve twenty twice twin two type typical
+ugly ultimate ultimately unable uncertain uncle under undergo
+understand unfortunately uniform union unique unit united
+universe unknown unless unlike unlikely until unusual up upon
+upper urban urge us use used useful user usual utility
+valid valley valuable value van variable variation variety
+various vary vast vegetable vehicle venture version versus
+very vessel veteran via victim victory view village violate
+violence virtual virus visible vision visit visual vital
+voice volume vote voter
+wage wait wake walk wall want war warm warn wash waste watch
+water wave way weak wealth weapon wear weather web website
+week weekend weigh welcome well west western wet what wheel
+when where whereas whether which while whisper white who
+whole whom why wide wife wild will win wind window wine wing
+winner winter wipe wire wisdom wise wish with withdraw within
+without witness woman wonder wood word work worker world
+worried worry worse worth would wound wrap write writer
+wrong
+yard yeah year yellow yes yesterday yet yield you young your
+youth zone
+rhythm glyph crypt
+""".split())
+
+
+def _readable_stem(word):
+    """Yield the plain stems a regular inflection of a lexicon
+    word can stand on, so a plural, a past form, or an adverb
+    formed in the regular way from a word of the language counts
+    with the word it is formed from."""
+    stems = []
+    if word.endswith("ies") and len(word) > 4:
+        stems.append(word[:-3] + "y")
+    if word.endswith("es") and len(word) > 3:
+        stems.append(word[:-2])
+    if word.endswith("s") and len(word) > 3:
+        stems.append(word[:-1])
+    if word.endswith("ed") and len(word) > 4:
+        stems.append(word[:-2])
+        stems.append(word[:-1])
+    if word.endswith("ing") and len(word) > 5:
+        stems.append(word[:-3])
+        stems.append(word[:-3] + "e")
+    if word.endswith("ly") and len(word) > 4:
+        stems.append(word[:-2])
+    if word.endswith("er") and len(word) > 4:
+        stems.append(word[:-2])
+    return stems
+
 
 def _is_readable_word(word):
     """Return True only where a letter string stands as a readable
-    word on the stated reading: at least three letters, at least
-    one vowel and at least one consonant among them, and at least
-    two distinct letters, so a string of one repeated letter and a
-    string with no vowel in it counts as no word. The reading is
-    the form words take in the stated sentences this module itself
-    carries, in its claim and grounding sentences, its Field 10
-    marks, and its readout rule statements: every word those
-    sentences rest on carries a vowel and a consonant and is not
-    one repeated letter."""
+    word on the stated reading: the string stands as a word of
+    the language, in the stated lexicon this module carries, in
+    its plain form or as a regular inflection of a lexicon form,
+    and it carries at least three letters. A string that merely
+    has the letter shape of a word, one vowel, one consonant, and
+    two distinct letters, does not meet the reading: invented
+    pronounceable strings have that shape and stand in no
+    lexicon of the language, so they count as no word. The
+    charge behind this reading stands in the Round 2 register
+    rows R2-035 and R2-055, that a plain word counts only where
+    the letter string stands as a readable word, and in the
+    plain sentence duty of the design brief at Shape 15."""
     if len(word) < 3:
         return False
-    letters = set(word)
-    if len(letters) < 2:
-        return False
-    if not any(letter in _READABLE_VOWELS for letter in letters):
-        return False
-    return any(letter not in _READABLE_VOWELS for letter in letters)
+    if word in _READABLE_LEXICON:
+        return True
+    return any(stem in _READABLE_LEXICON
+               for stem in _readable_stem(word))
 
 
 def _plain_word_count(text):
@@ -376,9 +639,12 @@ def _field10_matches_grounds(unit):
     on an anchor scenario must carry that scenario in Field 10
     with the DQ-163 mark, and not the statement that no anchor
     scenario is used. A unit whose other fields state that the
-    claim depends on Parley Q1 must carry the DQ-164 mark in
-    Field 10, and not the statement that no dependence mark
-    applies."""
+    claim depends on Parley Q1, on Parley Q2, or on Parley Q5
+    must carry the DQ-164 mark in Field 10, and not the
+    statement that no dependence mark applies. Each ground is
+    read in the plural and variant wordings the unit may state
+    it in, hyphenated, verb, reversed, and spelled out forms
+    included, beside its exact singular form."""
     field10 = _part_text(
         dict.get(unit, "qualifiers_and_markings_block")
     ).lower().replace("_", " ")
@@ -387,13 +653,13 @@ def _field10_matches_grounds(unit):
         for field in HEADLINE_UNIT_FIELDS
         if field != "qualifiers_and_markings_block"
     ).lower().replace("_", " ")
-    if re.search(r"\b(vouch release|vouch lien|slash)\b", other):
+    if _seam_ground_stated(other):
         if "computed in parley and not settled in the chosen escrow" \
                 not in field10:
             return False
         if "no cross seam effect" in field10:
             return False
-    if "anchor scenario" in other:
+    if _anchor_ground_stated(other):
         if "no anchor scenario is used" in field10:
             return False
         if "dq-163" not in field10:
@@ -401,7 +667,7 @@ def _field10_matches_grounds(unit):
         for scenario in re.findall(r"\ban-[0-9]+\b", other):
             if scenario not in field10:
                 return False
-    if "parley q1" in other:
+    if _parley_grounds_stated(other):
         if "dq-164" not in field10:
             return False
         if "no dependence mark applies" in field10:
@@ -409,10 +675,90 @@ def _field10_matches_grounds(unit):
     return True
 
 
+def _ground_tokens(text):
+    """Return the word tokens of a grounds text, with hyphen and
+    underscore separators read as spacing, so a ground stated in
+    a hyphenated wording stands in the same tokens as the same
+    ground stated with spaces."""
+    return re.findall(r"[a-z0-9]+", text.replace("-", " "))
+
+
+def _seam_ground_stated(other):
+    """Return True where the other fields state a seam ground in
+    any of its wordings: a vouch release or a vouch lien, in the
+    singular or the plural, hyphenated, or stated in a verb form
+    such as a vouch that was released, or a slash, stated as
+    slash, slashes, or a slashed amount."""
+    tokens = _ground_tokens(other)
+    if any(token in ("slash", "slashes", "slashed", "slashing")
+           for token in tokens):
+        return True
+    for index, token in enumerate(tokens):
+        if token != "vouch":
+            continue
+        window = tokens[index:index + 5]
+        if any(word in ("release", "releases", "released",
+                        "releasing", "lien", "liens")
+               for word in window):
+            return True
+    return False
+
+
+def _anchor_ground_stated(other):
+    """Return True where the other fields state an anchor ground
+    in any of its wordings: an anchor scenario or anchor
+    scenarios, hyphenated or not, or the anchor test wording the
+    sources prove beside it."""
+    tokens = _ground_tokens(other)
+    for index, token in enumerate(tokens):
+        if token != "anchor":
+            continue
+        window = tokens[index:index + 3]
+        if any(word in ("scenario", "scenarios", "test", "tests")
+               for word in window):
+            return True
+    return False
+
+
+_PARLEY_GROUND_NUMBERS = {
+    "1": "1", "one": "1",
+    "2": "2", "two": "2",
+    "5": "5", "five": "5",
+}
+
+
+def _parley_grounds_stated(other):
+    """Return the set of Parley dependence grounds, among Q1, Q2,
+    and Q5, that the other fields state, in any of their
+    wordings: Parley Q1 with the letter and number spaced,
+    hyphenated, or joined, Parley question 1 with the number
+    digit or spelled out as a word, and the reversed wording
+    that names the question before Parley."""
+    tokens = _ground_tokens(other)
+    grounds = set()
+    for index, token in enumerate(tokens):
+        if token != "parley":
+            continue
+        window = tokens[max(0, index - 4):index + 5]
+        for place, item in enumerate(window):
+            if item in ("q1", "q2", "q5"):
+                grounds.add(item[1])
+            if item == "q" and place + 1 < len(window) \
+                    and window[place + 1] in _PARLEY_GROUND_NUMBERS:
+                grounds.add(_PARLEY_GROUND_NUMBERS[window[place + 1]])
+            if item == "question" and place + 1 < len(window) \
+                    and window[place + 1] in _PARLEY_GROUND_NUMBERS:
+                grounds.add(_PARLEY_GROUND_NUMBERS[window[place + 1]])
+    return grounds
+
+
 def _has_plain_scope_limits_sentence(value):
     """Return True only where a text part carries a plain scope
     and limits sentence: a sentence in readable words, not code
-    only text, that names a scope and states a limit."""
+    only text, that names a scope and states a limit. The scope
+    words and the limit words are tested as whole words, never
+    as substrings, so the letters of a limit word standing
+    inside a longer word state no limit."""
     text = _part_text(value)
     if not isinstance(text, str) or not text.strip():
         return False
@@ -424,9 +770,11 @@ def _has_plain_scope_limits_sentence(value):
         lowered = sentence.lower()
         if _plain_word_count(sentence) < 6:
             continue
-        if not any(word in lowered for word in scope_words):
+        if not any(re.search(r"\b" + re.escape(word) + r"\b", lowered)
+                   for word in scope_words):
             continue
-        if not any(word in lowered for word in limit_words):
+        if not any(re.search(r"\b" + re.escape(word) + r"\b", lowered)
+                   for word in limit_words):
             continue
         return True
     return False

@@ -47,8 +47,62 @@ _NAMED_FAILURE_CLASS_NAMES = frozenset((
 ))
 
 
-def _freeze(value):
-    return copy.deepcopy(value)
+_FREEZE_DEPTH_BOUND = 100
+
+_FREEZE_TOO_DEEP = (
+    "value stands deeper than the stated depth bound of 100 "
+    "and stands not copied whole")
+
+
+def _freeze(value, _depth=0, _memo=None):
+    """Copy a value under a depth bound of 100 with a cycle
+    guard. A container standing deeper than the bound stands
+    replaced by a stated marker in place of the copy, so the
+    caller still receives the surrounding value in populated
+    form and no bare RecursionError escapes through the copy.
+    Cycles and shared containers inside the bound stand
+    preserved, as a plain deep copy preserves them."""
+    if _depth > _FREEZE_DEPTH_BOUND:
+        return _FREEZE_TOO_DEEP
+    if value is None or isinstance(value, (str, bytes, int, float, bool)):
+        return value
+    memo = _memo if _memo is not None else {}
+    if isinstance(value, dict):
+        if id(value) in memo:
+            return memo[id(value)]
+        copied = {}
+        memo[id(value)] = copied
+        for key, item in value.items():
+            copied[_freeze(key, _depth + 1, memo)] = _freeze(
+                item, _depth + 1, memo)
+        return copied
+    if isinstance(value, list):
+        if id(value) in memo:
+            return memo[id(value)]
+        copied = []
+        memo[id(value)] = copied
+        for item in value:
+            copied.append(_freeze(item, _depth + 1, memo))
+        return copied
+    if isinstance(value, tuple):
+        if id(value) in memo:
+            return memo[id(value)]
+        copied = tuple(
+            _freeze(item, _depth + 1, memo) for item in value)
+        memo[id(value)] = copied
+        return copied
+    if isinstance(value, (set, frozenset)):
+        copied_items = [
+            _freeze(item, _depth + 1, memo) for item in value]
+        try:
+            copied = type(value)(copied_items)
+        except TypeError:
+            copied = copied_items
+        return copied
+    try:
+        return copy.deepcopy(value)
+    except Exception:
+        return _FREEZE_TOO_DEEP
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +345,10 @@ def _screen_pilot_artefact(value, _depth=0, _seen=None):
         try:
             if isinstance(value, dict):
                 for key, item in value.items():
-                    _screen_pilot_key(key)
+                    _screen_pilot_artefact(key, _depth + 1, seen)
+                    if not isinstance(
+                            key, (dict, list, tuple, set, frozenset)):
+                        _screen_pilot_key(key)
                     _screen_pilot_artefact(item, _depth + 1, seen)
                 if not validate_pilot_claim(value):
                     raise NamedShellFailure(
@@ -470,10 +527,23 @@ def _has_stated_condition(fired):
     for entry in entries:
         if entry is None:
             continue
-        if isinstance(entry, str) and not entry.strip():
+        if isinstance(entry, str) and not _stated_text(entry):
             continue
         return True
     return False
+
+
+_ZERO_WIDTH_CHARS = "\u200b\u200c\u200d\ufeff\u2060"
+
+
+def _stated_text(entry):
+    """Return the readable text an entry carries, with zero
+    width characters and byte order mark characters removed.
+    An entry carrying only such characters, or only spacing,
+    carries no readable text and states no condition."""
+    cleaned = "".join(
+        char for char in entry if char not in _ZERO_WIDTH_CHARS)
+    return cleaned.strip()
 
 
 def _normalise_actor(actor):
@@ -487,7 +557,10 @@ def _normalise_actor(actor):
     spacing for the word reading, but the split parts of one
     actor word also stand read joined, so a separator split
     dress of one word reads as the word it names and is not
-    split into a different actor."""
+    split into a different actor. The joined reading also
+    stands tried with article words dropped wherever they
+    stand, so articles inserted between the split parts of
+    one actor word do not hide the word they split."""
     if not isinstance(actor, str):
         return actor
     text = _canonicalise_text(actor)
@@ -500,6 +573,10 @@ def _normalise_actor(actor):
     joined = _resolve_actor_word("".join(words))
     if joined in _ACTOR_VOCABULARY:
         return joined
+    without_articles = _resolve_actor_word("".join(
+        word for word in words if word not in _ARTICLES))
+    if without_articles in _ACTOR_VOCABULARY:
+        return without_articles
     return " ".join(_resolve_actor_word(word) for word in words)
 
 
@@ -745,12 +822,15 @@ def _segments_into_vocabulary(word, vocabulary):
 def _resolve_against(word, ordered, vocabulary):
     """Read one word as the vocabulary word it dresses, where
     it dresses one: the word itself where it stands plain, a
-    word with one, two, or three added letters struck, a word
-    with one letter dropped from a vocabulary word, a word
+    word with one, two, three, or four added letters struck, a
+    word with one letter dropped from a vocabulary word, a word
     with one letter replaced, a word with two adjacent letters
-    transposed, and the two compounded forms, one letter
-    dropped together with one letter replaced, and one
-    transposition together with one letter dropped. The
+    transposed, and the compounded forms, one letter
+    dropped together with one letter replaced, one
+    transposition together with one letter dropped, two
+    letters replaced, two letters dropped from a vocabulary
+    word, and one transposition together with one letter
+    replaced. The
     dropped, replaced, and transposed limbs run on words of
     two letters as well, so a drop from a three letter word
     still resolves. Any other word stands as itself."""
@@ -758,7 +838,7 @@ def _resolve_against(word, ordered, vocabulary):
         return word
     if _segments_into_vocabulary(word, vocabulary):
         return word
-    for added in (1, 2, 3):
+    for added in (1, 2, 3, 4):
         if len(word) > added:
             for cuts in itertools.combinations(range(len(word)), added):
                 reduced = "".join(
@@ -782,6 +862,15 @@ def _resolve_against(word, ordered, vocabulary):
                 if swapped == word:
                     return candidate
         for candidate in ordered:
+            if len(candidate) == len(word) + 2:
+                for cuts in itertools.combinations(
+                        range(len(candidate)), 2):
+                    reduced = "".join(
+                        char for index, char in enumerate(candidate)
+                        if index not in cuts)
+                    if reduced == word:
+                        return candidate
+        for candidate in ordered:
             if len(candidate) != len(word):
                 continue
             differences = sum(
@@ -804,6 +893,27 @@ def _resolve_against(word, ordered, vocabulary):
                         + dropped[swap] + dropped[swap + 2:])
                     if swapped == word:
                         return candidate
+        for candidate in ordered:
+            if len(candidate) != len(word):
+                continue
+            differences = sum(
+                1 for left, right in zip(candidate, word) if left != right)
+            if differences == 2:
+                return candidate
+        for candidate in ordered:
+            if len(candidate) != len(word):
+                continue
+            for swap in range(len(candidate) - 1):
+                if candidate[swap] == candidate[swap + 1]:
+                    continue
+                swapped = (
+                    candidate[:swap] + candidate[swap + 1]
+                    + candidate[swap] + candidate[swap + 2:])
+                differences = sum(
+                    1 for left, right in zip(swapped, word)
+                    if left != right)
+                if differences == 1:
+                    return candidate
     return word
 
 
@@ -825,21 +935,99 @@ def _resolve_actor_word(word):
         word, _ACTOR_VOCABULARY_ORDERED, _ACTOR_VOCABULARY)
 
 
+def _plural_form(word):
+    if len(word) > 3 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 1 and word.endswith("s"):
+        return word[:-1]
+    return word
+
+
+def _single_reading(word):
+    """The reading of one fragment on its own, with its
+    standing: exact where the plural form stands in the
+    vocabulary, resolved where the resolver reads it as a
+    vocabulary word it dresses, and plain otherwise."""
+    base = _plural_form(word)
+    if base in _VOCABULARY_WORDS:
+        return base, "exact"
+    resolved = _resolve_word(_canonicalise_word(base))
+    if resolved in _VOCABULARY_WORDS and resolved != base:
+        return resolved, "resolved"
+    return resolved, "plain"
+
+
+def _group_reading(fragments):
+    """The reading of several fragments joined with no
+    separator, where they join into one vocabulary word:
+    the joined word where its plural form stands in the
+    vocabulary, and None where the joined form stands as no
+    vocabulary word. The joined form stands read exact only,
+    never through the resolver, so a group reading cannot
+    strike a whole fragment away to reach a shorter word."""
+    joined = _plural_form("".join(fragments))
+    if joined in _VOCABULARY_WORDS:
+        return joined, "exact"
+    return None
+
+
+def _reading_words(fragments):
+    """Read a fragment sequence as words. The reading stands
+    as the partition of the sequence with the highest score,
+    where a group of fragments joining into one vocabulary
+    word scores above the same fragments read one by one, an
+    exact vocabulary word scores above a resolved one, a
+    resolved word scores above a plain fragment, and dropping
+    an article standing between words scores above keeping it
+    as a plain fragment. A separator split inside one word
+    therefore reads as that word, even where a fragment on its
+    own resolves elsewhere or stands as an article, while
+    words standing apart keep their own readings."""
+    scores = {"exact": 20, "resolved": 15, "plain": 2}
+    best = {}
+
+    def search(start):
+        if start in best:
+            return best[start]
+        if start >= len(fragments):
+            return (0, ())
+        options = []
+        word, standing = _single_reading(fragments[start])
+        rest_score, rest_words = search(start + 1)
+        options.append((
+            scores[standing] + rest_score, (word,) + rest_words))
+        if fragments[start] in _ARTICLES:
+            options.append((5 + rest_score, rest_words))
+        joined = [fragments[start]]
+        for size in range(2, min(8, len(fragments) - start) + 1):
+            joined.append(fragments[start + size - 1])
+            if len("".join(joined)) > 24:
+                break
+            reading = _group_reading(joined)
+            if reading is None:
+                continue
+            group_word, group_standing = reading
+            rest_score, rest_words = search(start + size)
+            group_score = scores[group_standing] * size + 10
+            options.append((
+                group_score + rest_score, (group_word,) + rest_words))
+        chosen = max(options, key=lambda option: option[0])
+        best[start] = chosen
+        return chosen
+
+    return list(search(0)[1])
+
+
 def _normalise_name(value):
     text = _canonicalise_text(value)
     text = "".join(
         char if char.isalnum() else " " for char in text)
-    words = []
+    fragments = []
     for raw in text.split():
         word = raw.strip(".,;:!?\"'()[]{}")
-        if not word or word in _ARTICLES:
-            continue
-        if len(word) > 3 and word.endswith("ies"):
-            word = word[:-3] + "y"
-        elif len(word) > 1 and word.endswith("s"):
-            word = word[:-1]
-        words.append(_resolve_word(_canonicalise_word(word)))
-    return " ".join(words)
+        if word:
+            fragments.append(word)
+    return " ".join(_reading_words(fragments))
 
 
 def _verb_stems(word):

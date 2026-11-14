@@ -78,14 +78,60 @@ def _base_get(record, key):
     return None
 
 
-def _strict_eq(first, second, _seen=None):
+COMPARISON_DEPTH_BOUND = 100
+
+
+def _base_str_eq(first, second):
+    """Judge two values by base string equality, which no part
+    can override. A value that does not stand in string form, or
+    whose stored characters differ, does not agree."""
+    if not (isinstance(first, str) and isinstance(second, str)):
+        return False
+    result = str.__eq__(first, second)
+    return result if result is not NotImplemented else False
+
+
+def _base_str_member(value, options):
+    """Return True only where a value stands, by base string
+    equality, among the stated options."""
+    return any(_base_str_eq(value, option) for option in options)
+
+
+def _base_set_items(value):
+    """Read the stored elements of a set or frozenset part
+    through base class iteration, never through an iteration
+    the part itself supplies."""
+    if isinstance(value, frozenset):
+        return list(frozenset.__iter__(value))
+    return list(set.__iter__(value))
+
+
+def _base_sentence_items(sentences):
+    """Read the stored sentences of a handed list or tuple
+    through base class iteration, never through an iteration
+    the handed part itself supplies."""
+    if isinstance(sentences, tuple):
+        return list(tuple.__iter__(sentences))
+    return list(list.__iter__(sentences))
+
+
+def _strict_eq(first, second, _seen=None, _depth=0):
     """Judge two values by the values themselves, through base
     class comparisons that no part can override, at every nesting
     level. A part that overrides its own equality, for example a
     str subclass whose equality agrees with everything, is judged
     by the characters it stores, and the same rule runs inside
     plain lists, tuples, dicts, sets and frozensets nested at any
-    depth the comparison acts read."""
+    depth the comparison acts read. The reading carries the
+    stated depth bound of 100: a shape standing deeper than the
+    bound stands refused in NamedReplicationFailure form, at
+    this reading and at both public acts over it."""
+    if _depth > COMPARISON_DEPTH_BOUND:
+        raise NamedReplicationFailure(
+            "comparison depth bound reached: the value stands "
+            "deeper than the stated bound of "
+            + str(COMPARISON_DEPTH_BOUND)
+        )
     if first is None or second is None:
         return first is None and second is None
     if isinstance(first, bool) or isinstance(second, bool):
@@ -122,8 +168,8 @@ def _strict_eq(first, second, _seen=None):
                 if used[index]:
                     continue
                 second_key, second_value = second_items[index]
-                if _strict_eq(first_key, second_key, _seen) and _strict_eq(
-                        first_value, second_value, _seen):
+                if _strict_eq(first_key, second_key, _seen, _depth + 1) and _strict_eq(
+                        first_value, second_value, _seen, _depth + 1):
                     used[index] = True
                     matched = True
                     break
@@ -144,7 +190,7 @@ def _strict_eq(first, second, _seen=None):
         for index in range(list.__len__(first)):
             if not _strict_eq(
                     list.__getitem__(first, index),
-                    list.__getitem__(second, index), _seen):
+                    list.__getitem__(second, index), _seen, _depth + 1):
                 return False
         return True
     if isinstance(first, tuple) or isinstance(second, tuple):
@@ -161,7 +207,7 @@ def _strict_eq(first, second, _seen=None):
         for index in range(tuple.__len__(first)):
             if not _strict_eq(
                     tuple.__getitem__(first, index),
-                    tuple.__getitem__(second, index), _seen):
+                    tuple.__getitem__(second, index), _seen, _depth + 1):
                 return False
         return True
     if isinstance(first, (set, frozenset)) or isinstance(
@@ -175,8 +221,8 @@ def _strict_eq(first, second, _seen=None):
         if pair in _seen:
             return True
         _seen = _seen | {pair}
-        first_items = list(first)
-        second_items = list(second)
+        first_items = _base_set_items(first)
+        second_items = _base_set_items(second)
         if len(first_items) != len(second_items):
             return False
         used = [False] * len(second_items)
@@ -185,7 +231,7 @@ def _strict_eq(first, second, _seen=None):
             for index in range(len(second_items)):
                 if used[index]:
                     continue
-                if _strict_eq(first_item, second_items[index], _seen):
+                if _strict_eq(first_item, second_items[index], _seen, _depth + 1):
                     used[index] = True
                     matched = True
                     break
@@ -201,10 +247,30 @@ def _strict_eq(first, second, _seen=None):
         result = float.__eq__(first, second)
         return result if result is not NotImplemented else False
     if isinstance(first, (int, float)) and isinstance(second, (int, float)):
-        return first == second
+        if isinstance(first, float):
+            result = float.__eq__(first, second)
+        else:
+            result = float.__eq__(second, first)
+        return result if result is not NotImplemented else False
+    if isinstance(first, complex) or isinstance(second, complex):
+        if not (isinstance(first, (int, float, complex))
+                and isinstance(second, (int, float, complex))):
+            return False
+        if isinstance(first, complex):
+            result = complex.__eq__(first, second)
+        else:
+            result = complex.__eq__(second, first)
+        return result if result is not NotImplemented else False
+    if isinstance(first, bytearray) or isinstance(second, bytearray):
+        if not (isinstance(first, bytearray)
+                and isinstance(second, bytearray)):
+            return False
+        result = bytearray.__eq__(first, second)
+        return result if result is not NotImplemented else False
     if type(first) is not type(second):
         return False
-    return first == second
+    result = object.__eq__(first, second)
+    return result if result is not NotImplemented else False
 
 
 def _replication_sentences_ok(record):
@@ -220,15 +286,16 @@ def _replication_sentences_ok(record):
     sentences = dict.get(record, "replication_statement_sentences")
     if not isinstance(sentences, (list, tuple)):
         return False
-    if len(sentences) == 0:
+    stored_sentences = _base_sentence_items(sentences)
+    if len(stored_sentences) == 0:
         return False
     if not _strict_eq(
-            list(sentences), list(REPLICATION_STATEMENT_SENTENCES)):
+            stored_sentences, list(REPLICATION_STATEMENT_SENTENCES)):
         return False
     joined = dict.get(record, "replication_statement")
     if not isinstance(joined, str):
         return False
-    constructed = " ".join(list(sentences))
+    constructed = " ".join(stored_sentences)
     return (
         _strict_eq(constructed, REPLICATION_STATEMENT)
         and _strict_eq(joined, REPLICATION_STATEMENT)
@@ -670,17 +737,27 @@ def validate_verdict_record(record):
     does not validate."""
     if not isinstance(record, dict):
         return False
-    if not record.get("claim_identifier"):
+    claim_identifier = dict.get(record, "claim_identifier")
+    if isinstance(claim_identifier, str):
+        if str.__len__(claim_identifier) == 0:
+            return False
+    elif not claim_identifier:
         return False
-    if record.get("outcome") not in ("rests", "does not rest"):
+    if not _base_str_member(
+            dict.get(record, "outcome"), ("rests", "does not rest")):
         return False
-    if record.get("standard_applied") == "distributional equivalence":
+    if _base_str_eq(
+            dict.get(record, "standard_applied"),
+            "distributional equivalence"):
         return False
-    if dict.get(record, "replication_statement") != REPLICATION_STATEMENT:
+    if not _base_str_eq(
+            dict.get(record, "replication_statement"),
+            REPLICATION_STATEMENT):
         return False
     if not _replication_sentences_ok(record):
         return False
-    return record.get("standard_applied") == "exact replay alone"
+    return _base_str_eq(
+        dict.get(record, "standard_applied"), "exact replay alone")
 
 
 def publishable_on_replication(claim, verdict):
@@ -689,13 +766,21 @@ def publishable_on_replication(claim, verdict):
     stand, with the outcome rests."""
     if not isinstance(verdict, dict):
         return False
-    if verdict.get("claim_identifier") != (claim or {}).get("claim_identifier"):
+    verdict_claim = dict.get(verdict, "claim_identifier")
+    handed_claim = (
+        _base_get(claim, "claim_identifier")
+        if isinstance(claim, dict) else None
+    )
+    if isinstance(verdict_claim, str) or isinstance(handed_claim, str):
+        if not _base_str_eq(verdict_claim, handed_claim):
+            return False
+    elif not _strict_eq(verdict_claim, handed_claim):
         return False
     if not _replication_sentences_ok(verdict):
         return False
     if not validate_verdict_record(verdict):
         return False
-    return verdict.get("outcome") == "rests"
+    return _base_str_eq(dict.get(verdict, "outcome"), "rests")
 
 
 def probe_record(scenario="headline scenario"):

@@ -144,7 +144,9 @@ def apply_family_edit(record, change=None):
     RecursionError. A claims list handed in as an empty list
     stands read as an empty list, never as absent, and an edit
     whose kill check fields name a claim that no longer stands
-    is refused in the named form."""
+    is refused in the named form. A claims value that does not
+    stand in list or tuple form is refused in the named form,
+    never read character by character or part by part."""
     if _shape_exceeds_bounds(record) or (
             change is not None and _shape_exceeds_bounds(change)):
         raise NamedControllerFailure(
@@ -169,8 +171,12 @@ def apply_family_edit(record, change=None):
         raw = edited.get("headline_claims") if (
             "headline_claims" in edited) else edited.get("claims")
     if raw is not None:
-        standing = list(raw) if isinstance(
-            raw, (list, tuple)) else list(raw)
+        if not isinstance(raw, (list, tuple)):
+            raise NamedControllerFailure(
+                "family edit refused: a claims value handed in "
+                "does not stand in list or tuple form: "
+                + repr(raw))
+        standing = list(raw)
         edited["headline_claims"] = standing
         edited["claims"] = standing
         checks = [kill_check_for_claim(claim) for claim in standing]
@@ -534,20 +540,26 @@ _MAX_BARRED_READ_DEPTH = 100
 
 def _shape_exceeds_bounds(value):
     """True where a value stands deeper than the barred read bound
-    or carries a cycle on one of its paths. The check walks with
-    an explicit stack, so a hostile shape is reported in this
-    form and never as a bare RecursionError."""
+    or carries a cycle on one of its paths. The walk counts
+    containers only against the bound, so a scalar leaf standing
+    below a chain of containers adds no level of its own, and it
+    walks dict keys beside dict values, so nesting that stands
+    in a dict key counts in the same way as nesting in a dict
+    value. The check walks with an explicit stack, so a hostile
+    shape is reported in this form and never as a bare
+    RecursionError."""
     stack = [(value, 0, frozenset())]
     while stack:
         current, depth, path = stack.pop()
-        if depth > _MAX_BARRED_READ_DEPTH:
-            return True
         if isinstance(current, (dict, list, tuple, set, frozenset)):
+            if depth > _MAX_BARRED_READ_DEPTH:
+                return True
             if id(current) in path:
                 return True
             path = path | {id(current)}
             if isinstance(current, dict):
-                children = list(current.values())
+                children = list(current.keys()) + list(
+                    current.values())
             else:
                 children = list(current)
             for child in children:

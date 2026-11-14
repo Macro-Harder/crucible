@@ -216,7 +216,14 @@ _HOMOGLYPH_MAP = {
     "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
     "\u1d22": "z",
     "\u0452": "s", "\u0493": "h",
+    "\u13d2": "r", "\uaba2": "r", "\u13ac": "e", "\uab7c": "e",
+    "\u13aa": "a", "\uab7a": "a", "\u13de": "l", "\uabae": "l",
+    "\u13b7": "m", "\uab87": "m", "\u13be": "o", "\uab8e": "o",
+    "\u13c1": "n", "\uab91": "n", "\u13ef": "y", "\uabbf": "y",
+    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
+    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
     "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l", "\u00a5": "y",
+    "\u00a2": "c", "\u00a7": "s", "+": "t",
 }
 for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
     _HOMOGLYPH_MAP[_upper.upper()] = _lower
@@ -233,6 +240,12 @@ _TRANSLITERATION_MAP = {
     "\u044e": "yu", "\u044f": "ya",
     "\u0455": "s", "\u04bb": "h", "\u0456": "i",
     "\u0452": "s", "\u0493": "h",
+    "\u13d2": "r", "\uaba2": "r", "\u13ac": "e", "\uab7c": "e",
+    "\u13aa": "a", "\uab7a": "a", "\u13de": "l", "\uabae": "l",
+    "\u13b7": "m", "\uab87": "m", "\u13be": "o", "\uab8e": "o",
+    "\u13c1": "n", "\uab91": "n", "\u13ef": "y", "\uabbf": "y",
+    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
+    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
     "\u03b1": "a", "\u03b2": "b", "\u03b3": "g", "\u03b4": "d",
     "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "th",
     "\u03b9": "i", "\u03ba": "k", "\u03bb": "l", "\u03bc": "m",
@@ -252,7 +265,7 @@ _TRANSLITERATION_MAP = {
     "\u1d22": "z",
     "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
     "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
-    "\u00a5": "y", "$": "s",
+    "\u00a5": "y", "$": "s", "\u00a2": "c", "\u00a7": "s", "+": "t",
 }
 for _upper, _lower in list(_TRANSLITERATION_MAP.items()):
     _TRANSLITERATION_MAP[_upper.upper()] = _lower
@@ -356,9 +369,19 @@ def _is_barred_key(key):
 
 CLEANING_DEPTH_BOUND = 100
 
+VALUE_APPEARS_DEPTH_BOUND = 100
+
+
+def _clean_leaf_copy(value):
+    """Copy one leaf part of a projection through no protocol the
+    part itself supplies. A leaf part stands copied as itself, so
+    a part carrying a lying deepcopy protocol cannot materialise
+    as another value inside the delivered projection."""
+    return value
+
 
 def _clean_value(value, _depth=0, _seen=None, _path=""):
-    if isinstance(value, (dict, list, tuple, frozenset)):
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
         if _depth > CLEANING_DEPTH_BOUND:
             raise NamedFailure(
                 "projection cleaning bound reached at " + (_path or "root")
@@ -388,13 +411,18 @@ def _clean_value(value, _depth=0, _seen=None, _path=""):
                     _clean_value(item, _depth + 1, seen, _path + "[" + str(index) + "]")
                     for index, item in _base_entries(value)
                 )
+            if isinstance(value, set):
+                return set(
+                    _clean_value(item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                    for index, item in _base_entries(value)
+                )
             return frozenset(
                 _clean_value(item, _depth + 1, seen, _path + "[" + str(index) + "]")
                 for index, item in _base_entries(value)
             )
         finally:
             seen.discard(id(value))
-    return _freeze(value)
+    return _clean_leaf_copy(value)
 
 
 def _clean_feature_values(raw):
@@ -454,8 +482,14 @@ def project_detection_input(state):
     }
 
 
-def _value_appears(value, node, _seen=None):
-    if isinstance(node, (dict, list, tuple)):
+def _value_appears(value, node, _seen=None, _depth=0):
+    if isinstance(node, (dict, list, tuple, set, frozenset)):
+        if _depth > VALUE_APPEARS_DEPTH_BOUND:
+            raise NamedFailure(
+                "canary presence read bound reached: the value stands "
+                "deeper than the stated bound of "
+                + str(VALUE_APPEARS_DEPTH_BOUND)
+            )
         seen = _seen if _seen is not None else set()
         if id(node) in seen:
             return False
@@ -463,12 +497,16 @@ def _value_appears(value, node, _seen=None):
     if node == value:
         return True
     if isinstance(node, dict):
-        return any(_value_appears(value, v, _seen) for v in dict.values(node)) or any(
-            _value_appears(value, k, _seen) for k in dict.keys(node)
-        )
-    if isinstance(node, (list, tuple)):
         return any(
-            _value_appears(value, item, _seen)
+            _value_appears(value, v, _seen, _depth + 1)
+            for v in dict.values(node)
+        ) or any(
+            _value_appears(value, k, _seen, _depth + 1)
+            for k in dict.keys(node)
+        )
+    if isinstance(node, (list, tuple, set, frozenset)):
+        return any(
+            _value_appears(value, item, _seen, _depth + 1)
             for index, item in _base_entries(node)
         )
     if isinstance(node, str) and isinstance(value, str):
@@ -828,6 +866,8 @@ def _view_copy_guard(value, _depth=0, _seen=None, _path=""):
             if isinstance(value, dict):
                 for key, item in dict.items(value):
                     _view_copy_guard(
+                        key, _depth + 1, seen, _path + "/" + str(key))
+                    _view_copy_guard(
                         item, _depth + 1, seen, _path + "/" + str(key))
             else:
                 for index, item in _base_entries(value):
@@ -862,14 +902,14 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
     for record in retained_records or ():
         if not isinstance(record, dict):
             continue
-        viewer = record.get("viewer_id")
+        viewer = dict.get(record, "viewer_id")
         if viewer is None:
-            viewer = record.get("viewer_identifier")
+            viewer = dict.get(record, "viewer_identifier")
         if viewer != viewer_id:
             continue
-        first_seen = record.get("first_seen_day")
+        first_seen = dict.get(record, "first_seen_day")
         if first_seen is None:
-            first_seen = record.get("day")
+            first_seen = dict.get(record, "day")
         if first_seen is None:
             continue
         if not _whole(first_seen):
@@ -882,9 +922,9 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
                 first_seen_day + delay_days == view_day
                 or first_seen_day >= view_day
             ):
-                arising = record.get("arising_position")
+                arising = dict.get(record, "arising_position")
                 if arising is None:
-                    arising = record.get("position")
+                    arising = dict.get(record, "position")
                 if arising is None:
                     continue
                 if not _whole(arising):
