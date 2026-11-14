@@ -1651,6 +1651,12 @@ def _resolve_actor_word(word):
     four letters dropped from a vocabulary word, and three
     transpositions also resolve, and one transposition
     together with three letters replaced resolves beside them.
+    Transpositions composed with letters replaced also
+    resolve in the shell form, where one or two
+    transpositions stand with one to three remaining letters
+    replaced and the total number of changes stands past
+    three, so totals of four and of five changes resolve and
+    a total of three changes in that composition does not.
     The dropped, replaced, and transposed limbs run on words
     of two letters as well, so a drop from a three letter word
     still resolves. A word of one letter stands read through
@@ -1786,6 +1792,31 @@ def _resolve_actor_word(word):
         for candidate in _ACTOR_VOCABULARY_ORDERED:
             if len(candidate) != len(word):
                 continue
+            differing = [
+                index for index in range(len(word))
+                if candidate[index] != word[index]]
+            swaps = 0
+            remaining = 0
+            position = 0
+            while position < len(differing):
+                index = differing[position]
+                if (position + 1 < len(differing)
+                        and differing[position + 1] == index + 1
+                        and word[index] == candidate[index + 1]
+                        and word[index + 1] == candidate[index]):
+                    swaps += 1
+                    position += 2
+                else:
+                    remaining += 1
+                    position += 1
+            if swaps >= 1 and remaining == 0 and swaps <= 3:
+                return candidate
+            if (1 <= swaps <= 2 and 1 <= remaining <= 3
+                    and swaps + remaining > 3):
+                return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
             differences = sum(
                 1 for left, right in zip(candidate, word)
                 if left != right)
@@ -1818,20 +1849,6 @@ def _resolve_actor_word(word):
                 if left != right)
             if differences == 4:
                 return candidate
-        for candidate in _ACTOR_VOCABULARY_ORDERED:
-            if len(candidate) != len(word):
-                continue
-            for swap in range(len(candidate) - 1):
-                if candidate[swap] == candidate[swap + 1]:
-                    continue
-                swapped = (
-                    candidate[:swap] + candidate[swap + 1]
-                    + candidate[swap] + candidate[swap + 2:])
-                differences = sum(
-                    1 for left, right in zip(swapped, word)
-                    if left != right)
-                if differences == 3:
-                    return candidate
     return word
 
 
