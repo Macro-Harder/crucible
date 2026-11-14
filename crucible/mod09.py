@@ -188,7 +188,142 @@ def _base_length(value):
         return frozenset.__len__(value)
     if isinstance(value, set):
         return set.__len__(value)
+    if isinstance(value, bytes):
+        return bytes.__len__(value)
+    if isinstance(value, bytearray):
+        return bytearray.__len__(value)
+    if isinstance(value, memoryview):
+        return memoryview.__len__(value)
     return len(value)
+
+
+def _base_items(value):
+    """Read the stored items of a handed list or tuple through
+    its base class iteration, never through an iteration the
+    value itself supplies. A value in no such form stores no
+    items."""
+    if isinstance(value, tuple):
+        return list(tuple.__iter__(value))
+    if isinstance(value, list):
+        return list(list.__iter__(value))
+    return []
+
+
+def _stored_match(first, second):
+    """Judge two stored values: text values by their stored
+    characters through the base string equality, any other pair
+    by the plain equality of its plain forms."""
+    if isinstance(first, str) or isinstance(second, str):
+        if not (isinstance(first, str) and isinstance(second, str)):
+            return False
+        result = str.__eq__(first, second)
+        return result if result is not NotImplemented else False
+    return first == second
+
+
+def _base_sequence(value):
+    """The stored parts of a handed sequence, read through the
+    base iteration of its form, as a list of stored parts, text
+    parts standing as the plain text they store. A value in no
+    sequence form stands as no parts."""
+    if isinstance(value, list):
+        parts = list.__iter__(value)
+    elif isinstance(value, tuple):
+        parts = tuple.__iter__(value)
+    elif isinstance(value, frozenset):
+        parts = frozenset.__iter__(value)
+    elif isinstance(value, set):
+        parts = set.__iter__(value)
+    else:
+        return []
+    return [
+        str.__str__(part) if isinstance(part, str)
+        else bytes(part) if isinstance(part, bytes)
+        else part
+        for part in parts]
+
+
+def _stored_eq(first, second):
+    """Whether two handed values stand equal on their stored
+    forms: text values on the text they store, read through
+    the base string form, and every other value on its own
+    base equality."""
+    if isinstance(first, str) and isinstance(second, str):
+        return str.__eq__(
+            str.__str__(first), str.__str__(second)) is True
+    if isinstance(first, (bytes, bytearray, memoryview)) \
+            and isinstance(second, (bytes, bytearray, memoryview)):
+        return bytes(first) == bytes(second)
+    result = first == second
+    return result is True
+
+
+def _base_contains(container, item):
+    """Whether a handed container stores an item, judged on its
+    stored contents: a mapping by its base contains, a list,
+    tuple, set, or text value by its stored parts read through
+    base class readings, each stored part judged by both stored
+    equality forms of this module, the stored match and the
+    stored equality, so a part stands contained only where both
+    forms judge it equal, never through a contains, iteration,
+    or equality reading the container or a part itself
+    supplies."""
+    if isinstance(container, dict):
+        return dict.__contains__(container, item)
+    if isinstance(container, (list, tuple)):
+        return any(
+            _stored_match(part, item) and _stored_eq(part, item)
+            for part in _base_items(container))
+    if isinstance(container, frozenset):
+        return any(
+            _stored_match(part, item) and _stored_eq(part, item)
+            for part in frozenset.__iter__(container))
+    if isinstance(container, set):
+        return any(
+            _stored_match(part, item) and _stored_eq(part, item)
+            for part in set.__iter__(container))
+    if isinstance(container, str):
+        if not isinstance(item, str):
+            return False
+        return str.__contains__(container, item)
+    return False
+
+
+def _stored_truthy(value):
+    """Whether a stored value stands truthy, judged on what it
+    stores: containers and text by their base class length, a
+    boolean by itself, a number by standing apart from zero,
+    and any other stored value by standing apart from None."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value is True
+    if isinstance(value, (str, list, tuple, dict, set, frozenset,
+                          bytes, bytearray, memoryview)):
+        return _base_length(value) > 0
+    if isinstance(value, (int, float)):
+        return value != 0
+    return True
+
+
+def _stored_strip_blank(value):
+    """Whether a handed text value stores only blank space,
+    judged on the text it stores through the base string form
+    and the base strip, never through a strip reading the
+    value itself supplies."""
+    if isinstance(value, str):
+        return not str.strip(str.__str__(value))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return not bytes.strip(bytes(value))
+    return False
+
+
+def _carry_text(value):
+    """A text value as the plain text it stores, and any other
+    value as itself, for carriage in a built record."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return value
 
 
 def mod03_catalogue_record(records=None):
@@ -202,13 +337,37 @@ def catalogue_gaps():
     return tuple(_mod03.catalogue_gaps())
 
 
+def _catalogue_order_key(name):
+    """Return the stated order key for one identifier of an
+    unordered identifier container. A text identifier stands
+    ordered by its stored text, read character by character
+    through the base string reading so a reading the identifier
+    itself supplies directs nothing. A bytes form identifier
+    stands ordered after text identifiers, by the text its
+    stored bytes decode to. Every other identifier stands
+    ordered last, by its kind name and its base representation."""
+    if isinstance(name, str):
+        return (0, "".join(
+            str.__getitem__(name, index)
+            for index in range(str.__len__(name))), "")
+    if isinstance(name, (bytes, bytearray, memoryview)):
+        return (1, bytes(name).decode("utf-8", "ignore"),
+                type(name).__name__)
+    return (2, type(name).__name__, repr(name))
+
+
 def strategy_catalogue(extra_identifiers=None):
     """The strategy catalogue standing for this seat.
 
     Strategy identifiers stand drawn from the catalogue record the
     Society Generator delivers under OP-11, from identifiers a run
     record itself supplies, and from the one named strategy of this
-    seat. No other identifier is invented here.
+    seat. No other identifier is invented here. Identifiers handed
+    in an unordered container, a set or a frozenset, stand appended
+    in the stated content derived order of _catalogue_order_key,
+    so the same identifier content gives the same catalogue order
+    at every hash seed. Identifiers handed in an ordered container
+    stand appended in the order handed.
     """
     identifiers = list(NAMED_STRATEGIES)
     record = mod03_catalogue_record()
@@ -219,7 +378,10 @@ def strategy_catalogue(extra_identifiers=None):
                 name = entry["archetype_id"]
                 if name not in identifiers:
                     identifiers.append(name)
-    for name in extra_identifiers or []:
+    extras = extra_identifiers or []
+    if isinstance(extras, (set, frozenset)):
+        extras = sorted(extras, key=_catalogue_order_key)
+    for name in extras:
         if name not in identifiers:
             identifiers.append(name)
     return {
@@ -281,12 +443,12 @@ def attacker_payoff(strategy, external_profit_value):
     standing in no record form, or carrying no numeric in protocol
     payoff, fails by name in this module failure form."""
     if not isinstance(strategy, dict) or (
-            "in_protocol_payoff" not in strategy):
+            not _base_dict_contains(strategy, "in_protocol_payoff")):
         raise NamedAttackerFailure(
             "attacker payoff rejected: the strategy stands in no "
             "record form carrying an in protocol payoff"
         )
-    in_protocol = strategy["in_protocol_payoff"]
+    in_protocol = _base_dict_get(strategy, "in_protocol_payoff")
     if isinstance(in_protocol, bool) or not isinstance(
             in_protocol, (int, float)):
         raise NamedAttackerFailure(
@@ -323,11 +485,12 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
             "external profit sweep rejected: the strategy stands "
             "in no record form: " + repr(strategy)
         )
-    stated_range = strategy.get("external_profit_range", [])
+    stated_range = _base_dict_get(
+        strategy, "external_profit_range", [])
     if stated_range is None:
         values = []
     elif isinstance(stated_range, (list, tuple)):
-        values = list(stated_range)
+        values = _base_sequence(stated_range)
     else:
         raise NamedAttackerFailure(
             "external profit sweep rejected: the stated range "
@@ -346,7 +509,7 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
         )
     largest = largest_in_protocol_payoff
     if largest is None:
-        largest = strategy.get("in_protocol_payoff", 0)
+        largest = _base_dict_get(strategy, "in_protocol_payoff", 0)
     if not _stands_numeric(largest):
         raise NamedAttackerFailure(
             "external profit sweep rejected: the largest in "
@@ -381,7 +544,7 @@ def run_record_carriage(strategy_class, ladder_position,
     version in force, beside the strategies exercised, each drawn
     from the fixed class.
     """
-    if strategy_class is None or strategy_class == "":
+    if strategy_class is None:
         raise NamedAttackerFailure(
             "run record rejected: no fixed strategy class stands "
             "stated"
@@ -391,7 +554,7 @@ def run_record_carriage(strategy_class, ladder_position,
             "run record rejected: the fixed strategy class stands "
             "in no class list form: " + repr(strategy_class)
         )
-    if len(strategy_class) == 0:
+    if _base_length(strategy_class) == 0:
         raise NamedAttackerFailure(
             "run record rejected: no fixed strategy class stands "
             "stated"
@@ -415,39 +578,48 @@ def run_record_carriage(strategy_class, ladder_position,
             + repr(ladder_position)
         )
     if catalogue_version_or_hash is None or (
-            isinstance(catalogue_version_or_hash, str)
-            and not catalogue_version_or_hash.strip()):
+            isinstance(
+                catalogue_version_or_hash,
+                (str, bytes, bytearray, memoryview))
+            and _stored_strip_blank(catalogue_version_or_hash)):
         raise NamedAttackerFailure(
             "run record rejected: no catalogue version or hash "
             "stands stated"
         )
     if ladder_definition_pointer is None or (
             ladder_definition_version is None) or (
-            isinstance(ladder_definition_pointer, str)
-            and not ladder_definition_pointer.strip()) or (
-            isinstance(ladder_definition_version, str)
-            and not ladder_definition_version.strip()):
+            isinstance(
+                ladder_definition_pointer,
+                (str, bytes, bytearray, memoryview))
+            and _stored_strip_blank(ladder_definition_pointer)) or (
+            isinstance(
+                ladder_definition_version,
+                (str, bytes, bytearray, memoryview))
+            and _stored_strip_blank(ladder_definition_version)):
         raise NamedAttackerFailure(
             "run record rejected: no ladder definition pointer "
             "and version stand stated"
         )
     exercised = []
-    for strategy in strategies or []:
+    for strategy in _base_sequence(strategies):
         name = strategy
         if isinstance(strategy, dict):
             name = dict.get(strategy, "strategy_identifier")
-        if name not in strategy_class:
+        if not _base_contains(strategy_class, name):
             raise NamedAttackerFailure(
                 "strategy outside the fixed class stands rejected: "
                 + str(name)
             )
-        exercised.append(name)
+        exercised.append(_carry_text(name))
     return {
-        "strategy_class": list(strategy_class),
+        "strategy_class": _base_sequence(strategy_class),
         "ladder_position": ladder_position,
-        "catalogue_version_or_hash": catalogue_version_or_hash,
-        "ladder_definition_pointer": ladder_definition_pointer,
-        "ladder_definition_version": ladder_definition_version,
+        "catalogue_version_or_hash": _carry_text(
+            catalogue_version_or_hash),
+        "ladder_definition_pointer": _carry_text(
+            ladder_definition_pointer),
+        "ladder_definition_version": _carry_text(
+            ladder_definition_version),
         "strategies_exercised": exercised,
         "catalogue_standing": CATALOGUE_STANDING,
         "units": UNITS,
@@ -475,7 +647,7 @@ def validate_search_record(record, fixed_class=None):
     carriage = _base_dict_get(record, "run_record", missing)
     if carriage is missing:
         carriage = record
-    if _base_dict_get(record, "mid_run_strategies"):
+    if _stored_truthy(_base_dict_get(record, "mid_run_strategies")):
         return False
     try:
         run_record_carriage(
@@ -489,9 +661,12 @@ def validate_search_record(record, fixed_class=None):
         )
     except NamedAttackerFailure:
         return False
-    if fixed_class is not None and list(
-            _base_dict_get(carriage, "strategy_class", [])) != list(
-            fixed_class):
+    if fixed_class is not None and _base_sequence(
+            _base_dict_get(carriage, "strategy_class", [])) != (
+            _base_sequence(fixed_class)
+            if isinstance(
+                fixed_class, (list, tuple, set, frozenset))
+            else list(fixed_class)):
         return False
     search = _base_dict_get(record, "search_record", {})
     if not isinstance(search, dict):
@@ -510,12 +685,13 @@ def validate_search_record(record, fixed_class=None):
     if not isinstance(bond, dict):
         return False
     if _base_dict_get(bond, "worst_griefing_factor") is None or (
-            not _base_dict_get(bond, "parameter_set")):
+            not _stored_truthy(
+                _base_dict_get(bond, "parameter_set"))):
         return False
     case_uses = _base_dict_get(record, "case_uses", [])
     if not isinstance(case_uses, (list, tuple)):
         return False
-    for use in case_uses:
+    for use in _base_items(case_uses):
         if not isinstance(use, dict):
             return False
         if _base_dict_get(use, "fixture") == "F-26" and (
@@ -571,18 +747,19 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
             "stands in no candidate list form"
         )
     scored = []
-    for candidate in parameter_candidates or []:
+    for candidate in _base_items(parameter_candidates):
         if not isinstance(candidate, dict):
             raise NamedAttackerFailure(
                 "bond parameter search rejected: a candidate stands "
                 "in no record form: " + repr(candidate)
             )
-        params = candidate.get("parameter_set", candidate)
+        params = _base_dict_get(
+            candidate, "parameter_set", candidate)
         if griefing_evaluator is not None:
             factor = griefing_evaluator(copy.deepcopy(params))
         else:
-            cost = candidate.get("attacker_cost")
-            harm = candidate.get("harm")
+            cost = _base_dict_get(candidate, "attacker_cost")
+            harm = _base_dict_get(candidate, "harm")
             if (harm is not None and not _stands_numeric(harm)) or (
                     cost is not None and not _stands_numeric(cost)):
                 raise NamedAttackerFailure(
@@ -709,13 +886,14 @@ def readout(search_record, found_failure=True, wording="",
             "readout rejected: no search record stands supplied for "
             "the readout"
         )
-    carriage = search_record.get("run_record", search_record)
+    carriage = _base_dict_get(
+        search_record, "run_record", search_record)
     if not isinstance(carriage, dict):
         raise NamedAttackerFailure(
             "readout rejected: the run record carriage stands in "
             "no record form: " + repr(carriage)
         )
-    position = carriage.get("ladder_position")
+    position = _base_dict_get(carriage, "ladder_position")
     if established:
         raise NamedAttackerFailure(
             "readout rejected: no readout stands reported as "
@@ -726,13 +904,14 @@ def readout(search_record, found_failure=True, wording="",
         status = "not at the readout point"
     else:
         status = "at the readout point, not established"
-    exercised = carriage.get("strategies_exercised", [])
+    exercised = _base_dict_get(carriage, "strategies_exercised", [])
     if not isinstance(exercised, (list, tuple)):
         raise NamedAttackerFailure(
             "readout rejected: the strategies exercised stand in "
             "no list form: " + repr(exercised)
         )
-    swept = search_record.get("external_profit_swept_values", [])
+    swept = _base_dict_get(
+        search_record, "external_profit_swept_values", [])
     if swept is None:
         swept = []
     if not isinstance(swept, (list, tuple)):
@@ -741,8 +920,10 @@ def readout(search_record, found_failure=True, wording="",
             "stand in no list form: " + repr(swept)
         )
     in_protocol_only = (
-        "conditional briber" not in exercised
-        or not any(_stands_numeric(v) and v > 0 for v in swept)
+        not _base_contains(exercised, "conditional briber")
+        or not any(
+            _stands_numeric(v) and v > 0
+            for v in _base_sequence(swept))
     )
     unit = {
         "wording": wording,
@@ -770,16 +951,16 @@ def attacker_cost_summary(witness_run):
             "stands in no record form: " + repr(witness_run)
         )
     return {
-        "witness_run": witness_run.get("run_identifier"),
-        "attacker_cost": witness_run.get("attacker_cost"),
-        "harm": witness_run.get("harm"),
+        "witness_run": _base_dict_get(witness_run, "run_identifier"),
+        "attacker_cost": _base_dict_get(witness_run, "attacker_cost"),
+        "harm": _base_dict_get(witness_run, "harm"),
         "standing": "descriptive figure beside the witness",
         "priced_per": "failure witness run",
         "regime_classification_changed": False,
-        "classification_before": witness_run.get(
-            "regime_classification"),
-        "classification_after": witness_run.get(
-            "regime_classification"),
+        "classification_before": _base_dict_get(
+            witness_run, "regime_classification"),
+        "classification_after": _base_dict_get(
+            witness_run, "regime_classification"),
         "units": UNITS,
     }
 
@@ -792,9 +973,9 @@ def witness_carriage(witness_run, envelope_claim_names_witness=True):
             "no record form: " + repr(witness_run)
         )
     carriage = {
-        "witness_run": witness_run.get("run_identifier"),
-        "regime_classification": witness_run.get(
-            "regime_classification"),
+        "witness_run": _base_dict_get(witness_run, "run_identifier"),
+        "regime_classification": _base_dict_get(
+            witness_run, "regime_classification"),
     }
     if envelope_claim_names_witness:
         carriage["attacker_cost_summary"] = attacker_cost_summary(

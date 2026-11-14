@@ -855,6 +855,10 @@ _UNORDERED_JOIN_PART_BOUND = 7
 
 _JOIN_CANDIDATE_BOUND = 5040
 
+_SEG_JOIN_CANDIDATE_BOUND = 131072
+
+_SEG_FOLDED_CANDIDATE_BOUND = 20000
+
 
 def _join_container_parts(node):
     """The parts a container stores, read through base class
@@ -882,7 +886,7 @@ def _has_unordered_split(value):
     return False
 
 
-def _joined_text_candidates(value, _active=None):
+def _joined_text_candidates(value, _active=None, _cap=None):
     """Every joined stored text a container key can stand in.
 
     An ordered container (tuple, list, or a dict read by its
@@ -902,50 +906,76 @@ def _joined_text_candidates(value, _active=None):
     contributes its iteration order join alone, beside the
     standing per part readings, as the paper for this cure
     states. A part already on the walk path contributes the
-    empty text, so a cyclic part cannot loop the read."""
-    if not isinstance(value, (tuple, list, set, frozenset)):
-        return ((_stored_key_text(value) or ""),)
+    empty text, so a cyclic part cannot loop the read. The walk stands iterative on an explicit stack of frames, so a container chain at any depth stands answered on the same terms and no recursion stands spent per container level. A caller may state a wider candidate cap through _cap, as the segmentation readings do, without moving the standing bound this act states for its other callers."""
+    if _cap is None:
+        _cap = _JOIN_CANDIDATE_BOUND
     if _active is None:
         _active = set()
-    if id(value) in _active:
-        return ("",)
-    _active.add(id(value))
-    try:
-        parts = _join_container_parts(value)
-        child = [
-            _joined_text_candidates(part, _active) for part in parts
-        ]
-    finally:
-        _active.discard(id(value))
-    if (
-        isinstance(value, (set, frozenset))
-        and 2 <= len(parts) <= _UNORDERED_JOIN_PART_BOUND
-    ):
-        orders = list(itertools.permutations(range(len(parts))))
-    else:
-        orders = [tuple(range(len(parts)))]
-    out = []
-    seen = set()
-    for order in orders:
-        total = 1
-        for index in order:
-            total *= len(child[index])
-        if total > _JOIN_CANDIDATE_BOUND:
-            text = "".join(
-                child[index][0] for index in range(len(parts)))
-            if text not in seen:
-                seen.add(text)
-                out.append(text)
-            continue
-        for combo in itertools.product(
-                *(child[index] for index in order)):
-            text = "".join(combo)
-            if text not in seen:
-                seen.add(text)
-                out.append(text)
-                if len(out) >= _JOIN_CANDIDATE_BOUND:
-                    return tuple(out)
-    return tuple(out)
+
+    def combine(node, parts, child):
+        if (
+            isinstance(node, (set, frozenset))
+            and 2 <= len(parts) <= _UNORDERED_JOIN_PART_BOUND
+        ):
+            orders = list(
+                itertools.permutations(range(len(parts))))
+        else:
+            orders = [tuple(range(len(parts)))]
+        out = []
+        seen = set()
+        for order in orders:
+            total = 1
+            for index in order:
+                total *= len(child[index])
+            if total > _cap:
+                text = "".join(
+                    child[index][0]
+                    for index in range(len(parts)))
+                if text not in seen:
+                    seen.add(text)
+                    out.append(text)
+                continue
+            for combo in itertools.product(
+                    *(child[index] for index in order)):
+                text = "".join(combo)
+                if text not in seen:
+                    seen.add(text)
+                    out.append(text)
+                    if len(out) >= _cap:
+                        return tuple(out)
+        return tuple(out)
+
+    stack = []
+    node = value
+    result = None
+    while True:
+        if result is None:
+            if not isinstance(node, (tuple, list, set, frozenset)):
+                result = ((_stored_key_text(node) or ""),)
+            elif id(node) in _active:
+                result = ("",)
+            else:
+                _active.add(id(node))
+                parts = _join_container_parts(node)
+                if parts:
+                    stack.append([node, parts, [], 0])
+                    node = parts[0]
+                    continue
+                _active.discard(id(node))
+                result = combine(node, parts, [])
+        while result is not None:
+            if not stack:
+                return result
+            frame = stack[-1]
+            frame[2].append(result)
+            frame[3] += 1
+            if frame[3] < len(frame[1]):
+                node = frame[1][frame[3]]
+                result = None
+                break
+            stack.pop()
+            _active.discard(id(frame[0]))
+            result = combine(frame[0], frame[1], frame[2])
 
 
 def _seg_tiles_exact(options, target):
@@ -1084,27 +1114,147 @@ def _seg_unordered_nodes(key):
     return nodes
 
 
-def _seg_plain_options(parts):
+
+
+def _seg_universe(targets, patterns):
+    """Every substring of the targets and patterns a
+    segmentation judgement in this module tiles or carries:
+    the only texts a part reading can contribute to such a
+    judgement as a whole segment."""
+    universe = set()
+    for text in list(targets) + list(patterns):
+        for start in range(len(text)):
+            for stop in range(start + 1, len(text) + 1):
+                universe.add(text[start:stop])
+    return universe
+
+
+def _seg_prefixes(universe):
+    """Every prefix of a universe text, the closure the
+    formable set computation walks through."""
+    prefixes = set()
+    for text in universe:
+        for stop in range(1, len(text) + 1):
+            prefixes.add(text[:stop])
+    return prefixes
+
+
+def _seg_formable(node, universe, prefixes, folded, _active=None):
+    """The universe texts one part can join to exactly, as a
+    set beside whether the part can join to the empty text.
+    The computation walks the part structure in the form the
+    segmentation stated: an ordered container joins its
+    parts in order, an unordered container joins its parts
+    in any order, and no joined candidate is ever listed, so
+    a composite part whose candidates pass the kept helper
+    cut still contributes every segment of a target or a
+    pattern it can stand as. A part already on the walk path
+    contributes the empty text, as the candidate act states."""
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (tuple, list, set, frozenset)):
+        if folded:
+            readings = set(_folded_key_variants(node))
+        else:
+            readings = {_stored_text(node).lower()}
+        return (
+            {reading for reading in readings if reading in universe},
+            "" in readings or not readings)
+    if id(node) in _active:
+        return (set(), True)
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        child = [
+            _seg_formable(part, universe, prefixes, folded, _active)
+            for part in parts]
+    finally:
+        _active.discard(id(node))
+    options = []
+    can_empty = True
+    for forms, empty in child:
+        options.append(forms | ({""} if empty else set()))
+        can_empty = can_empty and empty
+    if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+        reached = {0: {""}}
+        full = (1 << len(parts)) - 1
+        for mask in range(full + 1):
+            if mask not in reached:
+                continue
+            for index in range(len(parts)):
+                if (mask >> index) & 1:
+                    continue
+                joined = {
+                    head + tail
+                    for head in reached[mask]
+                    for tail in options[index]
+                    if head + tail == "" or head + tail in prefixes}
+                if joined:
+                    reached.setdefault(
+                        mask | (1 << index), set()).update(joined)
+        return (reached.get(full, set()) & universe, can_empty)
+    acc = {""}
+    for opts in options:
+        acc = {
+            head + tail
+            for head in acc for tail in opts
+            if head + tail == "" or head + tail in prefixes}
+        if not acc:
+            break
+    return (acc & universe, can_empty)
+
+def _seg_plain_options(parts, _universe=None, _prefixes=None):
     """The plain readings of the direct parts of one unordered
     container: for each part, the lowered texts of every joined
-    candidate the part itself stands in."""
-    return [
-        {text.lower() for text in _joined_text_candidates(part)}
-        for part in parts]
+    candidate the part itself stands in, taken under the wider
+    segmentation candidate cap, beside every universe segment
+    the part can join to exactly where a universe stands
+    stated, so a composite part past the kept helper cut
+    still contributes the segments a barred reading needs."""
+    options = []
+    for part in parts:
+        texts = {
+            text.lower()
+            for text in _joined_text_candidates(
+                part, _cap=_SEG_JOIN_CANDIDATE_BOUND)}
+        if _universe is not None and isinstance(part, (tuple, list, set, frozenset)):
+            try:
+                forms, can_empty = _seg_formable(
+                    part, _universe, _prefixes, False)
+            except RecursionError:
+                forms, can_empty = set(), False
+            texts |= forms
+            if can_empty:
+                texts.add("")
+        options.append(texts)
+    return options
 
 
-def _seg_folded_options(parts):
+def _seg_folded_options(parts, _universe=None, _prefixes=None):
     """The folded readings of the direct parts of one unordered
     container: for each part, every folded reading of every
     joined candidate the part itself stands in, under this
-    module folded reading act."""
+    module folded reading act, beside every universe segment
+    the part can join to exactly where a universe stands
+    stated, so a folded segment a composite part can stand
+    as stands judged past the kept helper cut as well."""
     options = []
     for part in parts:
         readings = set()
-        for text in _joined_text_candidates(part):
+        for text in _joined_text_candidates(
+                part, _cap=_SEG_FOLDED_CANDIDATE_BOUND):
             readings.update(_folded_key_variants(text))
         if not readings:
             readings = {""}
+        if _universe is not None and isinstance(part, (tuple, list, set, frozenset)):
+            try:
+                forms, can_empty = _seg_formable(
+                    part, _universe, _prefixes, True)
+            except RecursionError:
+                forms, can_empty = set(), False
+            readings |= forms
+            if can_empty:
+                readings.add("")
         options.append(readings)
     return options
 
@@ -1116,7 +1266,11 @@ def _seg_exact(key, target):
     the target over the folded readings of the parts, beside
     the kept candidate readings."""
     for node, parts in _seg_unordered_nodes(key):
-        if _seg_tiles_exact(_seg_folded_options(parts), target):
+        universe = _seg_universe((target,), ())
+        if _seg_tiles_exact(
+                _seg_folded_options(
+                    parts, universe, _seg_prefixes(universe)),
+                target):
             return True
     return False
 
@@ -1128,9 +1282,187 @@ def _seg_carrying(key, pattern):
     pattern over the folded readings of the parts, beside the
     kept candidate readings."""
     for node, parts in _seg_unordered_nodes(key):
+        universe = _seg_universe((), (pattern,))
         if _seg_tiles_carrying(
-                _seg_folded_options(parts), pattern) is not None:
+                _seg_folded_options(
+                    parts, universe, _seg_prefixes(universe)),
+                pattern) is not None:
             return True
+    return False
+
+
+def _span_prefix_state(pattern, state, character):
+    candidate = pattern[:state] + character
+    limit = min(len(pattern), state + 1)
+    for length in range(limit, -1, -1):
+        if candidate.endswith(pattern[:length]):
+            return length
+    return 0
+
+
+def _span_feed(pattern, state, text):
+    current = state
+    for character in text:
+        if current == len(pattern):
+            return current
+        current = _span_prefix_state(pattern, current, character)
+    return current
+
+
+def _span_relevant(options, texts):
+    """The readings of one block that can take part in a
+    barred reading of the whole key, beside whether the block
+    carries any other reading. A reading takes part where it
+    stands as a segment of a target or a pattern, where it
+    carries a pattern whole, where a suffix of it stands as
+    the opening of a target or a pattern, or where a prefix
+    of it stands as the closing of one."""
+    relevant = set()
+    other = False
+    for option in options:
+        if option == "":
+            relevant.add(option)
+            continue
+        keep = False
+        for text in texts:
+            if not text:
+                continue
+            if option in text or text in option:
+                keep = True
+                break
+            for cut in range(1, min(len(option), len(text))):
+                if option.endswith(text[:cut]):
+                    keep = True
+                    break
+                if text[cut:] and option.startswith(text[cut:]):
+                    keep = True
+                    break
+            if keep:
+                break
+        if keep:
+            relevant.add(option)
+        else:
+            other = True
+    return relevant, other
+
+
+def _span_blocks(key):
+    """The blocks a whole key reading stands built from, in
+    the form settlement S-4 states: where the key itself
+    stands unordered, its direct parts stand as blocks in
+    no stated order; where it stands ordered, the leaf parts
+    of its ordered nesting stand as blocks in their stored
+    order, an unordered container standing among them as one
+    block whose own readings its segmentation states. A
+    container already on the walk path contributes nothing,
+    as the candidate act states."""
+    if isinstance(key, (set, frozenset)):
+        return ("unordered", _join_container_parts(key))
+    if isinstance(key, (dict, list, tuple)):
+        blocks = []
+        active = {id(key)}
+        frames = [[_join_container_parts(key), 0, id(key)]]
+        while frames:
+            frame = frames[-1]
+            parts, index, node_id = frame
+            if index >= len(parts):
+                frames.pop()
+                active.discard(node_id)
+                continue
+            frame[1] = index + 1
+            part = parts[index]
+            if isinstance(part, (dict, list, tuple)):
+                if id(part) in active:
+                    continue
+                active.add(id(part))
+                frames.append(
+                    [_join_container_parts(part), 0, id(part)])
+            else:
+                blocks.append(part)
+        return ("ordered", blocks)
+    return None
+
+
+def _seg_spanning_barred(key, plain_targets, plain_patterns,
+                         folded_targets, folded_patterns):
+    """Whether a barred reading of the whole key stands on
+    the joined and segmented readings across nesting and
+    part boundaries, in the form settlement S-4 states: a
+    name a single unordered container cannot tile on its own
+    stands barred where a segment tiled inside one block
+    stands completed by the blocks standing beside it, and
+    a name whose segment stands inside one composite block
+    past the kept helper cut stands barred on that block's
+    formable segments. An ordered key keeps its stored
+    order, judged position by position over the block
+    readings with no ordering ever listed; an unordered key
+    stands judged by the segmentation acts over its blocks.
+    A block whose reading takes no part in the barred
+    reading can only end a partial match, never carry one
+    across itself, so the ordered judgement lets every block
+    return the match to its opening state beside the states
+    its taking part readings reach."""
+    found = _span_blocks(key)
+    if found is None:
+        return False
+    mode, blocks = found
+    if not blocks:
+        return False
+    spaces = []
+    if plain_targets or plain_patterns:
+        spaces.append((plain_targets, plain_patterns, False))
+    if folded_targets or folded_patterns:
+        spaces.append((folded_targets, folded_patterns, True))
+    for targets, patterns, folded in spaces:
+        texts = list(targets) + list(patterns)
+        universe = _seg_universe(targets, patterns)
+        prefixes = _seg_prefixes(universe)
+        options = []
+        for block in blocks:
+            if folded:
+                opts = _seg_folded_options(
+                    [block], universe, prefixes)[0]
+            else:
+                opts = _seg_plain_options(
+                    [block], universe, prefixes)[0]
+            options.append(_span_relevant(opts, texts))
+        if mode == "unordered":
+            pruned = [relevant for relevant, other in options]
+            for target in targets:
+                if _seg_tiles_exact(pruned, target):
+                    return True
+            for pattern in patterns:
+                if _seg_tiles_carrying(pruned, pattern) is not None:
+                    return True
+        else:
+            for pattern in patterns:
+                states = {0}
+                for relevant, other in options:
+                    following = {0}
+                    for state in states:
+                        for option in relevant:
+                            if option == "":
+                                following.add(state)
+                                continue
+                            end = _span_feed(pattern, state, option)
+                            if end == len(pattern):
+                                return True
+                            following.add(end)
+                    states = following
+            for target in targets:
+                positions = {0}
+                for relevant, other in options:
+                    following = set()
+                    for position in positions:
+                        for option in relevant:
+                            if target.startswith(option, position):
+                                following.add(
+                                    position + len(option))
+                    positions = following
+                    if not positions:
+                        break
+                if len(target) in positions:
+                    return True
     return False
 
 
@@ -1489,6 +1821,14 @@ def _folded_key_matches(key, folded_target):
                 return True
         if _seg_exact(key, folded_target):
             return True
+        if folded_target == "realmoney" and _seg_exact(key, "realmani"):
+            return True
+    if _seg_spanning_barred(
+            key, (), (),
+            (folded_target,)
+            + (("realmani",) if folded_target == "realmoney" else ()),
+            ()):
+        return True
     if folded_target in _folded_key_variants(key):
         return True
     if _matches_under_every_reading(key, folded_target):
@@ -1517,6 +1857,14 @@ def _folded_key_carries(key, folded_marker):
                 return True
         if _seg_carrying(key, folded_marker):
             return True
+        if folded_marker == "realmoney" and _seg_carrying(
+                key, "realmani"):
+            return True
+    if _seg_spanning_barred(
+            key, (), (), (),
+            (folded_marker,)
+            + (("realmani",) if folded_marker == "realmoney" else ())):
+        return True
     if any(
         folded_marker in variant
         for variant in _folded_key_variants(key)
@@ -1594,6 +1942,29 @@ def _stored_text(value):
     return None
 
 
+def _stored_text_dress(value):
+    """The stored text of a handed value in every dress the
+    governing stored text settlement reads: a text value through
+    its stored characters, a bytes, bytearray, or memoryview
+    value through its decoded stored bytes, and a single part
+    container through the stored text of its one part. A value
+    in any other form stores no text here and reads as None."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bytes):
+        return bytes.decode(value, "utf-8", "ignore")
+    if isinstance(value, bytearray):
+        return bytearray.decode(value, "utf-8", "ignore")
+    if isinstance(value, memoryview):
+        return bytes.decode(memoryview.tobytes(value), "utf-8", "ignore")
+    if isinstance(value, (tuple, list, set, frozenset)):
+        items = list(_base_iter(value))
+        if len(items) == 1:
+            return _stored_text_dress(items[0])
+        return None
+    return None
+
+
 def _stored_text_equals(value, expected):
     """Whether the text a handed value stores stands equal to an
     expected text, judged through base class operations only."""
@@ -1608,6 +1979,28 @@ def _stored_text_in(value, options):
     if stored is None:
         return False
     return any(str.__eq__(stored, option) for option in options)
+
+
+_STORED_MISSING = object()
+
+
+def _stored_pairs_value(mapping, field, default=None):
+    """The value a handed mapping stores under a field name,
+    found by scanning its stored pairs: a field stands present
+    only where a stored text key carries its name under a base
+    class comparison, never through a hash, equality, get, or
+    getitem reading a handed key or mapping supplies."""
+    if not isinstance(mapping, dict):
+        return default
+    for key, item in dict.items(mapping):
+        if isinstance(key, str) and str.__eq__(str.__str__(key), field):
+            return item
+    return default
+
+
+def _stored_pairs_present(mapping, field):
+    return _stored_pairs_value(
+        mapping, field, _STORED_MISSING) is not _STORED_MISSING
 
 
 def _stored_plain(value):
@@ -1742,14 +2135,15 @@ def validate_family_seal_match(manifest, record):
     named fields of Forms 23 and 4."""
     if not isinstance(manifest, dict) or not isinstance(record, dict):
         return False
-    version = dict.get(manifest, "family_version")
-    digest = dict.get(manifest, "sealed_family_record_hash")
+    version = _stored_pairs_value(manifest, "family_version")
+    digest = _stored_pairs_value(manifest, "sealed_family_record_hash")
     if version is None or digest is None:
         return False
     return (
-        _base_value_equals(dict.get(record, "family_version"), version)
+        _base_value_equals(
+            _stored_pairs_value(record, "family_version"), version)
         and _base_value_equals(
-            dict.get(record, "family_manifest_hash"), digest)
+            _stored_pairs_value(record, "family_manifest_hash"), digest)
     )
 
 
@@ -1800,11 +2194,18 @@ def _validate_record_inner(form_id, instance):
     # absent here as at every other form.
     stored_pairs = list(dict.items(instance))
     for field in required_fields(fid):
-        matched = [
-            item for key, item in stored_pairs
-            if isinstance(key, str)
-            and str.__eq__(str.__str__(key), field)
-        ]
+        if fid == "22":
+            matched = [
+                item for key, item in stored_pairs
+                if _stored_key_text(key) is not None
+                and str.__eq__(_stored_key_text(key), field)
+            ]
+        else:
+            matched = [
+                item for key, item in stored_pairs
+                if isinstance(key, str)
+                and str.__eq__(str.__str__(key), field)
+            ]
         if not matched or matched[0] is None:
             return False
     if fid == "36":
@@ -1845,12 +2246,22 @@ def _validate_record_inner(form_id, instance):
         def _registry_text(field):
             matches = [
                 item for key, item in stored_pairs
-                if isinstance(key, str)
-                and str.__eq__(str.__str__(key), field)
+                if _stored_key_text(key) is not None
+                and str.__eq__(_stored_key_text(key), field)
             ]
             if not matches:
                 return None
-            return _stored_text(matches[0])
+            return _stored_text_dress(matches[0])
+
+        for _field, _stated_set in (
+                ("outcome", ("reported", "not reported")),
+                ("confirmation_outcome", ("passed", "failed", "not run")),
+                ("gate_failure", (
+                    "procedure gate", "confirmation gate",
+                    "both gates", "none"))):
+            _value = _registry_text(_field)
+            if _value is not None and _value not in _stated_set:
+                return False
 
         if _registry_text("outcome") == "reported":
             if _registry_text("confirmation_outcome") in (
@@ -1879,11 +2290,16 @@ def _validate_record_inner(form_id, instance):
                 return False
     if fid == "15":
         for field, parts in JOINT_OUTCOME_COMPONENT_PARTS.items():
-            component = dict.get(instance, field)
-            if not isinstance(component, dict):
+            component = _stored_pairs_value(
+                instance, field, _STORED_MISSING)
+            if component is _STORED_MISSING or not isinstance(
+                    component, dict):
                 return False
             for part in parts:
-                if dict.get(component, part) is None:
+                if _stored_pairs_value(
+                        component, part, _STORED_MISSING) is (
+                        _STORED_MISSING) or _stored_pairs_value(
+                        component, part) is None:
                     return False
     if fid in CLOSED_FORMS:
         # Each handed field name stands judged by the text it
@@ -1899,7 +2315,7 @@ def _validate_record_inner(form_id, instance):
                 return False
     if fid == "1":
         for slug in _COMPLETENESS_SLUGS:
-            value = dict.get(instance, slug)
+            value = _stored_pairs_value(instance, slug)
             if value is not None and not (
                 isinstance(value, str)
                 and str.startswith(value, OPEN_MARKER_PREFIX)
@@ -1907,22 +2323,23 @@ def _validate_record_inner(form_id, instance):
                 return False
     if _carries_reserved_matter(instance):
         return False
-    if dict.__contains__(instance, "calibration_claim_field"):
+    if _stored_pairs_present(instance, "calibration_claim_field"):
         if not validate_calibration_field(
-                dict.__getitem__(instance, "calibration_claim_field")):
+                _stored_pairs_value(instance, "calibration_claim_field")):
             return False
-    if dict.__contains__(instance, "store_kind"):
+    if _stored_pairs_present(instance, "store_kind"):
         if not validate_store_kind(
-                dict.__getitem__(instance, "store_kind")):
+                _stored_pairs_value(instance, "store_kind")):
             return False
-    if fid == "10" and dict.__contains__(instance, "lien_state"):
+    if fid == "10" and _stored_pairs_present(instance, "lien_state"):
         if not validate_lien_state(
-            dict.__getitem__(instance, "lien_state"),
-            cross_seam=bool(dict.get(instance, "cross_seam_effect", False)),
+            _stored_pairs_value(instance, "lien_state"),
+            cross_seam=bool(_stored_pairs_value(
+                instance, "cross_seam_effect", False)),
         ):
             return False
-    if fid == "5" and dict.__contains__(instance, "parameter_values"):
-        values = dict.__getitem__(instance, "parameter_values")
+    if fid == "5" and _stored_pairs_present(instance, "parameter_values"):
+        values = _stored_pairs_value(instance, "parameter_values")
         items = (
             _base_iter(values) if isinstance(values, (list, tuple))
             else (values,))
@@ -2021,7 +2438,7 @@ def run_is_reportable(form_id, instance):
     if not validate_record(fid, instance):
         return False
     if isinstance(instance, dict) and _stored_text_equals(
-            dict.get(instance, "run_status"), "failed"):
+            _stored_pairs_value(instance, "run_status"), "failed"):
         return False
     if fid == "1" and not family_supports_reportable_run(instance):
         return False
@@ -2048,16 +2465,19 @@ def partial_record_is_marked(run_status=None, partial=None, record=None):
     complete."""
     if isinstance(record, dict):
         return _stored_value_present(
-            dict.get(record, "partial")) and _stored_value_present(
-            dict.get(record, "marked_partial", False))
+            _stored_pairs_value(record, "partial")) and (
+            _stored_value_present(_stored_pairs_value(
+                record, "marked_partial", False)))
     return bool(partial)
 
 
 def validate_run_status(record_status=None, presented_as=None, record=None):
     """A failed run record does not validate as a completed run."""
     if isinstance(record, dict):
-        record_status = dict.get(record, "run_status", record_status)
-        presented_as = dict.get(record, "presented_as", presented_as)
+        record_status = _stored_pairs_value(
+            record, "run_status", record_status)
+        presented_as = _stored_pairs_value(
+            record, "presented_as", presented_as)
     if not _stored_text_in(record_status, ("completed", "failed")):
         return False
     if presented_as is None:
@@ -2133,11 +2553,12 @@ def validate_version_stamp(stamp, sealed_family_hash=None):
     if not isinstance(values, dict):
         return False
     for field in VersionStamp.FIELDS:
-        if not _stored_value_present(dict.get(values, field)):
+        if not _stored_value_present(_stored_pairs_value(values, field)):
             return False
     if sealed_family_hash is not None:
         return _base_value_equals(
-            dict.get(values, "family_manifest_hash"), sealed_family_hash)
+            _stored_pairs_value(values, "family_manifest_hash"),
+            sealed_family_hash)
     return True
 
 
@@ -2284,8 +2705,8 @@ def validate_provenance_block(block):
         return False
     if not isinstance(data, dict):
         return False
-    counts = dict.get(data, "excluded_class_counts")
-    shares = dict.get(data, "excluded_class_shares")
+    counts = _stored_pairs_value(data, "excluded_class_counts")
+    shares = _stored_pairs_value(data, "excluded_class_shares")
     if not isinstance(counts, dict) or not isinstance(shares, dict):
         return False
     if dict.__len__(counts) == 0 or dict.__len__(shares) == 0:
@@ -2303,7 +2724,7 @@ def validate_provenance_block(block):
         return False
     if any(not _is_share_value(value) for value in share_values):
         return False
-    entries = dict.get(data, "entries")
+    entries = _stored_pairs_value(data, "entries")
     if isinstance(entries, (list, tuple)):
         entries = list(_base_iter(entries))
         if not entries:
@@ -2312,11 +2733,11 @@ def validate_provenance_block(block):
         return False
     for entry in entries:
         if not isinstance(entry, dict) or not _stored_value_present(
-                dict.get(entry, "field")):
+                _stored_pairs_value(entry, "field")):
             return False
-        if not dict.__contains__(entry, "applicability"):
+        if not _stored_pairs_present(entry, "applicability"):
             return False
-        field_value = dict.get(entry, "field")
+        field_value = _stored_pairs_value(entry, "field")
         field_text = (
             str.__str__(field_value) if isinstance(field_value, str)
             else str(field_value))
@@ -2325,7 +2746,7 @@ def validate_provenance_block(block):
                 "_", " ").replace("-", " ").replace("\t", " ").split())
         if "arbiter accuracy" in field_reading:
             if not _stored_value_present(
-                    dict.get(entry, "error_direction")):
+                    _stored_pairs_value(entry, "error_direction")):
                 return False
     return True
 
@@ -2580,15 +3001,15 @@ def check_reconciliation_trace(trace):
     for entry in trace:
         if not isinstance(entry, dict):
             return False
-        if entry.get("source_form") not in SOURCE_FORMS:
+        source_form = _stored_pairs_value(entry, "source_form")
+        place = _stored_pairs_value(entry, "place_in_single_record")
+        field = _stored_pairs_value(entry, "field")
+        if source_form not in SOURCE_FORMS:
             return False
-        if not entry.get("place_in_single_record") or not entry.get("field"):
+        if not _stored_value_present(place) or not _stored_value_present(
+                field):
             return False
-        presented.add((
-            entry["field"],
-            entry["source_form"],
-            entry["place_in_single_record"],
-        ))
+        presented.add((field, source_form, place))
     required = {
         (f, s, p) for f, s, p, bearing in _TRACE_SPEC if bearing
     }

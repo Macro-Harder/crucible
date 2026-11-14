@@ -751,7 +751,36 @@ def _stated_text(entry):
     return cleaned.strip()
 
 
-def _normalise_actor(actor):
+_ACTOR_CONTAINER_FORMS = (list, tuple, set, frozenset)
+
+
+def _actor_stored_text(value, _depth=0):
+    """The stored text an actor value carries under the stored
+    text settlement: a text form, a bytes form, a bytearray
+    form, and a memoryview form each read as the stored text
+    they store, and a container form reads as the stored text
+    parts it stores joined in order with no separator added,
+    each part read recursively on its own stored text. A
+    value in any other form, an empty container, and a
+    container holding a part in any other form carry no
+    stored text here and stand as None."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return _stored_text(value)
+    if isinstance(value, _ACTOR_CONTAINER_FORMS) and _depth < 8:
+        parts = _container_parts(value)
+        if not parts:
+            return None
+        pieces = []
+        for part in parts:
+            piece = _actor_stored_text(part, _depth + 1)
+            if piece is None:
+                return None
+            pieces.append(piece)
+        return "".join(pieces)
+    return None
+
+
+def _normalise_actor(actor, _depth=0):
     """Normalise an actor reading before the exact person check
     in MOD-10: case is folded, spacing is collapsed to single
     spaces, and repeated leading articles are dropped. Each
@@ -765,7 +794,32 @@ def _normalise_actor(actor):
     split into a different actor. The joined reading also
     stands tried with article words dropped wherever they
     stand, so articles inserted between the split parts of
-    one actor word do not hide the word they split."""
+    one actor word do not hide the word they split. An actor
+    value that is stored text in bytes, bytearray, memoryview,
+    or container dress stands read as that stored text here,
+    under the container readings of the settlement: each part
+    on its own stored text, the parts joined in order as one
+    name, and a single part container carrying the reading of
+    its one part. An actor value in any other non text form
+    stands as itself, passed through untouched."""
+    if isinstance(actor, _ACTOR_CONTAINER_FORMS):
+        parts = _container_parts(actor)
+        if _depth >= 8 or not parts:
+            return actor
+        joined_text = _actor_stored_text(actor)
+        if joined_text is None:
+            return actor
+        joined_reading = _normalise_actor(joined_text, _depth + 1)
+        if joined_reading in _ACTOR_VOCABULARY:
+            return joined_reading
+        for part in parts:
+            part_reading = _normalise_actor(part, _depth + 1)
+            if isinstance(part_reading, str) and (
+                    part_reading in _ACTOR_VOCABULARY):
+                return part_reading
+        return actor
+    if isinstance(actor, (bytes, bytearray, memoryview)):
+        actor = _stored_text(actor)
     if not isinstance(actor, str):
         return actor
     text = _canonicalise_text(actor)
@@ -927,7 +981,10 @@ _PROTECTED_TARGETS = (
 # Latin letters that letter stands for: the Cyrillic letters by
 # the Latin letters they transliterate, which for the letters
 # a, e, and o are also the letters they resemble, and the Greek
-# letters by the Latin letters they resemble.
+# letters by the one shared folded reading the MOD-10
+# transliteration map states, so pi reads as p, rho as r,
+# gamma as g, eta as e, nu as n, and omega as o at both
+# modules, and one folded dress reads as one party at both.
 _LETTER_MAP = {
     "\u0430": "a", "\u0431": "b", "\u0432": "v", "\u0433": "g",
     "\u0434": "d", "\u0435": "e", "\u0436": "zh", "\u0437": "z",
@@ -939,12 +996,12 @@ _LETTER_MAP = {
     "\u044d": "e", "\u044e": "yu", "\u044f": "ya",
     "\u0454": "e", "\u0456": "i", "\u0457": "yi", "\u0458": "j",
     "\u0459": "lj", "\u045a": "nj", "\u045b": "kj", "\u045f": "dz",
-    "\u03b1": "a", "\u03b2": "b", "\u03b3": "y", "\u03b4": "d",
-    "\u03b5": "e", "\u03b6": "z", "\u03b7": "n", "\u03b8": "th",
+    "\u03b1": "a", "\u03b2": "b", "\u03b3": "g", "\u03b4": "d",
+    "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "th",
     "\u03b9": "i", "\u03ba": "k", "\u03bb": "l", "\u03bc": "m",
-    "\u03bd": "v", "\u03bf": "o", "\u03c0": "n", "\u03c1": "p",
+    "\u03bd": "n", "\u03bf": "o", "\u03c0": "p", "\u03c1": "r",
     "\u03c3": "s", "\u03c4": "t", "\u03c5": "u", "\u03c6": "ph",
-    "\u03c7": "x", "\u03c8": "ps", "\u03c9": "w",
+    "\u03c7": "x", "\u03c8": "ps", "\u03c9": "o",
     "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
     "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
     "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",

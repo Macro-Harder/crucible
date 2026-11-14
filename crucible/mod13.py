@@ -132,6 +132,72 @@ def _base_get(record, key):
     return None
 
 
+def _base_contains(record, key):
+    """Test one key through the base dict contains, never
+    through a contains reading the record itself supplies."""
+    return isinstance(record, dict) and dict.__contains__(
+        record, key)
+
+
+def _base_sequence_items(value):
+    """Read the stored items of a handed list or tuple through
+    its base class iteration, never through an iteration the
+    value itself supplies."""
+    if isinstance(value, tuple):
+        return list(tuple.__iter__(value))
+    if isinstance(value, list):
+        return list(list.__iter__(value))
+    return []
+
+
+def _base_sequence_length(value):
+    """Read the stored length of a handed list or tuple through
+    its base class length, never through a length reading the
+    value itself supplies."""
+    if isinstance(value, tuple):
+        return tuple.__len__(value)
+    if isinstance(value, list):
+        return list.__len__(value)
+    return 0
+
+
+def _stored_present(value):
+    """Whether a stored value stands present, judged on what it
+    stores: containers and text by their base class length, a
+    boolean by itself, a number by standing apart from zero,
+    and any other stored value by standing apart from None."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value is True
+    if isinstance(value, str):
+        return str.__len__(value) > 0
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return len(bytes(value)) > 0
+    if isinstance(value, list):
+        return list.__len__(value) > 0
+    if isinstance(value, tuple):
+        return tuple.__len__(value) > 0
+    if isinstance(value, dict):
+        return dict.__len__(value) > 0
+    if isinstance(value, frozenset):
+        return frozenset.__len__(value) > 0
+    if isinstance(value, set):
+        return set.__len__(value) > 0
+    if isinstance(value, (int, float)):
+        return value != 0
+    return True
+
+
+def _stored_string(value):
+    """The stored string form of a value: a text value through
+    its base class string form, any other value through the
+    plain string conversion its plain form carries."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return str(value)
+
+
 COMPARISON_DEPTH_BOUND = 100
 
 
@@ -149,6 +215,110 @@ def _base_str_member(value, options):
     """Return True only where a value stands, by base string
     equality, among the stated options."""
     return any(_base_str_eq(value, option) for option in options)
+
+
+def _stored_key_text(value):
+    """The stored text of a key or of a part of a key, under the
+    governing stored text settlement, in the form crucible/mod01.py
+    states for its key reading."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bytes):
+        return bytes.decode(value, "utf-8", "ignore")
+    if isinstance(value, bytearray):
+        return bytearray.decode(value, "utf-8", "ignore")
+    if isinstance(value, memoryview):
+        return bytes.decode(memoryview.tobytes(value), "utf-8", "ignore")
+    if isinstance(value, (tuple, list, set, frozenset)):
+        parts = []
+        for part in _base_container_items(value):
+            part_text = _stored_key_text(part)
+            parts.append(part_text if part_text is not None else "")
+        return "".join(parts)
+    return None
+
+
+def _stored_text(value):
+    """The stored text of a handed value under the governing
+    stored text settlement: a text value through its stored
+    characters, a bytes, bytearray, or memoryview value through
+    its decoded stored bytes, and a single part container through
+    the stored text of its one part. Any other form stores no
+    text here and reads as None."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bytes):
+        return bytes.decode(value, "utf-8", "ignore")
+    if isinstance(value, bytearray):
+        return bytearray.decode(value, "utf-8", "ignore")
+    if isinstance(value, memoryview):
+        return bytes.decode(memoryview.tobytes(value), "utf-8", "ignore")
+    if isinstance(value, (tuple, list, set, frozenset)):
+        items = _base_container_items(value)
+        if len(items) == 1:
+            return _stored_text(items[0])
+        return None
+    return None
+
+
+def _stored_text_eq(first, second):
+    """Whether two handed values agree in stored text, where the
+    second stands as a plain stated text."""
+    stored = _stored_text(first)
+    return stored is not None and str.__eq__(stored, second)
+
+
+def _stored_get(record, field):
+    """Read one field of a handed record through its stored
+    pairs, a field standing present where a stored key carries
+    its name in stored text, never through a hash or equality
+    reading a handed key supplies."""
+    if not isinstance(record, dict):
+        return None
+    for key, item in dict.items(record):
+        if _stored_key_text(key) is not None and str.__eq__(
+                _stored_key_text(key), field):
+            return item
+    return None
+
+
+def _all_stored_values(record, fields):
+    """Every stored value a handed record carries under any of
+    the stated fields, read through its stored pairs in the form
+    _stored_get states."""
+    values = []
+    if not isinstance(record, dict):
+        return values
+    for key, item in dict.items(record):
+        key_text = _stored_key_text(key)
+        if key_text is not None and any(
+                str.__eq__(key_text, field) for field in fields):
+            if item is not None:
+                values.append(item)
+    return values
+
+
+def _first_stored_value(record, fields):
+    values = _all_stored_values(record, fields)
+    return values[0] if values else None
+
+
+def _norm_identifier(value):
+    """The identifier a handed value states, in its stored text
+    where it carries one, and as itself where it carries none."""
+    stored = _stored_text(value)
+    return stored if stored is not None else value
+
+
+def _identifiers_agree(first, second):
+    """Whether two identifier values state the same identifier,
+    judged on their stored texts where either carries one."""
+    first_text = _stored_text(first)
+    second_text = _stored_text(second)
+    if first_text is not None or second_text is not None:
+        return (first_text is not None and second_text is not None
+                and str.__eq__(first_text, second_text))
+    return first is second or type(first) is type(second) and first == second
 
 
 def _base_set_items(value):
@@ -608,9 +778,10 @@ def validate_replay_claim(claim):
     over the detection state."""
     if not isinstance(claim, dict):
         return False
-    if claim.get("hash_equality_claimed"):
+    if _stored_present(_base_get(claim, "hash_equality_claimed")):
         return False
-    if claim.get("detection_state_completeness_claimed"):
+    if _stored_present(_base_get(
+            claim, "detection_state_completeness_claimed")):
         return False
     return True
 
@@ -786,11 +957,22 @@ def validate_resume_claim(claim):
     point beyond the two named points, in any artefact."""
     if not isinstance(claim, dict):
         return False
-    if claim.get("detection_scope") not in (None, "verdict level only"):
+    scope = _base_get(claim, "detection_scope")
+    if scope is not None and not _base_str_eq(
+            scope, "verdict level only"):
         return False
-    points = claim.get("detection_comparison_points")
-    if points is not None and list(points) != list(DETECTION_COMPARISON_POINTS):
-        return False
+    points = _base_get(claim, "detection_comparison_points")
+    if points is not None:
+        if not isinstance(points, (list, tuple)):
+            return False
+        stored_points = _base_sequence_items(points)
+        if _base_sequence_length(points) != len(
+                DETECTION_COMPARISON_POINTS):
+            return False
+        for stored_point, named_point in zip(
+                stored_points, DETECTION_COMPARISON_POINTS):
+            if not _base_str_eq(stored_point, named_point):
+                return False
     return True
 
 
@@ -909,9 +1091,11 @@ def validate_probe_claim(claim):
     settled field list."""
     if not isinstance(claim, dict):
         return False
-    if claim.get("margin_or_method_presented_as_settled"):
+    if _stored_present(_base_get(
+            claim, "margin_or_method_presented_as_settled")):
         return False
-    if claim.get("catalogue_presented_as_settled"):
+    if _stored_present(_base_get(
+            claim, "catalogue_presented_as_settled")):
         return False
     return True
 
@@ -947,13 +1131,15 @@ def _is_detection_output(record):
     Form 27 field or in the split fields MOD-08 builds."""
     if not isinstance(record, dict):
         return False
-    if not record.get("run_identifier"):
+    if not _stored_present(_base_get(record, "run_identifier")):
         return False
-    if "scoring_day_range" not in record:
+    if not _base_contains(record, "scoring_day_range"):
         return False
     return (
-        "verdict_states_and_accumulator_updates" in record
-        or "verdict_states_by_agent_and_day" in record
+        _base_contains(
+            record, "verdict_states_and_accumulator_updates")
+        or _base_contains(
+            record, "verdict_states_by_agent_and_day")
     )
 
 
@@ -983,14 +1169,14 @@ def score_detection_outputs(outputs, authored_by=None, knowledge=None,
             "scoring requires the three separations as record properties, supplied and not defaulted: missing "
             + ", ".join(missing)
         )
-    for index, record in enumerate(outputs):
+    for index, record in enumerate(_base_sequence_items(outputs)):
         if not _is_detection_output(record):
             raise NamedReplicationFailure(
                 "scoring counts only checkable DetectionOutput records: input at position "
                 + str(index) + " stands in no DetectionOutput form"
             )
     return {
-        "outputs_scored": len(outputs),
+        "outputs_scored": _base_sequence_length(outputs),
         "separations": supplied,
         "inside_run_boundary": False,
         "value_returned_into_run": None,
@@ -1029,11 +1215,15 @@ def witness_rerun(original, rule_set_version=None):
     under, read as a report of the difference between two rule
     sets and nothing more. The original result, the original run
     record, and the original witness standing stand untouched."""
+    stored_original = original if isinstance(
+        original, dict) else {}
+    stored_run_id = _base_get(stored_original, "run_id")
     rerun = {
-        "run_id": str((original or {}).get("run_id")) + "-rerun",
-        "linked_to": (original or {}).get("run_id"),
+        "run_id": _stored_string(stored_run_id) + "-rerun",
+        "linked_to": stored_run_id,
         "rule_set_version": rule_set_version,
-        "original_rule_set_version": (original or {}).get("rule_set_version"),
+        "original_rule_set_version": _base_get(
+            stored_original, "rule_set_version"),
         "form": "witness rerun",
         "reading": "difference between two rule sets only",
         "verdicts_transferred": False,
@@ -1238,17 +1428,18 @@ def _run_log_records(run_log):
     for the family, so a part that stands in no record form
     stands as no run log entry. A mapping carrying its records
     under a runs, run records, or records field reads through
-    that field, and a single record handed whole reads as a
-    one record log."""
+    that field, the field name read in its stored text under
+    any key dress, and a single record handed whole reads as a
+    one record log, a lone record standing under its run_id
+    alias alone counting as a record."""
     if run_log is None:
         return None
     if isinstance(run_log, dict):
-        if _base_get(run_log, "run_identifier") is not None or (
-                _base_get(run_log, "run_id") is not None
-                and _base_get(run_log, "run_class") is not None):
+        if _stored_get(run_log, "run_identifier") is not None or (
+                _stored_get(run_log, "run_id") is not None):
             return [run_log]
         for key in ("runs", "run_records", "records", "run_log"):
-            inner = dict.get(run_log, key)
+            inner = _stored_get(run_log, key)
             if inner is not None:
                 return _run_log_records(inner) or []
         return []
@@ -1276,16 +1467,20 @@ def _record_is_pilot(record):
     fields carrying the value pilot, and the pilot artefact
     form the MOD-14 pilot runner stamps, the form field
     carrying the pilot artefact value and the confinement
-    label field carrying the pilot confined value."""
+    label field carrying the pilot confined value. Every
+    marker stands read in its stored text, in bytes,
+    bytearray, memoryview, and single part container dress
+    alike, under the governing stored text settlement."""
     for field in ("run_class", "store_kind", "kind", "record_kind"):
-        if _base_str_eq(_base_get(record, field), "pilot"):
+        if _stored_text_eq(_stored_get(record, field), "pilot"):
             return True
-    if _base_str_eq(_base_get(record, "form"), "pilot artefact") or (
-            _base_str_eq(
-                _base_get(record, "form"),
+    if _stored_text_eq(_stored_get(record, "form"), "pilot artefact") or (
+            _stored_text_eq(
+                _stored_get(record, "form"),
                 "pilot artefact, stored apart from sweep results")):
         return True
-    if _base_str_eq(_base_get(record, "confinement_label"), "pilot confined"):
+    if _stored_text_eq(
+            _stored_get(record, "confinement_label"), "pilot confined"):
         return True
     return False
 
@@ -1294,23 +1489,33 @@ def _record_bears_on_entry(record, entry):
     """True where a run record bears on the claim an entry
     carries. A record of another family, or of another claim,
     where both sides state the identifier, bears on no claim of
-    this entry. A failed run bears as any other run bears: its
-    status stands read as failed and it stands in the log."""
-    family = _first_base_value(
-        record, ("sweep_family_identifier", "family_identifier",
-                 "family_id"))
-    entry_family = _first_base_value(
-        entry, ("sweep_family_identifier", "family_identifier",
-                "family_id"))
-    if family is not None and entry_family is not None and not (
-            _base_str_eq(family, entry_family)):
-        return False
-    claim = _first_base_value(record, ("claim_identifier", "claim_id"))
-    entry_claim = _first_base_value(
-        entry, ("claim_identifier", "claim_id"))
-    if claim is not None and entry_claim is not None and not (
-            _base_str_eq(claim, entry_claim)):
-        return False
+    this entry. Every identifier field a record or an entry
+    states stands read, through its stored pairs and in its
+    stored text, so a record that matches on one of its two
+    family or claim fields and contradicts on the other bears
+    in no part, and an identifier stated under a key in bytes
+    or container dress, or as a value in bytes, bytearray,
+    memoryview, or single part container dress, stands read
+    as the identifier it stores. A failed run bears as any
+    other run bears: its status stands read as failed and it
+    stands in the log."""
+    family_fields = (
+        "sweep_family_identifier", "family_identifier", "family_id")
+    record_families = _all_stored_values(record, family_fields)
+    entry_families = _all_stored_values(entry, family_fields)
+    if record_families and entry_families:
+        for record_family in record_families:
+            for entry_family in entry_families:
+                if not _identifiers_agree(record_family, entry_family):
+                    return False
+    claim_fields = ("claim_identifier", "claim_id")
+    record_claims = _all_stored_values(record, claim_fields)
+    entry_claims = _all_stored_values(entry, claim_fields)
+    if record_claims and entry_claims:
+        for record_claim in record_claims:
+            for entry_claim in entry_claims:
+                if not _identifiers_agree(record_claim, entry_claim):
+                    return False
     return True
 
 
@@ -1318,34 +1523,54 @@ def _entry_run_identifiers(entry):
     """The run identifiers a registry entry carries, read
     through base class readings from its screening and held out
     confirmation identifier fields, the two identifier fields
-    Form 22 item 1 states, and from no other field."""
+    Form 22 item 1 states, and from no other field. Each stated
+    identifier stands named in its stored text, so an identifier
+    stated in bytes, bytearray, memoryview, list, or tuple dress,
+    whether as one element of a container field or as a bare
+    value of the field itself, stands named as the run it
+    states."""
     identifiers = []
     for field in ("screening_run_identifiers",
                   "held_out_confirmation_run_identifiers"):
-        value = _base_get(entry, field)
+        value = _stored_get(entry, field)
         if isinstance(value, (list, tuple, set, frozenset)):
-            identifiers.extend(_base_container_items(value))
-        elif isinstance(value, str):
-            identifiers.append(value)
+            identifiers.extend(
+                _norm_identifier(item)
+                for item in _base_container_items(value))
+        elif value is not None:
+            identifiers.append(_norm_identifier(value))
     return identifiers
 
 
 def _record_status_failed(record):
-    """True where a record stands as a failed run, its status
-    field read as failed, under the status field or the run
-    status field. A failed run bears as any other run bears;
-    this reading names it in the result only."""
-    status = _first_base_value(record, ("status", "run_status"))
-    return _base_str_eq(status, "failed")
+    """True where a record stands as a failed run, under the
+    status field or the run status field. Every status field
+    the record states stands read, in its stored text in any
+    dress, so a run failed in its second status field, or in
+    bytes or single part container dress, stands named as a
+    failed run stands named. A failed run bears as any other
+    run bears; this reading names it in the result only."""
+    for value in _all_stored_values(record, ("status", "run_status")):
+        if _stored_text_eq(value, "failed"):
+            return True
+    return False
 
 
 def _stored_count(value):
     """Read a stored count as a plain integer, or None where
-    the value stores no count. A boolean stores no count."""
+    the value stores no count. A boolean stores no count. A
+    figure stated in digit text, in any text dress the stored
+    text settlement reads, stores the count it states."""
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
         return int(value)
+    text = _stored_text(value)
+    if text is not None:
+        stripped = text.strip()
+        digits = stripped[1:] if stripped[:1] in ("+", "-") else stripped
+        if digits and all("0" <= char <= "9" for char in digits):
+            return int(stripped)
     return None
 
 
@@ -1357,9 +1582,15 @@ def _plan_expected_count(plan, entry):
     counts. A plan stating replicates per grid point carries
     the product of that figure and its grid points, the grid
     points standing in the plan or, where the plan states
-    none, in the entry. A plan nested under a replicate plan
-    field reads through that field. No other form derives a
-    count, and no figure stands invented here."""
+    none, in the entry, under the grid points field or the
+    grid point count field alike, and a grid points mapping
+    stating its points as its stored pairs counts as its
+    points. A plan nested under a replicate plan field reads
+    through that field. Figures stand read through their
+    stored pairs and in digit text as _stored_count states,
+    and field names stand read in stored text under any key
+    dress. No other form derives a count, and no figure
+    stands invented here."""
     if plan is None:
         return None
     direct = _stored_count(plan)
@@ -1375,28 +1606,31 @@ def _plan_expected_count(plan, entry):
         return total
     if not isinstance(plan, dict):
         return None
-    stated = _stored_count(_first_base_value(
+    stated = _stored_count(_first_stored_value(
         plan, ("expected_run_count", "expected_runs", "expected_count")))
     if stated is not None:
         return stated
-    counts = _first_base_value(plan, ("replicate_counts", "replicates_per_point"))
+    counts = _first_stored_value(plan, ("replicate_counts", "replicates_per_point"))
     if isinstance(counts, (list, tuple, set, frozenset)):
         return _plan_expected_count(counts, entry)
-    per_point = _stored_count(_first_base_value(
+    per_point = _stored_count(_first_stored_value(
         plan, ("replicates_per_grid_point", "replicate_count",
                "replicates")))
     if per_point is not None:
-        points = _first_base_value(
+        points = _first_stored_value(
             plan, ("grid_points", "grid_point_count"))
         if points is None and isinstance(entry, dict):
-            points = _base_get(entry, "grid_points")
+            points = _first_stored_value(
+                entry, ("grid_points", "grid_point_count"))
         point_count = _stored_count(points)
         if point_count is None and isinstance(
                 points, (list, tuple, set, frozenset)):
             point_count = len(_base_container_items(points))
+        if point_count is None and isinstance(points, dict):
+            point_count = len(list(dict.items(points)))
         if point_count is not None:
             return per_point * point_count
-    nested = _base_get(plan, "replicate_plan")
+    nested = _stored_get(plan, "replicate_plan")
     if nested is not None:
         return _plan_expected_count(nested, entry)
     return None
@@ -1406,11 +1640,12 @@ def _manifest_expected_count(manifest, entry):
     """Derive the expected run count from a FamilyManifest
     handed to the act, through the family record replicate
     plan it carries as sealed, in the form
-    _plan_expected_count states."""
+    _plan_expected_count states, the replicate plan field
+    read through its stored pairs under any key dress."""
     if manifest is None:
         return None
     if isinstance(manifest, dict):
-        plan = _base_get(manifest, "replicate_plan")
+        plan = _stored_get(manifest, "replicate_plan")
         if plan is not None:
             return _plan_expected_count(plan, entry)
     return _plan_expected_count(manifest, entry)
@@ -1421,68 +1656,96 @@ def _expected_count_and_source(entry, source, family_manifest):
     source. The governing source stands first: the family
     record replicate plan as sealed in the FamilyManifest,
     handed as the family manifest argument, carried on the
-    entry, or carried on the run log mapping. The stated
-    expected count fields of the entry and of the run log
-    mapping stand as the remaining read sources, as the act
-    has always read them. Where no source states a count,
+    entry, or carried on the run log mapping, the manifest
+    read through its stored pairs under any key dress. The
+    stated expected count fields of the entry and of the run
+    log mapping stand as the remaining read sources, as the
+    act has always read them. Where no source states a count,
     the pair stands as no count and no source, and the caller
     states that the shortfall limb did not run."""
     manifest = family_manifest
     if manifest is None and isinstance(entry, dict):
-        manifest = _first_base_value(
+        manifest = _first_stored_value(
             entry, ("family_manifest", "manifest"))
     if manifest is None and isinstance(source, dict):
-        manifest = _first_base_value(
+        manifest = _first_stored_value(
             source, ("family_manifest", "manifest"))
     if manifest is not None:
         derived = _manifest_expected_count(manifest, entry)
         if derived is not None:
             return derived, "family manifest replicate plan"
     if isinstance(entry, dict):
-        plan = _base_get(entry, "replicate_plan")
+        plan = _stored_get(entry, "replicate_plan")
         if plan is not None:
             derived = _plan_expected_count(plan, entry)
             if derived is not None:
                 return derived, "entry replicate plan"
-        stated = _stored_count(_first_base_value(
+        stated = _stored_count(_first_stored_value(
             entry, ("expected_run_count", "expected_runs")))
         if stated is not None:
             return stated, "entry expected count field"
     if isinstance(source, dict):
-        stated = _stored_count(_first_base_value(
+        stated = _stored_count(_first_stored_value(
             source, ("expected_run_count", "expected_runs")))
         if stated is not None:
             return stated, "run log expected count field"
     return None, None
 
 
+_AMENDED_VALUE_SETS = (
+    ("outcome", ("reported", "not reported")),
+    ("confirmation_outcome", ("passed", "failed", "not run")),
+    ("gate_failure", (
+        "procedure gate", "confirmation gate", "both gates", "none")),
+)
+
+
 def _amended_form_failures(entry):
     """The failures the amended Form 22 fields state on an
-    entry, at this act. The outcome stands read with the
-    confirmation outcome field and the gate failure field and
-    with no other reading: a confirmation outcome of failed
-    fails, and a gate failure at the procedure gate, at the
-    confirmation gate, or at both gates fails. An entry for
-    an unranked claim carries the value not ranked in its
-    test value, rank, and threshold fields and no other
+    entry, at this act, in the one form the three registry
+    acts share. The outcome stands read with the confirmation
+    outcome field and the gate failure field and with no
+    other reading: where the outcome stands reported, a
+    confirmation outcome of failed or not run fails, and a
+    gate failure at the procedure gate, at the confirmation
+    gate, or at both gates fails; where the outcome does not
+    stand reported, neither amended field fails on its
+    stated barred values. A value standing in none of its
+    field stated set fails in every outcome form. An entry
+    for an unranked claim carries the value not ranked in
+    its test value, rank, and threshold fields and no other
     value, so a not ranked value in one of those fields
-    beside another value in any of them fails."""
+    beside another value in any of them fails. Every value
+    stands read in its stored text, in plain, bytes,
+    bytearray, memoryview, and single part container dress
+    alike, through its stored pairs."""
     failures = []
     if not isinstance(entry, dict):
         return failures
-    if _base_str_eq(_base_get(entry, "confirmation_outcome"), "failed"):
-        failures.append("confirmation outcome failed")
-    gate_failure = _base_get(entry, "gate_failure")
-    for stated in ("procedure gate", "confirmation gate", "both gates"):
-        if _base_str_eq(gate_failure, stated):
-            failures.append("gate failure: " + stated)
+    for field, stated_set in _AMENDED_VALUE_SETS:
+        value = _stored_get(entry, field)
+        if value is not None and not any(
+                _stored_text_eq(value, stated) for stated in stated_set):
+            failures.append(
+                "value outside its stated set: " + field)
+    if _stored_text_eq(_stored_get(entry, "outcome"), "reported"):
+        if _stored_text_eq(
+                _stored_get(entry, "confirmation_outcome"), "failed"):
+            failures.append("confirmation outcome failed")
+        if _stored_text_eq(
+                _stored_get(entry, "confirmation_outcome"), "not run"):
+            failures.append("confirmation outcome not run")
+        gate_failure = _stored_get(entry, "gate_failure")
+        for stated in ("procedure gate", "confirmation gate", "both gates"):
+            if _stored_text_eq(gate_failure, stated):
+                failures.append("gate failure: " + stated)
     ranked_fields = [
-        _base_get(entry, field)
+        _stored_get(entry, field)
         for field in ("test_value", "rank", "threshold")]
     carries_not_ranked = any(
-        _base_str_eq(value, "not ranked") for value in ranked_fields)
+        _stored_text_eq(value, "not ranked") for value in ranked_fields)
     all_not_ranked = all(
-        _base_str_eq(value, "not ranked") for value in ranked_fields)
+        _stored_text_eq(value, "not ranked") for value in ranked_fields)
     if carries_not_ranked and not all_not_ranked:
         failures.append(
             "unranked form incomplete: the test value, rank, and "
@@ -1545,7 +1808,8 @@ def compare_registry_against_run_log(entry, run_log=None,
     its absence never reads as a pass of that limb."""
     claim_id = None
     if isinstance(entry, dict):
-        claim_id = _first_base_value(entry, ("claim_identifier", "claim_id"))
+        claim_id = _first_stored_value(
+            entry, ("claim_identifier", "claim_id"))
     if not isinstance(entry, dict):
         return {
             "performed": False,
@@ -1564,7 +1828,7 @@ def compare_registry_against_run_log(entry, run_log=None,
         }
     source = retained_records if retained_records is not None else run_log
     if source is None:
-        source = _base_get(entry, "run_log")
+        source = _stored_get(entry, "run_log")
     records = _run_log_records(source)
     if records is None:
         return {
@@ -1587,7 +1851,8 @@ def compare_registry_against_run_log(entry, run_log=None,
     excluded_pilot = []
     failed = []
     for record in records:
-        run_id = _first_base_value(record, ("run_identifier", "run_id"))
+        run_id = _norm_identifier(_first_stored_value(
+            record, ("run_identifier", "run_id")))
         if _record_is_pilot(record):
             excluded_pilot.append(run_id)
             continue
@@ -1599,10 +1864,11 @@ def compare_registry_against_run_log(entry, run_log=None,
     missing = [
         run_id for run_id in bearing
         if run_id is None or not any(
-            _base_str_eq(run_id, entry_id) for entry_id in entry_ids)]
+            _identifiers_agree(run_id, entry_id) for entry_id in entry_ids)]
     absent = [
         entry_id for entry_id in entry_ids
-        if not any(_base_str_eq(entry_id, run_id) for run_id in bearing)]
+        if not any(
+            _identifiers_agree(entry_id, run_id) for run_id in bearing)]
     amended_failures = _amended_form_failures(entry)
     result = {
         "performed": True,
@@ -1619,10 +1885,10 @@ def compare_registry_against_run_log(entry, run_log=None,
     }
     if amended_failures:
         result["amended_form_failures"] = amended_failures
-    confirmation_outcome = _base_get(entry, "confirmation_outcome")
+    confirmation_outcome = _stored_get(entry, "confirmation_outcome")
     if confirmation_outcome is not None:
         result["confirmation_outcome"] = confirmation_outcome
-    gate_failure = _base_get(entry, "gate_failure")
+    gate_failure = _stored_get(entry, "gate_failure")
     if gate_failure is not None:
         result["gate_failure"] = gate_failure
     expected, expected_source = _expected_count_and_source(
@@ -1661,7 +1927,15 @@ def validate_aggregate_form(form):
     field or changes meaning with the horizon."""
     if not isinstance(form, (list, tuple)):
         return False
-    return "horizon" not in form and list(form) == daily_aggregate_form()
+    stored_form = _base_sequence_items(form)
+    if any(_base_str_eq(item, "horizon") for item in stored_form):
+        return False
+    daily = daily_aggregate_form()
+    if _base_sequence_length(form) != len(daily):
+        return False
+    return all(
+        _base_str_eq(stored_item, daily_item)
+        for stored_item, daily_item in zip(stored_form, daily))
 
 
 __all__ = [

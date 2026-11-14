@@ -90,7 +90,27 @@ def _freeze(value, _memo=None):
         for item in set.__iter__(value):
             copied.add(_freeze(item, _memo))
         return copied
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bytes):
+        return bytes(value)
+    if isinstance(value, bytearray):
+        return bytearray(value)
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
     return value
+
+
+def _stored_id_text(value):
+    """The text a handed identifier value stores, read through
+    the stored text reading of this module where the value
+    stands in a text form, so a new identifier stands built
+    from the stored identifier, never from a string reading
+    the handed value itself supplies."""
+    stored = _stored_text(value)
+    if stored is not None:
+        return stored
+    return str(value)
 
 
 def _stored_value_present(value):
@@ -167,16 +187,20 @@ def sweep_manifest(record):
     """The sweep manifest of one family record, in the Form 23
     fields: the family identifier, the family version, and the
     sealed family record hash, each as the record carries it."""
-    record = record or {}
-    seal = record.get("seal") if isinstance(record.get("seal"), dict) else {}
+    if not isinstance(record, dict):
+        record = {}
+    seal = dict.get(record, "seal")
+    if not isinstance(seal, dict):
+        seal = {}
     return {
-        "family_identifier": record.get(
-            "family_identifier", record.get("family_id")),
-        "family_version": record.get("family_version"),
-        "sealed_family_record_hash": (
-            record.get("family_manifest_hash")
-            or record.get("seal_hash")
-            or seal.get("hash")),
+        "family_identifier": _freeze(dict.get(
+            record, "family_identifier",
+            dict.get(record, "family_id"))),
+        "family_version": _freeze(dict.get(record, "family_version")),
+        "sealed_family_record_hash": _freeze(
+            dict.get(record, "family_manifest_hash")
+            or dict.get(record, "seal_hash")
+            or dict.get(seal, "hash")),
     }
 
 
@@ -271,14 +295,19 @@ def apply_family_edit(record, change=None):
             + str(_MAX_BARRED_READ_DEPTH)
             + " or carries a cycle")
     edited = _freeze(record)
-    if isinstance(change, dict):
-        edited.update(_freeze(change))
+    frozen_change = _freeze(change) if isinstance(change, dict) else None
+    if frozen_change is not None:
+        edited.update(frozen_change)
     explicit_checks = []
-    if isinstance(change, dict):
+    if frozen_change is not None:
         for field in ("kill_check_fields", "kill_checks"):
-            supplied = dict.get(change, field)
+            supplied = dict.get(frozen_change, field)
             if isinstance(supplied, (list, tuple)):
-                explicit_checks.extend(supplied)
+                explicit_checks.extend(
+                    item for item in (
+                        list.__iter__(supplied)
+                        if isinstance(supplied, list)
+                        else tuple.__iter__(supplied)))
     if isinstance(change, dict) and (
             dict.__contains__(change, "headline_claims")
             or dict.__contains__(change, "claims")):
@@ -295,7 +324,10 @@ def apply_family_edit(record, change=None):
                 "family edit refused: a claims value handed in "
                 "does not stand in list or tuple form: "
                 + repr(raw))
-        standing = list(raw)
+        standing = [
+            _freeze(item) for item in (
+                list.__iter__(raw) if isinstance(raw, list)
+                else tuple.__iter__(raw))]
         edited["headline_claims"] = standing
         edited["claims"] = standing
         checks = [kill_check_for_claim(claim) for claim in standing]
@@ -327,7 +359,7 @@ def apply_family_edit(record, change=None):
         base_id = dict.get(record, "family_identifier")
         if not _stored_value_present(base_id):
             base_id = dict.get(record, "family_id")
-        new_id = str(base_id) + "-edited-1"
+        new_id = _stored_id_text(base_id) + "-edited-1"
         edited["family_id"] = new_id
         edited["family_identifier"] = new_id
         edited["runs_under"] = new_id
@@ -339,7 +371,7 @@ def apply_family_edit(record, change=None):
                         "sweep_manifest"):
             edited.pop(carried, None)
     else:
-        edited["runs_under"] = edited.get("family_id")
+        edited["runs_under"] = dict.get(edited, "family_id")
     return edited
 
 
@@ -354,13 +386,14 @@ def family_record_validation_failures(record):
         return ["family record is not a record"]
     failures = []
     for field in _mod01.form_fields("1"):
-        if field not in record or record.get(field) is None:
+        if not dict.__contains__(record, field) \
+                or dict.get(record, field) is None:
             failures.append("missing field: " + field)
     for field in _mod01.COMPLETENESS_FIELDS:
-        if field not in record:
+        if not dict.__contains__(record, field):
             failures.append("missing completeness field: " + field)
     for item in FAMILY_COMPLETENESS_ITEMS:
-        if not record.get(item):
+        if not _stored_value_present(dict.get(record, item)):
             failures.append("missing completeness item: " + item)
     return failures
 
@@ -390,21 +423,32 @@ def validate_family_record(record):
                 dict.get(record, "identifier_changed")):
             return False
     for field in ("kill_check_fields", "kill_checks"):
-        checks = record.get(field)
+        checks = dict.get(record, field)
         if not isinstance(checks, (list, tuple)):
             continue
-        standing_claims = record.get("headline_claims")
+        standing_claims = dict.get(record, "headline_claims")
         if not isinstance(standing_claims, (list, tuple)):
-            standing_claims = record.get("claims")
+            standing_claims = dict.get(record, "claims")
         if not isinstance(standing_claims, (list, tuple)):
             continue
-        for check in checks:
-            if isinstance(check, dict) and check.get("claim") is not None \
-                    and check.get("claim") not in standing_claims:
+        frozen_claims = _freeze(standing_claims)
+        check_items = (
+            list.__iter__(checks) if isinstance(checks, list)
+            else tuple.__iter__(checks))
+        for check in check_items:
+            if isinstance(check, dict) \
+                    and dict.get(check, "claim") is not None \
+                    and _freeze(dict.get(check, "claim")) \
+                    not in frozen_claims:
                 return False
-    if record.get("ecology_point") == "fixed" and not record.get("amendment_landed"):
+    if _freeze(dict.get(record, "ecology_point")) == "fixed" \
+            and not _stored_value_present(
+                dict.get(record, "amendment_landed")):
         return False
-    if record.get("data_dependent_top_up") and not record.get("look_register"):
+    if _stored_value_present(
+            dict.get(record, "data_dependent_top_up")) \
+            and not _stored_value_present(
+                dict.get(record, "look_register")):
         return False
     return True
 
@@ -424,7 +468,8 @@ def admit_claim(family, claim=None):
             "deeper than the stated bound of "
             + str(_MAX_BARRED_READ_DEPTH)
             + " or carries a cycle")
-    if isinstance(family, dict) and family.get("results_seen"):
+    if isinstance(family, dict) and _stored_value_present(
+            dict.get(family, "results_seen")):
         raise NamedControllerFailure(
             "claim entering after results are seen is barred from the family"
         )
@@ -460,11 +505,14 @@ def validate_kill_check(check):
     judge both stand outside the artefact under check."""
     if not isinstance(check, dict):
         return False
-    if not check.get("name") or not check.get("killing_result"):
+    if not _stored_value_present(dict.get(check, "name")) \
+            or not _stored_value_present(
+                dict.get(check, "killing_result")):
         return False
     return bool(
-        check.get("data_outside_artefact")
-        and check.get("judge_outside_artefact")
+        _stored_value_present(dict.get(check, "data_outside_artefact"))
+        and _stored_value_present(
+            dict.get(check, "judge_outside_artefact"))
     )
 
 
@@ -1116,6 +1164,16 @@ def _carries_barred_money_value(value, _depth=0, _seen=None):
     return False
 
 
+def _text_eq(value, stated):
+    """Judge a stored value against a stated text by its stored
+    characters, through the base string equality, never through
+    an equality reading the value itself supplies."""
+    if not isinstance(value, str):
+        return False
+    result = str.__eq__(value, stated)
+    return result if result is not NotImplemented else False
+
+
 def validate_run_record(run):
     """Return True only where a run record stands in its class,
     with its class fields stated: an empty record fails, a record
@@ -1126,22 +1184,29 @@ def validate_run_record(run):
     carrying a barred money field at any depth fails, and a
     record whose anchor scenario values stand at a count other
     than the three stated values fails."""
-    if not isinstance(run, dict) or not run:
+    if not isinstance(run, dict) or dict.__len__(run) == 0:
         return False
-    if run.get("run_class") not in RUN_CLASSES:
+    run_class = _freeze(dict.get(run, "run_class"))
+    seed_domain = _freeze(dict.get(run, "seed_domain"))
+    if not any(_text_eq(run_class, stated)
+               for stated in RUN_CLASSES):
         return False
-    if not run.get("seed_domain"):
+    if not _stored_value_present(dict.get(run, "seed_domain")):
         return False
-    if run.get("relabelled_from") == "screening" and run.get("run_class") != "screening":
+    if _text_eq(
+            _freeze(dict.get(run, "relabelled_from")),
+            "screening") and (
+            not _text_eq(run_class, "screening")):
         return False
-    if run.get("run_class") in ("confirmation", "headline") \
-            and run.get("seed_domain") == "screening":
+    if any(_text_eq(run_class, stated)
+           for stated in ("confirmation", "headline")) \
+            and _text_eq(seed_domain, "screening"):
         return False
     if _shape_exceeds_bounds(run):
         return False
     if _carries_barred_money_value(run):
         return False
-    for key, values in run.items():
+    for key, values in dict.items(run):
         if _ANCHOR_VALUES_FIELD_FOLDED not in _folded_money_variants(key) \
                 and not _folded_name_matches(
                     key, _ANCHOR_VALUES_FIELD_FOLDED):

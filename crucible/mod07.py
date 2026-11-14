@@ -99,6 +99,119 @@ def _copy_guard(value, _depth=0, _seen=None, _path="root",
         walked[(id(value), _depth)] = True
 
 
+def _bget(mapping, key, default=None):
+    """The value a handed mapping stores under a key, read
+    through the base dict get, never through a get reading the
+    mapping itself supplies."""
+    if isinstance(mapping, dict):
+        return dict.get(mapping, key, default)
+    return default
+
+
+def _stored_copy(value, _memo=None):
+    """A copy of a handed value built from its stored contents
+    only: dict parts through the base dict items reading, list,
+    tuple, set, and frozenset parts through their base iteration
+    readings, and text parts through the base string form, so
+    no reading a part itself supplies directs the copy."""
+    if _memo is None:
+        _memo = {}
+    if isinstance(value, dict):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = {}
+        _memo[id(value)] = copied
+        for key, item in dict.items(value):
+            copied[_stored_copy(key, _memo)] = _stored_copy(
+                item, _memo)
+        return copied
+    if isinstance(value, list):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = []
+        _memo[id(value)] = copied
+        copied.extend(
+            _stored_copy(item, _memo)
+            for item in list.__iter__(value))
+        return copied
+    if isinstance(value, tuple):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = tuple(
+            _stored_copy(item, _memo)
+            for item in tuple.__iter__(value))
+        _memo[id(value)] = copied
+        return copied
+    if isinstance(value, (set, frozenset)):
+        parts = [
+            _stored_copy(item, _memo) for item in (
+                set.__iter__(value) if isinstance(value, set)
+                else frozenset.__iter__(value))]
+        return set(parts) if isinstance(value, set) else frozenset(
+            parts)
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bytes):
+        return bytes(value)
+    if isinstance(value, bytearray):
+        return bytearray(value)
+    return value
+
+
+def _base_sequence(value):
+    """The stored parts of a handed sequence, read through the
+    base iteration of its form, as a list. A value in no
+    sequence form stands as no parts."""
+    if isinstance(value, list):
+        return list(list.__iter__(value))
+    if isinstance(value, tuple):
+        return list(tuple.__iter__(value))
+    if isinstance(value, frozenset):
+        return list(frozenset.__iter__(value))
+    if isinstance(value, set):
+        return list(set.__iter__(value))
+    return []
+
+
+def _value_present(value):
+    """Whether a handed value stands present, judged by the
+    contents it stores, read through base class operations of
+    its kind, never through a truth reading it supplies."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value is True
+    if isinstance(value, str):
+        return str.__len__(value) > 0
+    if isinstance(value, (list, tuple, set, frozenset, dict,
+                          bytes, bytearray, memoryview)):
+        if isinstance(value, list):
+            return list.__len__(value) > 0
+        if isinstance(value, tuple):
+            return tuple.__len__(value) > 0
+        if isinstance(value, dict):
+            return dict.__len__(value) > 0
+        if isinstance(value, (bytes, bytearray)):
+            return bytes.__len__(bytes(value)) > 0
+        if isinstance(value, memoryview):
+            return bytes.__len__(bytes(value)) > 0
+        if isinstance(value, frozenset):
+            return frozenset.__len__(value) > 0
+        return set.__len__(value) > 0
+    if isinstance(value, int):
+        return int.__ne__(value, 0)
+    if isinstance(value, float):
+        return float.__ne__(value, 0.0)
+    return False
+
+
+def _stored_text_eq(value, stated):
+    """Whether a handed value stores the stated text, judged on
+    its stored text form."""
+    return isinstance(value, str) and str.__eq__(
+        str.__str__(value), stated) is True
+
+
 def seam_gap_counts():
     """Return the seam gap counts R10 records: creation 7, release
     6, slash execution 8, standing over the fourteen open semantic
@@ -216,11 +329,14 @@ def validate_choice_pair(log_entry, run_entry):
         "dependence_marks",
     ):
         for entry in (log_entry, run_entry):
-            if field not in entry or entry.get(field) is None:
+            if not dict.__contains__(entry, field) \
+                    or dict.get(entry, field) is None:
                 return False
-            if field != "dependence_marks" and entry.get(field) == "":
+            if field != "dependence_marks" \
+                    and _stored_text_eq(dict.get(entry, field), ""):
                 return False
-        if log_entry.get(field) != run_entry.get(field):
+        if _stored_copy(dict.get(log_entry, field)) != _stored_copy(
+                dict.get(run_entry, field)):
             return False
     return True
 
@@ -249,16 +365,20 @@ def choice_approval_stands(choice):
     """Return True only where the Project Manager approval stands
     on the record of the choice, naming the choice, its effects,
     and its approver."""
-    approval = choice.get("approval")
+    if not isinstance(choice, dict):
+        return False
+    approval = dict.get(choice, "approval")
     if not isinstance(approval, dict):
         return False
-    if approval.get("approver") != "Project Manager":
+    if not _stored_text_eq(
+            dict.get(approval, "approver"), "Project Manager"):
         return False
-    if approval.get("choice_identifier") != choice.get("choice_identifier"):
+    if _stored_copy(dict.get(approval, "choice_identifier")) \
+            != _stored_copy(dict.get(choice, "choice_identifier")):
         return False
-    if not approval.get("effects"):
+    if not _value_present(dict.get(approval, "effects")):
         return False
-    return approval.get("standing") == "approved"
+    return _stored_text_eq(dict.get(approval, "standing"), "approved")
 
 
 def validate_adapter_choice(choice):
@@ -268,16 +388,22 @@ def validate_adapter_choice(choice):
     and its approval stands on the record."""
     if not isinstance(choice, dict):
         return False
-    if choice.get("recorded_as") != "adapter choice":
+    if not _stored_text_eq(
+            dict.get(choice, "recorded_as"), "adapter choice"):
         return False
-    if choice.get("presented_as_rule_of") is not None:
+    if dict.get(choice, "presented_as_rule_of") is not None:
         return False
-    for driven in choice.get("drives") or []:
+    drives = dict.get(choice, "drives")
+    if drives is not None and not isinstance(
+            drives, (list, tuple, set, frozenset)):
+        return False
+    for driven in _base_sequence(drives):
         if not isinstance(driven, dict):
             return False
-        if driven.get("level") != "decision":
+        if not _stored_text_eq(dict.get(driven, "level"), "decision"):
             return False
-        if driven.get("kind") != "computed value":
+        if not _stored_text_eq(
+                dict.get(driven, "kind"), "computed value"):
             return False
     return choice_approval_stands(choice)
 
@@ -418,10 +544,13 @@ def validate_tracer_passage_set(records, positive_control=None):
     record."""
     if not isinstance(records, (list, tuple)):
         return False
-    if len(records) != len(OPEN_SEMANTIC_ITEMS):
+    stored_count = (
+        list.__len__(records) if isinstance(records, list)
+        else tuple.__len__(records))
+    if stored_count != len(OPEN_SEMANTIC_ITEMS):
         return False
     items = []
-    for record in records:
+    for record in _base_sequence(records):
         if not isinstance(record, dict):
             return False
         for field in _TRACER_FIELDS:
@@ -438,7 +567,7 @@ def validate_tracer_passage_set(records, positive_control=None):
                         field_value,
                         (list, tuple, dict, set, frozenset,
                          bytes, bytearray)) \
-                        and len(field_value) == 0:
+                        and not _value_present(field_value):
                     return False
         if not isinstance(dict.get(record, "open_semantic_item"), str):
             return False
@@ -464,12 +593,12 @@ def _stored_entries(run, keys):
     stated carriage keys, as a list of records."""
     entries = []
     for key in keys:
-        carried = run.get(key)
+        carried = _bget(run, key)
         if isinstance(carried, dict):
             entries.append(carried)
         elif isinstance(carried, (list, tuple)):
             entries.extend(
-                entry for entry in carried
+                entry for entry in _base_sequence(carried)
                 if isinstance(entry, dict))
     return entries
 
@@ -482,7 +611,7 @@ def _stored_pair_stands(run, choice):
     does not store stands read from the entry this module builds
     for the choice, so a run storing neither side stands judged
     on its choices alone, as before."""
-    identifier = choice.get("choice_identifier")
+    identifier = _stored_copy(_bget(choice, "choice_identifier"))
     log_entries = _stored_entries(run, (
         "interpretation_log_entries", "interpretation_log_entry",
         "interpretation_log", "log_entries"))
@@ -491,10 +620,12 @@ def _stored_pair_stands(run, choice):
         "run_record_choices", "record_entries"))
     log_entry = next(
         (entry for entry in log_entries
-         if entry.get("choice_identifier") == identifier), None)
+         if _stored_copy(_bget(entry, "choice_identifier"))
+         == identifier), None)
     run_entry = next(
         (entry for entry in run_entries
-         if entry.get("choice_identifier") == identifier), None)
+         if _stored_copy(_bget(entry, "choice_identifier"))
+         == identifier), None)
     if log_entry is None and run_entry is None:
         return validate_choice_pair(
             interpretation_log_entry(choice), run_record_entry(choice))
@@ -513,17 +644,26 @@ def validate_joint_run(run):
     seam effect in it carries settled or released."""
     if not isinstance(run, dict):
         return False
-    for choice in run.get("adapter_choices") or []:
+    choices = dict.get(run, "adapter_choices")
+    if choices is not None and not isinstance(
+            choices, (list, tuple, set, frozenset)):
+        return False
+    for choice in _base_sequence(choices):
         if not validate_adapter_choice(choice):
             return False
         if not _stored_pair_stands(run, choice):
             return False
+    records = dict.get(run, "tracer_passage_records")
     if not validate_tracer_passage_set(
-        run.get("tracer_passage_records") or [],
-        run.get("positive_control"),
+        records if records is not None else [],
+        dict.get(run, "positive_control"),
     ):
         return False
-    for effect in run.get("cross_seam_effects") or []:
+    effects = dict.get(run, "cross_seam_effects")
+    if effects is not None and not isinstance(
+            effects, (list, tuple, set, frozenset)):
+        return False
+    for effect in _base_sequence(effects):
         if not validate_cross_seam_effect(effect):
             return False
     return True
@@ -600,7 +740,7 @@ def validate_cross_seam_effect(effect):
     for cross seam effects while NQ-45 stands open."""
     if not isinstance(effect, dict):
         return False
-    state = effect.get("lien_state", COMPUTED_NOT_SETTLED)
+    state = dict.get(effect, "lien_state", COMPUTED_NOT_SETTLED)
     return mod01.validate_lien_state(state, cross_seam=True)
 
 
@@ -655,7 +795,7 @@ def validate_seam_wording(text):
     the whole wording."""
     if not isinstance(text, str):
         return False
-    lowered = text.lower()
+    lowered = str.lower(_stored_text(text))
     return not any(
         _claim_drifts(claim) for claim in _wording_claims(lowered))
 
@@ -711,13 +851,19 @@ def validate_folding_record(record):
     ruling by ruling and supplies no gap value by inference."""
     if not isinstance(record, dict):
         return False
-    if not record.get("recorded_ruling_by_ruling"):
+    if not _value_present(dict.get(record, "recorded_ruling_by_ruling")):
         return False
-    if not record.get("rulings_recorded"):
+    if not _value_present(dict.get(record, "rulings_recorded")):
         return False
-    if record.get("gaps_filled_by_inference"):
+    if _value_present(dict.get(record, "gaps_filled_by_inference")):
         return False
-    return tuple(record.get("gaps_carried_open") or ()) == RULING_TEXT_GAPS
+    carried = dict.get(record, "gaps_carried_open")
+    if carried is not None and not isinstance(
+            carried, (list, tuple, set, frozenset)):
+        return False
+    return tuple(
+        _stored_copy(part) for part in _base_sequence(carried)
+    ) == RULING_TEXT_GAPS
 
 
 def ruling_effect_reporting_stands(difference, folding_records):

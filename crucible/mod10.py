@@ -289,6 +289,10 @@ _UNORDERED_JOIN_PART_BOUND = 7
 
 _JOIN_CANDIDATE_BOUND = 5040
 
+_SEG_JOIN_CANDIDATE_BOUND = 131072
+
+_SEG_FOLDED_CANDIDATE_BOUND = 20000
+
 
 def _join_container_parts(node):
     """The parts a container stores, read through base class
@@ -318,7 +322,7 @@ def _has_unordered_split(value):
     return False
 
 
-def _joined_text_candidates(value, _active=None):
+def _joined_text_candidates(value, _active=None, _cap=None):
     """Every joined stored text a container key can stand in.
 
     An ordered container (tuple, list, or a dict read by its
@@ -338,50 +342,76 @@ def _joined_text_candidates(value, _active=None):
     contributes its iteration order join alone, beside the
     standing per part readings, as the paper for this cure
     states. A part already on the walk path contributes the
-    empty text, so a cyclic part cannot loop the read."""
-    if not isinstance(value, (dict, list, tuple, set, frozenset)):
-        return (_stored_text(value),)
+    empty text, so a cyclic part cannot loop the read. The walk stands iterative on an explicit stack of frames, so a container chain at any depth stands answered on the same terms and no recursion stands spent per container level. A caller may state a wider candidate cap through _cap, as the segmentation readings do, without moving the standing bound this act states for its other callers."""
+    if _cap is None:
+        _cap = _JOIN_CANDIDATE_BOUND
     if _active is None:
         _active = set()
-    if id(value) in _active:
-        return ("",)
-    _active.add(id(value))
-    try:
-        parts = _join_container_parts(value)
-        child = [
-            _joined_text_candidates(part, _active) for part in parts
-        ]
-    finally:
-        _active.discard(id(value))
-    if (
-        isinstance(value, (set, frozenset))
-        and 2 <= len(parts) <= _UNORDERED_JOIN_PART_BOUND
-    ):
-        orders = list(itertools.permutations(range(len(parts))))
-    else:
-        orders = [tuple(range(len(parts)))]
-    out = []
-    seen = set()
-    for order in orders:
-        total = 1
-        for index in order:
-            total *= len(child[index])
-        if total > _JOIN_CANDIDATE_BOUND:
-            text = "".join(
-                child[index][0] for index in range(len(parts)))
-            if text not in seen:
-                seen.add(text)
-                out.append(text)
-            continue
-        for combo in itertools.product(
-                *(child[index] for index in order)):
-            text = "".join(combo)
-            if text not in seen:
-                seen.add(text)
-                out.append(text)
-                if len(out) >= _JOIN_CANDIDATE_BOUND:
-                    return tuple(out)
-    return tuple(out)
+
+    def combine(node, parts, child):
+        if (
+            isinstance(node, (set, frozenset))
+            and 2 <= len(parts) <= _UNORDERED_JOIN_PART_BOUND
+        ):
+            orders = list(
+                itertools.permutations(range(len(parts))))
+        else:
+            orders = [tuple(range(len(parts)))]
+        out = []
+        seen = set()
+        for order in orders:
+            total = 1
+            for index in order:
+                total *= len(child[index])
+            if total > _cap:
+                text = "".join(
+                    child[index][0]
+                    for index in range(len(parts)))
+                if text not in seen:
+                    seen.add(text)
+                    out.append(text)
+                continue
+            for combo in itertools.product(
+                    *(child[index] for index in order)):
+                text = "".join(combo)
+                if text not in seen:
+                    seen.add(text)
+                    out.append(text)
+                    if len(out) >= _cap:
+                        return tuple(out)
+        return tuple(out)
+
+    stack = []
+    node = value
+    result = None
+    while True:
+        if result is None:
+            if not isinstance(node, (dict, list, tuple, set, frozenset)):
+                result = (_stored_text(node),)
+            elif id(node) in _active:
+                result = ("",)
+            else:
+                _active.add(id(node))
+                parts = _join_container_parts(node)
+                if parts:
+                    stack.append([node, parts, [], 0])
+                    node = parts[0]
+                    continue
+                _active.discard(id(node))
+                result = combine(node, parts, [])
+        while result is not None:
+            if not stack:
+                return result
+            frame = stack[-1]
+            frame[2].append(result)
+            frame[3] += 1
+            if frame[3] < len(frame[1]):
+                node = frame[1][frame[3]]
+                result = None
+                break
+            stack.pop()
+            _active.discard(id(frame[0]))
+            result = combine(frame[0], frame[1], frame[2])
 
 
 def _seg_tiles_exact(options, target):
@@ -520,27 +550,147 @@ def _seg_unordered_nodes(key):
     return nodes
 
 
-def _seg_plain_options(parts):
+
+
+def _seg_universe(targets, patterns):
+    """Every substring of the targets and patterns a
+    segmentation judgement in this module tiles or carries:
+    the only texts a part reading can contribute to such a
+    judgement as a whole segment."""
+    universe = set()
+    for text in list(targets) + list(patterns):
+        for start in range(len(text)):
+            for stop in range(start + 1, len(text) + 1):
+                universe.add(text[start:stop])
+    return universe
+
+
+def _seg_prefixes(universe):
+    """Every prefix of a universe text, the closure the
+    formable set computation walks through."""
+    prefixes = set()
+    for text in universe:
+        for stop in range(1, len(text) + 1):
+            prefixes.add(text[:stop])
+    return prefixes
+
+
+def _seg_formable(node, universe, prefixes, folded, _active=None):
+    """The universe texts one part can join to exactly, as a
+    set beside whether the part can join to the empty text.
+    The computation walks the part structure in the form the
+    segmentation stated: an ordered container joins its
+    parts in order, an unordered container joins its parts
+    in any order, and no joined candidate is ever listed, so
+    a composite part whose candidates pass the kept helper
+    cut still contributes every segment of a target or a
+    pattern it can stand as. A part already on the walk path
+    contributes the empty text, as the candidate act states."""
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        if folded:
+            readings = set(_fold_variants(node))
+        else:
+            readings = {_stored_text(node).lower()}
+        return (
+            {reading for reading in readings if reading in universe},
+            "" in readings or not readings)
+    if id(node) in _active:
+        return (set(), True)
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        child = [
+            _seg_formable(part, universe, prefixes, folded, _active)
+            for part in parts]
+    finally:
+        _active.discard(id(node))
+    options = []
+    can_empty = True
+    for forms, empty in child:
+        options.append(forms | ({""} if empty else set()))
+        can_empty = can_empty and empty
+    if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+        reached = {0: {""}}
+        full = (1 << len(parts)) - 1
+        for mask in range(full + 1):
+            if mask not in reached:
+                continue
+            for index in range(len(parts)):
+                if (mask >> index) & 1:
+                    continue
+                joined = {
+                    head + tail
+                    for head in reached[mask]
+                    for tail in options[index]
+                    if head + tail == "" or head + tail in prefixes}
+                if joined:
+                    reached.setdefault(
+                        mask | (1 << index), set()).update(joined)
+        return (reached.get(full, set()) & universe, can_empty)
+    acc = {""}
+    for opts in options:
+        acc = {
+            head + tail
+            for head in acc for tail in opts
+            if head + tail == "" or head + tail in prefixes}
+        if not acc:
+            break
+    return (acc & universe, can_empty)
+
+def _seg_plain_options(parts, _universe=None, _prefixes=None):
     """The plain readings of the direct parts of one unordered
     container: for each part, the lowered texts of every joined
-    candidate the part itself stands in."""
-    return [
-        {text.lower() for text in _joined_text_candidates(part)}
-        for part in parts]
+    candidate the part itself stands in, taken under the wider
+    segmentation candidate cap, beside every universe segment
+    the part can join to exactly where a universe stands
+    stated, so a composite part past the kept helper cut
+    still contributes the segments a barred reading needs."""
+    options = []
+    for part in parts:
+        texts = {
+            text.lower()
+            for text in _joined_text_candidates(
+                part, _cap=_SEG_JOIN_CANDIDATE_BOUND)}
+        if _universe is not None and isinstance(part, (dict, list, tuple, set, frozenset)):
+            try:
+                forms, can_empty = _seg_formable(
+                    part, _universe, _prefixes, False)
+            except RecursionError:
+                forms, can_empty = set(), False
+            texts |= forms
+            if can_empty:
+                texts.add("")
+        options.append(texts)
+    return options
 
 
-def _seg_folded_options(parts):
+def _seg_folded_options(parts, _universe=None, _prefixes=None):
     """The folded readings of the direct parts of one unordered
     container: for each part, every folded reading of every
     joined candidate the part itself stands in, under this
-    module folded reading act."""
+    module folded reading act, beside every universe segment
+    the part can join to exactly where a universe stands
+    stated, so a folded segment a composite part can stand
+    as stands judged past the kept helper cut as well."""
     options = []
     for part in parts:
         readings = set()
-        for text in _joined_text_candidates(part):
+        for text in _joined_text_candidates(
+                part, _cap=_SEG_FOLDED_CANDIDATE_BOUND):
             readings.update(_fold_variants(text))
         if not readings:
             readings = {""}
+        if _universe is not None and isinstance(part, (dict, list, tuple, set, frozenset)):
+            try:
+                forms, can_empty = _seg_formable(
+                    part, _universe, _prefixes, True)
+            except RecursionError:
+                forms, can_empty = set(), False
+            readings |= forms
+            if can_empty:
+                readings.add("")
         options.append(readings)
     return options
 
@@ -553,13 +703,191 @@ def _seg_unordered_barred(key):
     and folded barred parts of the scalar judgement stand
     tiled over the folded readings of the parts."""
     for node, parts in _seg_unordered_nodes(key):
-        folded = _seg_folded_options(parts)
+        folded_universe = _seg_universe(
+            _VIEW_BARRED_KEYS_FOLDED, _VIEW_BARRED_KEY_PARTS_FOLDED)
+        folded = _seg_folded_options(
+            parts, folded_universe, _seg_prefixes(folded_universe))
         for target in tuple(_VIEW_BARRED_KEYS_FOLDED):
             if _seg_tiles_exact(folded, target):
                 return True
         for pattern in tuple(_VIEW_BARRED_KEY_PARTS_FOLDED):
             if _seg_tiles_carrying(folded, pattern) is not None:
                 return True
+    return False
+
+
+def _span_prefix_state(pattern, state, character):
+    candidate = pattern[:state] + character
+    limit = min(len(pattern), state + 1)
+    for length in range(limit, -1, -1):
+        if candidate.endswith(pattern[:length]):
+            return length
+    return 0
+
+
+def _span_feed(pattern, state, text):
+    current = state
+    for character in text:
+        if current == len(pattern):
+            return current
+        current = _span_prefix_state(pattern, current, character)
+    return current
+
+
+def _span_relevant(options, texts):
+    """The readings of one block that can take part in a
+    barred reading of the whole key, beside whether the block
+    carries any other reading. A reading takes part where it
+    stands as a segment of a target or a pattern, where it
+    carries a pattern whole, where a suffix of it stands as
+    the opening of a target or a pattern, or where a prefix
+    of it stands as the closing of one."""
+    relevant = set()
+    other = False
+    for option in options:
+        if option == "":
+            relevant.add(option)
+            continue
+        keep = False
+        for text in texts:
+            if not text:
+                continue
+            if option in text or text in option:
+                keep = True
+                break
+            for cut in range(1, min(len(option), len(text))):
+                if option.endswith(text[:cut]):
+                    keep = True
+                    break
+                if text[cut:] and option.startswith(text[cut:]):
+                    keep = True
+                    break
+            if keep:
+                break
+        if keep:
+            relevant.add(option)
+        else:
+            other = True
+    return relevant, other
+
+
+def _span_blocks(key):
+    """The blocks a whole key reading stands built from, in
+    the form settlement S-4 states: where the key itself
+    stands unordered, its direct parts stand as blocks in
+    no stated order; where it stands ordered, the leaf parts
+    of its ordered nesting stand as blocks in their stored
+    order, an unordered container standing among them as one
+    block whose own readings its segmentation states. A
+    container already on the walk path contributes nothing,
+    as the candidate act states."""
+    if isinstance(key, (set, frozenset)):
+        return ("unordered", _join_container_parts(key))
+    if isinstance(key, (dict, list, tuple)):
+        blocks = []
+        active = {id(key)}
+        frames = [[_join_container_parts(key), 0, id(key)]]
+        while frames:
+            frame = frames[-1]
+            parts, index, node_id = frame
+            if index >= len(parts):
+                frames.pop()
+                active.discard(node_id)
+                continue
+            frame[1] = index + 1
+            part = parts[index]
+            if isinstance(part, (dict, list, tuple)):
+                if id(part) in active:
+                    continue
+                active.add(id(part))
+                frames.append(
+                    [_join_container_parts(part), 0, id(part)])
+            else:
+                blocks.append(part)
+        return ("ordered", blocks)
+    return None
+
+
+def _seg_spanning_barred(key, plain_targets, plain_patterns,
+                         folded_targets, folded_patterns):
+    """Whether a barred reading of the whole key stands on
+    the joined and segmented readings across nesting and
+    part boundaries, in the form settlement S-4 states: a
+    name a single unordered container cannot tile on its own
+    stands barred where a segment tiled inside one block
+    stands completed by the blocks standing beside it, and
+    a name whose segment stands inside one composite block
+    past the kept helper cut stands barred on that block's
+    formable segments. An ordered key keeps its stored
+    order, judged position by position over the block
+    readings with no ordering ever listed; an unordered key
+    stands judged by the segmentation acts over its blocks.
+    A block whose reading takes no part in the barred
+    reading can only end a partial match, never carry one
+    across itself, so the ordered judgement lets every block
+    return the match to its opening state beside the states
+    its taking part readings reach."""
+    found = _span_blocks(key)
+    if found is None:
+        return False
+    mode, blocks = found
+    if not blocks:
+        return False
+    spaces = []
+    if plain_targets or plain_patterns:
+        spaces.append((plain_targets, plain_patterns, False))
+    if folded_targets or folded_patterns:
+        spaces.append((folded_targets, folded_patterns, True))
+    for targets, patterns, folded in spaces:
+        texts = list(targets) + list(patterns)
+        universe = _seg_universe(targets, patterns)
+        prefixes = _seg_prefixes(universe)
+        options = []
+        for block in blocks:
+            if folded:
+                opts = _seg_folded_options(
+                    [block], universe, prefixes)[0]
+            else:
+                opts = _seg_plain_options(
+                    [block], universe, prefixes)[0]
+            options.append(_span_relevant(opts, texts))
+        if mode == "unordered":
+            pruned = [relevant for relevant, other in options]
+            for target in targets:
+                if _seg_tiles_exact(pruned, target):
+                    return True
+            for pattern in patterns:
+                if _seg_tiles_carrying(pruned, pattern) is not None:
+                    return True
+        else:
+            for pattern in patterns:
+                states = {0}
+                for relevant, other in options:
+                    following = {0}
+                    for state in states:
+                        for option in relevant:
+                            if option == "":
+                                following.add(state)
+                                continue
+                            end = _span_feed(pattern, state, option)
+                            if end == len(pattern):
+                                return True
+                            following.add(end)
+                    states = following
+            for target in targets:
+                positions = {0}
+                for relevant, other in options:
+                    following = set()
+                    for position in positions:
+                        for option in relevant:
+                            if target.startswith(option, position):
+                                following.add(
+                                    position + len(option))
+                    positions = following
+                    if not positions:
+                        break
+                if len(target) in positions:
+                    return True
     return False
 
 
@@ -570,7 +898,11 @@ def _seg_exact(key, target):
     the target over the folded readings of the parts, beside
     the kept candidate readings."""
     for node, parts in _seg_unordered_nodes(key):
-        if _seg_tiles_exact(_seg_folded_options(parts), target):
+        universe = _seg_universe((target,), ())
+        if _seg_tiles_exact(
+                _seg_folded_options(
+                    parts, universe, _seg_prefixes(universe)),
+                target):
             return True
     return False
 
@@ -582,8 +914,11 @@ def _seg_carrying(key, pattern):
     pattern over the folded readings of the parts, beside the
     kept candidate readings."""
     for node, parts in _seg_unordered_nodes(key):
+        universe = _seg_universe((), (pattern,))
         if _seg_tiles_carrying(
-                _seg_folded_options(parts), pattern) is not None:
+                _seg_folded_options(
+                    parts, universe, _seg_prefixes(universe)),
+                pattern) is not None:
             return True
     return False
 
@@ -651,7 +986,11 @@ def _stored_form(value):
             _stored_form(key) + "=" + _stored_form(
                 dict.__getitem__(value, key))
             for key in dict.__iter__(value))) + "}"
-    return "other:" + type(value).__name__
+    try:
+        carried = type(value).__repr__(value)
+    except Exception:
+        carried = object.__repr__(value)
+    return "other:" + type(value).__name__ + ":" + carried
 
 
 def _record_identity(run_id, day, viewer):
@@ -780,6 +1119,17 @@ def _base_value_eq(left, right):
                 right, (bytes, bytearray, memoryview)):
             return False
         return bytes.__eq__(bytes(left), bytes(right)) is True
+    if type(left) is type(right):
+        try:
+            judged = type(left).__eq__(left, right)
+        except Exception:
+            judged = NotImplemented
+        if isinstance(judged, bool):
+            return judged
+        try:
+            return type(left).__repr__(left) == type(right).__repr__(right)
+        except Exception:
+            return left is right
     return left is right
 
 
@@ -1086,7 +1436,28 @@ _DEEP_REFUSAL = (
     "carrying a cycle, stands refused at retention")
 
 
-def _guard_retention_shape(value):
+def _retention_refusal(act, argument, cause):
+    where = ""
+    if act is not None:
+        where = " at " + act + " on the " + str(argument) + " argument"
+    if cause == "cycle":
+        return (
+            "deep or cyclic record in named form: cause cycle: "
+            "a record carrying a cycle stands refused" + where
+            + ": the retention bound is 100, counted with the "
+            "handed value standing at depth 0 and every container "
+            "standing around a part counting toward that bound, "
+            "and no record stands retained")
+    return (
+        "deep or cyclic record in named form: cause depth: "
+        "a record standing deeper than the retention bound of "
+        "100 stands refused" + where + ": the bound is 100, "
+        "counted with the handed value standing at depth 0 and "
+        "every container standing around a part counting toward "
+        "that bound, and no record stands retained")
+
+
+def _guard_retention_shape(value, act=None, argument=None):
     """Refuse a value standing deeper than the retention bound of
     100, or carrying a cycle, in the refusal form the cured
     retain_run_record surface states. The walk is iterative over
@@ -1111,8 +1482,10 @@ def _guard_retention_shape(value):
             continue
         if not isinstance(node, (dict, list, tuple, set, frozenset)):
             continue
-        if depth > 100 or id(node) in path:
-            raise ValueError(_DEEP_REFUSAL)
+        if id(node) in path:
+            raise ValueError(_retention_refusal(act, argument, "cycle"))
+        if depth > 100:
+            raise ValueError(_retention_refusal(act, argument, "depth"))
         if id(node) in done and done[id(node)] >= depth:
             continue
         path.add(id(node))
@@ -1159,6 +1532,10 @@ def _safe_copy(value, _memo=None):
             return _memo[id(value)]
         _memo[id(value)] = copied
         return copied
+    if isinstance(value, bytearray):
+        return bytearray(bytes(value))
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
     if isinstance(value, (set, frozenset)):
         if id(value) in _memo:
             return _memo[id(value)]
@@ -1315,7 +1692,7 @@ class RecorderStore:
                 "identity less record: the run identifier stands in "
                 "an unhashable form, and no record stands retained "
                 "under it") from exc
-        _guard_retention_shape(record)
+        _guard_retention_shape(record, "retain_run_record", "record")
         if _carries_real_money_field(record):
             raise ValueError(
                 "real money field in named form: a run record carrying "
@@ -1445,22 +1822,37 @@ def run_records_for_run(run_id="run-under-test"):
 
 
 def validate_run_record_set(records):
-    if not records or len(records) != 1:
+    if not isinstance(records, (list, tuple)):
         return False
-    seen = set()
-    for record in records:
+    stored_records = list(_base_iter(records))
+    if len(stored_records) != 1:
+        return False
+    seen = []
+    for record in stored_records:
         if not isinstance(record, dict):
             return False
-        rid = record.get("run_id") or record.get("run_identifier")
-        if rid is None or rid in seen:
+        rid = dict.get(record, "run_id")
+        if rid is None:
+            rid = dict.get(record, "run_identifier")
+        if rid is None:
             return False
-        seen.add(rid)
-        writers = record.get("group_writers") or {}
+        if any(_base_value_eq(rid, earlier) for earlier in seen):
+            return False
+        seen.append(rid)
+        writers = dict.get(record, "group_writers")
+        if writers is None:
+            writers = {}
         if not isinstance(writers, dict):
             return False
-        for group, writer in writers.items():
-            owner = GROUP_OWNERS.get(group)
-            if owner is not None and writer != owner:
+        for group, writer in dict.items(writers):
+            owner = None
+            for owned_group, owned_writer in dict.items(
+                    GROUP_OWNERS):
+                if _base_value_eq(group, owned_group):
+                    owner = owned_writer
+                    break
+            if owner is not None and not _base_value_eq(
+                    writer, owner):
                 return False
     return True
 
@@ -1505,20 +1897,25 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
         key = (
             _retention_day_key(delivery.get("simulated_day")),
             _stored_form(delivery.get("viewer_id")))
-        stored[key] = copy.deepcopy(delivery)
+        stored[key] = _safe_copy(delivery)
     return len(stored)
 
 
 def _retention_day_key(day):
-    """The retention key of one delivery day: the whole day the
-    day stands as, in its stored form, so a day stated in digit
-    text beside the same day stated as an integer stands
-    retained once, as one delivery per run per day per viewer,
-    while a day in a form the whole day reading does not state,
-    such as a float day or a bool day, keeps its own form."""
-    if isinstance(day, str):
-        day = str.__str__(day)
-    return _stored_form(_whole_day(day))
+    """The retention key of one delivery day: the day match
+    form of the day, serialised, so every form the match form
+    states as the integer day (an integer, digit text in any
+    signed or spaced dress, an integral Decimal, and an
+    integral Fraction) stands retained once, as one delivery
+    per run per day per viewer, while a day in a form the
+    match form states as distinct, such as a float day, a
+    bool day, or a bytes family day, keeps its own form."""
+    form = _day_match_form(day)
+    if form[0] == "str":
+        return "str:" + str(len(form[1])) + ":" + form[1]
+    if form[0] == "other":
+        return "other:" + form[1]
+    return form[0] + ":" + str(form[1])
 
 
 def _delivery_complete(delivery):
@@ -1578,13 +1975,15 @@ def _day_sort_key(item):
         return (0, int.__int__(day), _stored_form(day),
                 viewer_text, viewer_form)
     day_text = _stored_text(day)
-    if day_text.isdigit():
-        try:
-            return (0, int(day_text), _stored_form(day),
-                    viewer_text, viewer_form)
-        except ValueError:
-            return (1, 0, day_text, _stored_form(day),
-                    viewer_text, viewer_form)
+    if isinstance(day, str):
+        stripped = day_text.strip()
+        if stripped.isdecimal():
+            try:
+                return (0, int(stripped), _stored_form(day),
+                        viewer_text, viewer_form)
+            except ValueError:
+                return (1, 0, day_text, _stored_form(day),
+                        viewer_text, viewer_form)
     return (1, 0, day_text, _stored_form(day),
             viewer_text, viewer_form)
 
@@ -1623,7 +2022,7 @@ def _aggregates_from_deliveries(run_id):
                 "gate_passing_shares", "divergence_companion",
             ):
                 if field in delivery:
-                    marked[field] = copy.deepcopy(delivery[field])
+                    marked[field] = _safe_copy(delivery[field])
             marked["form"] = FORM_ONLY
             records.append(marked)
             continue
@@ -1638,11 +2037,11 @@ def _aggregates_from_deliveries(run_id):
             "epochs_ending_on_day": list(
                 delivery.get("epochs_ending_on_day") or []),
             "gate_passing_shares": shares,
-            "gate_passing_share_per_epoch": copy.deepcopy(shares),
-            "excluded_class_counts_and_shares": copy.deepcopy(
+            "gate_passing_share_per_epoch": _safe_copy(shares),
+            "excluded_class_counts_and_shares": _safe_copy(
                 delivery.get("excluded_class_counts_and_shares")
                 or delivery.get("excluded_class_counts") or {}),
-            "divergence_companion": copy.deepcopy(
+            "divergence_companion": _safe_copy(
                 delivery.get("divergence_companion")
                 or {"nil_divergence_components": []}),
         })
@@ -1813,18 +2212,35 @@ def build_joint_outcome_vector(components=None, divergence_companion=None):
     return record
 
 
+def _gate_epoch_key(epoch):
+    """The slot key of one epoch: a text epoch stands under its
+    own text, and every other epoch form stands under its
+    stored form, so the integer, bool, and float forms of one
+    epoch number never take one slot."""
+    if isinstance(epoch, str):
+        return str.__str__(epoch)
+    return _stored_form(epoch)
+
+
+def _gate_shares_copy(run_id):
+    return {
+        _safe_copy(key): _safe_copy(value)
+        for key, value in _GATE_SHARES.get(run_id, {}).items()}
+
+
 def record_gate_passing_share(run_id, epoch, share, simulated_day=None):
     """Record the gate passing share handed over at the close of an
     epoch, as a retained delivery of the run."""
     shares = _GATE_SHARES.setdefault(run_id, {})
-    shares[epoch] = {"share": share, "simulated_day": simulated_day}
-    return copy.deepcopy(shares[epoch])
+    key = _gate_epoch_key(epoch)
+    shares[key] = {"share": _safe_copy(share), "simulated_day": simulated_day}
+    return _safe_copy(shares[key])
 
 
 def gate_passing_shares_for_run(run_id):
     """Read the recorded gate passing shares of a run. Reading
     never writes: an unrecorded run returns an empty mapping."""
-    return copy.deepcopy(_GATE_SHARES.get(run_id, {}))
+    return _gate_shares_copy(run_id)
 
 
 def event_log_fields():
@@ -1862,10 +2278,10 @@ def retain_event_log_entry(entry, store_kind="sweep"):
         raise ValueError(
             "identity less entry: no run identifier stands on the "
             "entry, and no entry stands retained under no identifier")
-    _guard_retention_shape(entry)
+    _guard_retention_shape(entry, "retain_event_log_entry", "entry")
     bucket = _EVENT_LOGS.setdefault((store_kind, run_id), [])
     for existing in bucket:
-        if existing == entry:
+        if _stored_form(existing) == _stored_form(entry):
             return _safe_copy(existing)
     bucket.append(_safe_copy(entry))
     return _safe_copy(entry)
@@ -1893,10 +2309,10 @@ def retain_daily_snapshot(snapshot, store_kind="sweep"):
         raise ValueError(
             "identity less snapshot: no run identifier stands on the "
             "snapshot, and no snapshot stands retained under no identifier")
-    _guard_retention_shape(snapshot)
+    _guard_retention_shape(snapshot, "retain_daily_snapshot", "snapshot")
     bucket = _DAILY_SNAPSHOTS.setdefault((store_kind, run_id), [])
     for existing in bucket:
-        if existing == snapshot:
+        if _stored_form(existing) == _stored_form(snapshot):
             return _safe_copy(existing)
     bucket.append(_safe_copy(snapshot))
     return _safe_copy(snapshot)
@@ -1912,23 +2328,31 @@ def daily_snapshots(run_id, store_kind="sweep"):
 
 def _whole_day(value):
     """Read a checkpoint day through one stated whole day form: an
-    integer stands as itself, and a string stating whole digits
-    stands as the integer it states, so the string 1 beside the
-    integer 1 is one day. A digit form the integer conversion
-    cannot parse stands as itself, as any other form stands as
-    itself, and no bare conversion error escapes this reading."""
+    integer stands as itself, and a string stating whole decimal
+    digits stands as the integer it states, so the string 1 beside
+    the integer 1 is one day. The text reading is a decimal digit
+    reading only: a digit character that is not a decimal digit,
+    such as a superscript digit, which the digit test accepts but
+    the decimal test does not, is not read as a day number at all
+    and stands as itself, as any other form stands as itself, and
+    no bare conversion error escapes this reading."""
     if isinstance(value, bool):
         return value
     if isinstance(value, int):
         return value
     if isinstance(value, str):
         text = value.strip()
-        if text.isdigit():
+        if text.isdecimal():
             try:
                 return int(text)
             except ValueError:
                 return value
-        if text.startswith("+") and text[1:].isdigit():
+        if text.startswith("+") and text[1:].isdecimal():
+            try:
+                return int(text)
+            except ValueError:
+                return value
+        if text.startswith("-") and text[1:].isdecimal():
             try:
                 return int(text)
             except ValueError:
@@ -2008,39 +2432,46 @@ def retain_checkpoint(manifest, store_kind="sweep"):
             "identity less checkpoint: a checkpoint manifest stands as a "
             "record carrying a run identifier, and no other form stands "
             "retained")
-    run_id = manifest.get("run_identifier") or manifest.get("run_id")
+    run_id = dict.get(manifest, "run_identifier") or dict.get(
+        manifest, "run_id")
     if run_id is None:
         raise ValueError(
             "identity less checkpoint: no run identifier stands on the "
             "manifest, and no checkpoint stands retained under no identifier")
-    _guard_retention_shape(manifest)
+    _guard_retention_shape(manifest, "retain_checkpoint", "manifest")
     bucket = _CHECKPOINTS.setdefault((store_kind, run_id), [])
     if any(
-            _whole_day(item.get("simulated_day"))
-            == _whole_day(manifest.get("simulated_day"))
+            _same_day_form(
+                dict.get(item, "simulated_day"),
+                dict.get(manifest, "simulated_day"))
             for item in bucket):
         _REJECTED_CHECKPOINT_WRITES.append({
             "run_id": run_id,
             "run_identifier": run_id,
-            "simulated_day": manifest.get("simulated_day"),
+            "simulated_day": dict.get(manifest, "simulated_day"),
             "store_kind": store_kind,
             "manifest": _safe_copy(manifest),
             "recorded_as": "rejected write",
         })
         raise ValueError(
             "second checkpoint for the same run and day is rejected: "
-            + str(run_id) + " day " + str(manifest.get("simulated_day")))
+            + str(run_id) + " day " + str(dict.get(manifest, "simulated_day")))
     if len(bucket) >= 10000:
         raise ValueError("checkpoint cap in named form: a run stands at the ruled cap of 10,000 checkpoints per run under ruling Entry 18, and no further checkpoint stands retained")
     stored = _safe_copy(manifest)
     if "journal_event_count_at_checkpoint" not in stored:
         stored["journal_event_count_at_checkpoint"] = len(
             event_log_entries(run_id, store_kind))
+    state_copy = None
+    if dict.get(manifest, "checkpoint_state") is not None:
+        state_copy = _safe_copy(
+            dict.__getitem__(manifest, "checkpoint_state"))
     bucket.append(stored)
-    if manifest.get("checkpoint_state") is not None:
+    if state_copy is not None:
         _CHECKPOINT_STATES[(store_kind, run_id,
-                            _whole_day(manifest.get("simulated_day")))] = (
-            _safe_copy(manifest["checkpoint_state"]))
+                            _day_match_form(
+                                dict.get(manifest, "simulated_day")))] = (
+            state_copy)
     return _safe_copy(manifest)
 
 
@@ -2050,7 +2481,7 @@ def rejected_checkpoint_writes(run_id=None):
     already held a manifest stands recorded here as a rejected
     write, and no rejected write stands retained as a checkpoint.
     Reading never writes."""
-    return copy.deepcopy([
+    return _safe_copy([
         item for item in _REJECTED_CHECKPOINT_WRITES
         if run_id is None or item.get("run_id") == run_id
     ])
@@ -2065,16 +2496,11 @@ def checkpoint_state_at(run_id, simulated_day, store_kind="sweep"):
     integer day it happens to equal in number."""
     if _store_kind_stands(store_kind):
         store_kind = _canonical_store_kind(store_kind)
-    if isinstance(simulated_day, (bool, float)):
-        for (kind_key, run_key, day_key), state in _CHECKPOINT_STATES.items():
-            if kind_key != store_kind or run_key != run_id:
-                continue
-            if _same_day_form(day_key, simulated_day):
-                return copy.deepcopy(state)
+    state = _CHECKPOINT_STATES.get(
+        (store_kind, run_id, _day_match_form(simulated_day)))
+    if state is None:
         return None
-    return copy.deepcopy(
-        _CHECKPOINT_STATES.get(
-            (store_kind, run_id, _whole_day(simulated_day))))
+    return _safe_copy(state)
 
 
 def checkpoints_for_run(run_id, store_kind="sweep"):
@@ -2135,20 +2561,31 @@ def delete_checkpoint(run_id, checkpoint_day, store_kind="sweep",
             "checkpoint deletion refused: no deletion rule path stands "
             "stated or checked for the deletion in its standing "
             "named form, and no checkpoint stands deleted")
-    if integrity_flag_open or named_in_retention_record or regression_corpus_copy:
+    protections = []
+    if integrity_flag_open:
+        protections.append("an open integrity flag")
+    if named_in_retention_record:
+        protections.append("a checkpoint named in a retention record")
+    if regression_corpus_copy:
+        protections.append("a regression corpus copy")
+    if protections:
         raise ValueError(
             "checkpoint deletion refused: a clause C8 protection stands "
-            "on the checkpoint, and no checkpoint stands deleted")
+            "on the checkpoint, namely " + "; ".join(protections)
+            + ", and no checkpoint stands deleted")
     if _store_kind_stands(store_kind):
         store_kind = _canonical_store_kind(store_kind)
     bucket = _CHECKPOINTS.get((store_kind, run_id), [])
     kept = [
         item for item in bucket
-        if _whole_day(item.get("simulated_day")) != _whole_day(checkpoint_day)
+        if not _same_day_form(
+            dict.get(item, "simulated_day"), checkpoint_day)
     ]
     removed = len(bucket) - len(kept)
     if removed:
         _CHECKPOINTS[(store_kind, run_id)] = kept
+        _CHECKPOINT_STATES.pop(
+            (store_kind, run_id, _day_match_form(checkpoint_day)), None)
     return {
         "act": "checkpoint deletion and pointer update",
         "run_id": run_id,
@@ -2168,8 +2605,14 @@ def checkpoint_position_check(manifest, store_kind="sweep"):
     the retained log of its run at the time the checkpoint is used.
     A position inside the retained log passes the check. A position
     outside it stands reported as a retention failure under C-09."""
-    run_id = manifest.get("run_identifier") or manifest.get("run_id")
-    position = manifest.get("journal_position")
+    if not isinstance(manifest, dict):
+        raise ValueError(
+            "identity less checkpoint: a checkpoint position check "
+            "stands on a checkpoint record, and no other form "
+            "stands checked")
+    run_id = dict.get(manifest, "run_identifier") or dict.get(
+        manifest, "run_id")
+    position = dict.get(manifest, "journal_position")
     entries = event_log_entries(run_id, store_kind)
     inside = (
         isinstance(position, int) and not isinstance(position, bool)
@@ -2193,42 +2636,105 @@ def checkpoint_position_check(manifest, store_kind="sweep"):
     }
 
 
+def _nondecimal_digit_text(value):
+    """Return whether one value stands in digit text that is not
+    decimal digit text: text, in plain form or behind one leading
+    sign, whose characters the digit test accepts and the decimal
+    test does not, such as a superscript digit character. Such a
+    text is not a day under the decimal text reading at all, even
+    though it stands as its own stored text form for sameness
+    under the day match form at every other act."""
+    if not isinstance(value, str):
+        return False
+    text = str.__str__(value).strip()
+    if text[:1] in ("+", "-"):
+        text = text[1:]
+    return bool(text) and text.isdigit() and not text.isdecimal()
+
+
+def _close_day_output(group):
+    """The day one close group stands named by on the close
+    record: a group standing as the integer day through decimal
+    digit text is named by that integer day, in the integer form,
+    and every other group is named by the day it stores."""
+    form, day = group
+    if form[0] == "int" and isinstance(day, str):
+        return form[1]
+    return day
+
+
 def close_run_retention(run_id, tier, store_kind="sweep"):
     """Apply the clause C3 retained set at run close: Tier 0 keeps
     no checkpoint, Tier 1 keeps the final checkpoint only, Tier 2
     keeps the final checkpoint and the tenth point checkpoints,
     and Tier 3 keeps the final checkpoint and every daily
     checkpoint. Checkpoints outside the set stand released at
-    close, and the release stands on the returned record."""
+    close, and the release stands on the returned record. The
+    close day set stands built under the day match form, with two
+    readings from stored text: a day in decimal digit text stands
+    in the set as the integer day it names and stands named on
+    the record by that integer, and a day in digit text that is
+    not decimal digit text stands outside the close day set
+    altogether, neither kept nor released by this act, its
+    checkpoint and its state standing untouched by the close."""
     if tier not in ("Tier 0", "Tier 1", "Tier 2", "Tier 3"):
         raise ValueError(
             "unknown retention tier for the close act: " + str(tier))
     if _store_kind_stands(store_kind):
         store_kind = _canonical_store_kind(store_kind)
     bucket = _CHECKPOINTS.get((store_kind, run_id), [])
-    days = sorted({
-        _whole_day(item.get("simulated_day")) for item in bucket
-        if isinstance(_whole_day(item.get("simulated_day")), int)
-        and not isinstance(_whole_day(item.get("simulated_day")), bool)
-    })
-    if not days or tier == "Tier 3":
-        kept_days = list(days)
+    groups = []
+    seen_forms = []
+    for item in bucket:
+        day = dict.get(item, "simulated_day")
+        form = _day_match_form(day)
+        if form not in seen_forms:
+            seen_forms.append(form)
+            groups.append((form, day))
+    excluded_forms = [
+        form for form, day in groups if _nondecimal_digit_text(day)]
+    groups = [
+        group for group in groups
+        if group[0] not in excluded_forms]
+
+    def _close_order(group):
+        form, day = group
+        if form[0] == "int":
+            return (0, form[1], "")
+        return (1, 0, _stored_form(day))
+
+    groups.sort(key=_close_order)
+    if not groups or tier == "Tier 3":
+        kept_groups = list(groups)
     elif tier == "Tier 0":
-        kept_days = []
+        kept_groups = []
     elif tier == "Tier 1":
-        kept_days = [days[-1]]
+        kept_groups = [groups[-1]]
     else:
         tenth = [
-            day for position, day in enumerate(days, start=1)
+            group for position, group in enumerate(groups, start=1)
             if position % 10 == 0
         ]
-        kept_days = sorted(set(tenth) | {days[-1]})
-    released_days = [day for day in days if day not in kept_days]
-    if released_days:
+        kept_groups = [
+            group for group in groups
+            if group in tenth or group is groups[-1]]
+    kept_forms = [form for form, day in kept_groups]
+    kept_days = [_close_day_output(group) for group in kept_groups]
+    released_days = [
+        _close_day_output(group) for group in groups
+        if group[0] not in kept_forms]
+    released_forms = [
+        form for form, day in groups if form not in kept_forms]
+    if released_forms:
         _CHECKPOINTS[(store_kind, run_id)] = [
             item for item in bucket
-            if _whole_day(item.get("simulated_day")) in kept_days
+            if _day_match_form(
+                dict.get(item, "simulated_day")) in kept_forms
+            or _day_match_form(
+                dict.get(item, "simulated_day")) in excluded_forms
         ]
+        for form in released_forms:
+            _CHECKPOINT_STATES.pop((store_kind, run_id, form), None)
     return {
         "run_id": run_id,
         "retention_tier": tier,
@@ -2259,12 +2765,22 @@ def checkpoint_integrity_check(manifest, candidate):
 
 def portable_checkpoint_manifest(manifest):
     """Return a portable manifest with a relative identifier."""
-    run_id = manifest.get("run_identifier") or manifest.get("run_id")
-    day = manifest.get("simulated_day")
-    relative = "checkpoints/" + str(run_id) + "/" + str(day)
+    if not isinstance(manifest, dict):
+        raise ValueError(
+            "identity less checkpoint: a portable checkpoint "
+            "manifest stands as a record carrying a run "
+            "identifier, and no other form stands made portable")
+    run_id = dict.get(manifest, "run_identifier") or dict.get(
+        manifest, "run_id")
+    day = dict.get(manifest, "simulated_day")
+    parts = []
+    for value in (run_id, day):
+        form = _stored_form(value)
+        parts.append(str(len(form)) + ":" + form)
+    relative = "checkpoints/" + "/".join(parts)
     return {
         "relative_identifier": relative,
-        "manifest": copy.deepcopy(manifest),
+        "manifest": _safe_copy(manifest),
         "portable": True,
     }
 
@@ -2294,8 +2810,8 @@ def retain_gc08_record(kind, record, owner_id):
     call check outcome carried in the record itself."""
     if kind not in ("dependency_manifest", "call_log"):
         raise ValueError("unknown GC-08 record kind: " + str(kind))
-    _GC08_RECORDS[(kind, owner_id)] = copy.deepcopy(record)
-    return copy.deepcopy(record)
+    _GC08_RECORDS[(kind, owner_id)] = _safe_copy(record)
+    return _safe_copy(record)
 
 
 def gc08_record(kind, owner_id):
@@ -2313,7 +2829,7 @@ def gc08_record(kind, owner_id):
             "record_kind": kind,
         }
         raise failure
-    return copy.deepcopy(_GC08_RECORDS[(kind, owner_id)])
+    return _safe_copy(_GC08_RECORDS[(kind, owner_id)])
 
 
 def _stated_count(value, name):
@@ -2469,7 +2985,7 @@ def validate_storage_claim(claim):
 def write_summary_record(record):
     """Retain the summary record of a run, as written at run close
     or as amended by a deferred evaluation written into it."""
-    _guard_retention_shape(record)
+    _guard_retention_shape(record, "write_summary_record", "record")
     run_id = record.get("run_id") or record.get("run_identifier")
     _SUMMARY_RECORDS[run_id] = _safe_copy(record)
     return _safe_copy(record)
@@ -3013,7 +3529,33 @@ def _canonicalise_actor_word(word):
     return word
 
 
-def _normalised_actor(actor):
+def _actor_stored_text(value, _depth=0):
+    """The stored text an actor value carries under the stored
+    text settlement: a text form, a bytes form, a bytearray
+    form, and a memoryview form each read as the stored text
+    they store, and a container form reads as the stored text
+    parts it stores joined in order with no separator added,
+    each part read recursively on its own stored text. A
+    value in any other form, an empty container, and a
+    container holding a part in any other form carry no
+    stored text here and stand as None."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return _stored_text(value)
+    if isinstance(value, _CONTAINER_KEY_FORMS) and _depth < 8:
+        parts = _container_parts(value)
+        if not parts:
+            return None
+        pieces = []
+        for part in parts:
+            piece = _actor_stored_text(part, _depth + 1)
+            if piece is None:
+                return None
+            pieces.append(piece)
+        return "".join(pieces)
+    return None
+
+
+def _normalised_actor(actor, _depth=0):
     """Normalise an actor reading before the person check, to
     the same form the MOD-14 shell applies: case is folded,
     the text stands canonicalised, separator characters stand
@@ -3026,7 +3568,32 @@ def _normalised_actor(actor):
     actor. The joined reading also stands tried with article
     words dropped wherever they stand, so articles inserted
     between the split parts of one actor word do not hide the
-    word they split."""
+    word they split. An actor value that is stored text in
+    bytes, bytearray, memoryview, or container dress stands
+    read as that stored text here, under the container
+    readings of the settlement: each part on its own stored
+    text, the parts joined in order as one name, and a single
+    part container carrying the reading of its one part. An
+    actor value in any other non text form stands as itself,
+    passed through untouched."""
+    if isinstance(actor, _CONTAINER_KEY_FORMS):
+        parts = _container_parts(actor)
+        if _depth >= 8 or not parts:
+            return actor
+        joined_text = _actor_stored_text(actor)
+        if joined_text is None:
+            return actor
+        joined_reading = _normalised_actor(joined_text, _depth + 1)
+        if joined_reading in _ACTOR_VOCABULARY:
+            return joined_reading
+        for part in parts:
+            part_reading = _normalised_actor(part, _depth + 1)
+            if isinstance(part_reading, str) and (
+                    part_reading in _ACTOR_VOCABULARY):
+                return part_reading
+        return actor
+    if isinstance(actor, (bytes, bytearray, memoryview)):
+        actor = _stored_text(actor)
     if not isinstance(actor, str):
         return actor
     text = _canonical_text(actor, _TRANSLITERATION_MAP)
@@ -3367,8 +3934,12 @@ def validate_retention_report(report):
 
 
 def append_annotation(checkpoint, annotation=None):
-    updated = copy.deepcopy(checkpoint)
-    updated["annotation_record"] = copy.deepcopy(annotation) if annotation is not None else {}
+    if not isinstance(checkpoint, dict):
+        raise ValueError(
+            "identity less checkpoint: an annotation stands on a "
+            "checkpoint record, and no other form stands annotated")
+    updated = _safe_copy(checkpoint)
+    updated["annotation_record"] = _safe_copy(annotation) if annotation is not None else {}
     return updated
 
 
@@ -3476,7 +4047,7 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
                 "checkpoint names a store kind holding no "
                 "retained checkpoint for its run and day, and "
                 "no resume stands performed from it")
-        return copy.deepcopy(checkpoint)
+        return _safe_copy(checkpoint)
 
     def _comparison_form(form):
         compared = dict(form)
@@ -3493,7 +4064,7 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
         }
         if _base_value_eq(
                 _comparison_form(retained_form), handed_compared):
-            resumed = copy.deepcopy(retained)
+            resumed = _safe_copy(retained)
             for field in (
                     "journal_event_count_at_checkpoint", "store_kind"):
                 if field not in dict.__iter__(checkpoint):
@@ -3896,6 +4467,10 @@ def _is_barred_view_key(key):
                 if candidate and _is_barred_view_key(candidate):
                     return True
         if _seg_unordered_barred(key):
+            return True
+        if _seg_spanning_barred(
+                key, (), (), tuple(_VIEW_BARRED_KEYS_FOLDED),
+                tuple(_VIEW_BARRED_KEY_PARTS_FOLDED)):
             return True
         joined = _joined_stored_text(key)
         if joined:

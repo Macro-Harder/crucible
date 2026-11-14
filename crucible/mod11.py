@@ -125,23 +125,83 @@ def unit_is_publishable(unit):
 _AMENDED_REGISTRY_FIELDS = ("confirmation_outcome", "gate_failure")
 
 
+def _registry_key_text(value):
+    """The stored text of a key or of a part of a key, under the
+    governing stored text settlement, in the form crucible/mod01.py
+    states for its key reading."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bytes):
+        return bytes.decode(value, "utf-8", "ignore")
+    if isinstance(value, bytearray):
+        return bytearray.decode(value, "utf-8", "ignore")
+    if isinstance(value, memoryview):
+        return bytes.decode(memoryview.tobytes(value), "utf-8", "ignore")
+    if isinstance(value, (tuple, list, set, frozenset)):
+        parts = []
+        for part in _base_iter(value):
+            part_text = _registry_key_text(part)
+            parts.append(part_text if part_text is not None else "")
+        return "".join(parts)
+    return None
+
+
+def _registry_stored_text(value):
+    """The stored text of a handed registry value: a text value
+    through its stored characters, a bytes, bytearray, or
+    memoryview value through its decoded stored bytes, and a
+    single part container through the stored text of its one
+    part. Any other form stores no text here."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bytes):
+        return bytes.decode(value, "utf-8", "ignore")
+    if isinstance(value, bytearray):
+        return bytearray.decode(value, "utf-8", "ignore")
+    if isinstance(value, memoryview):
+        return bytes.decode(memoryview.tobytes(value), "utf-8", "ignore")
+    if isinstance(value, (tuple, list, set, frozenset)):
+        items = list(_base_iter(value))
+        if len(items) == 1:
+            return _registry_stored_text(items[0])
+        return None
+    return None
+
+
 def _registry_stored_value(entry, field):
     """Read one field of a registry entry through its stored
-    pairs only: a field stands present only where a stored text
-    key carries its name under a base class comparison, and its
-    value stands as the value its stored pair carries, never
-    through a hash or equality reading a handed key supplies."""
+    pairs only: a field stands present only where a stored key
+    carries its name in stored text, under any key dress the
+    stored text settlement reads, and its value stands as the
+    value its stored pair carries, never through a hash or
+    equality reading a handed key supplies."""
     if not isinstance(entry, dict):
         return None
     for key, item in dict.items(entry):
-        if isinstance(key, str) and str.__eq__(str.__str__(key), field):
+        key_text = _registry_key_text(key)
+        if key_text is not None and str.__eq__(key_text, field):
             return item
     return None
 
 
 def _registry_text_equals(value, stated):
-    """Base class text equality for a stored registry value."""
-    return isinstance(value, str) and str.__eq__(str.__str__(value), stated)
+    """Stored text equality for a stored registry value, judged
+    on the text the value stores in any dress, never through an
+    equality reading the value itself supplies."""
+    stored = _registry_stored_text(value)
+    return stored is not None and str.__eq__(stored, stated)
+
+
+def _registry_same_person(first, second):
+    """Whether two actor names state the same person, judged on
+    their stored texts where either carries one, never through
+    an equality reading a handed value supplies."""
+    first_text = _registry_stored_text(first)
+    second_text = _registry_stored_text(second)
+    if first_text is not None or second_text is not None:
+        return (first_text is not None and second_text is not None
+                and str.__eq__(first_text, second_text))
+    return first is second
 
 
 def _registry_fields_read(entry):
@@ -168,25 +228,52 @@ def _registry_missing_fields(entry):
     ]
 
 
+_REGISTRY_VALUE_SETS = (
+    ("outcome", ("reported", "not reported")),
+    ("confirmation_outcome", ("passed", "failed", "not run")),
+    ("gate_failure", (
+        "procedure gate", "confirmation gate", "both gates", "none")),
+)
+
+
 def _registry_amended_failures(entry):
     """The failures the amended Form 22 fields state on an
-    entry, at this gate, in the form the MOD-13 comparison act
-    states for the same fields: a confirmation outcome of failed
-    fails, and a gate failure at the procedure gate, at the
-    confirmation gate, or at both gates fails. An entry for an
-    unranked claim carries the value not ranked in its test
-    value, rank, and threshold fields and no other value, so a
-    not ranked value in one of those fields beside another value
-    in any of them fails on the unranked form."""
+    entry, at this gate, in the one form the three registry
+    acts share, as the MOD-13 comparison act states it: where
+    the outcome stands reported, a confirmation outcome of
+    failed or not run fails, and a gate failure at the
+    procedure gate, at the confirmation gate, or at both
+    gates fails; where the outcome does not stand reported,
+    neither amended field fails on its stated barred values.
+    A value standing in none of its field stated set fails
+    in every outcome form. An entry for an unranked claim
+    carries the value not ranked in its test value, rank, and
+    threshold fields and no other value, so a not ranked
+    value in one of those fields beside another value in any
+    of them fails on the unranked form. Every value stands
+    read in its stored text, in plain, bytes, bytearray,
+    memoryview, and single part container dress alike."""
     failures = []
+    for field, stated_set in _REGISTRY_VALUE_SETS:
+        value = _registry_stored_value(entry, field)
+        if value is not None and not any(
+                _registry_text_equals(value, stated)
+                for stated in stated_set):
+            failures.append("value outside its stated set: " + field)
     if _registry_text_equals(
-            _registry_stored_value(entry, "confirmation_outcome"),
-            "failed"):
-        failures.append("confirmation outcome failed")
-    gate_failure = _registry_stored_value(entry, "gate_failure")
-    for stated in ("procedure gate", "confirmation gate", "both gates"):
-        if _registry_text_equals(gate_failure, stated):
-            failures.append("gate failure: " + stated)
+            _registry_stored_value(entry, "outcome"), "reported"):
+        if _registry_text_equals(
+                _registry_stored_value(entry, "confirmation_outcome"),
+                "failed"):
+            failures.append("confirmation outcome failed")
+        if _registry_text_equals(
+                _registry_stored_value(entry, "confirmation_outcome"),
+                "not run"):
+            failures.append("confirmation outcome not run")
+        gate_failure = _registry_stored_value(entry, "gate_failure")
+        for stated in ("procedure gate", "confirmation gate", "both gates"):
+            if _registry_text_equals(gate_failure, stated):
+                failures.append("gate failure: " + stated)
     ranked_fields = [
         _registry_stored_value(entry, field)
         for field in ("test_value", "rank", "threshold")]
@@ -235,15 +322,17 @@ def judge_registry_entry(entry, compiler, checker, run_log=None):
     read from the entry claim_identifier field, or its claim_id
     field where that stands, so a saved or handed on result
     stands tied to its claim from the result itself."""
-    same_person = compiler == checker
+    same_person = _registry_same_person(compiler, checker)
     phases = {}
     if isinstance(entry, dict):
-        phases = dict.get(entry, "phase_judgements") or {}
+        phases = _registry_stored_value(entry, "phase_judgements") or {}
     if not isinstance(phases, dict):
         phases = {}
     judged = {
-        "before_runs": dict.get(phases, "before_runs") == "judged",
-        "after_runs": dict.get(phases, "after_runs") == "judged",
+        "before_runs": _registry_text_equals(
+            _registry_stored_value(phases, "before_runs"), "judged"),
+        "after_runs": _registry_text_equals(
+            _registry_stored_value(phases, "after_runs"), "judged"),
     }
     claim_identifier = _registry_stored_value(entry, "claim_identifier")
     if claim_identifier is None:
@@ -774,13 +863,73 @@ def _readable_stem(word):
             return stem[:-1]
         return None
 
+    def short_single_vowel_cvc(stem):
+        # A monosyllable ending in one vowel letter and one
+        # consonant doubles that consonant before er, est, and
+        # y, so the undoubled spelling stands on no stem here.
+        if len(stem) < 3:
+            return False
+        if stem[-1] in _READABLE_VOWELS or stem[-1] in "wxy":
+            return False
+        if stem[-2] not in _READABLE_VOWELS:
+            return False
+        if stem[-3] in _READABLE_VOWELS:
+            return False
+        return sum(1 for letter in stem
+                   if letter in _READABLE_VOWELS) == 1
+
+    # Bases whose comparative, superlative, or y derivation
+    # the papers name as no regular formation of the language.
+    no_gradable = frozenset(
+        ("sun", "dog", "table", "chair", "book", "house",
+         "window"))
+    no_y_derivation = frozenset(
+        ("book", "chair", "house", "window"))
+    # Bases whose plural stands in no s form at all.
+    no_s_plural = frozenset(
+        ("child", "man", "woman", "sheep", "tooth"))
+
+    if word.startswith("un") and len(word) > 4:
+        stems.append(word[2:])
     if word.endswith("ies") and len(word) > 4:
         stems.append(word[:-3] + "y")
+    if word.endswith("ves") and len(word) > 4:
+        stems.append(word[:-3] + "f")
+        stems.append(word[:-3] + "fe")
     if word.endswith("es") and len(word) > 3:
         stems.append(word[:-2])
     if word.endswith("s") and len(word) > 3:
+        if word[:-1] not in no_s_plural:
+            stems.append(word[:-1])
+    if word.endswith("ness") and len(word) > 6:
+        stems.append(word[:-4])
+        if word[:-4].endswith("i"):
+            stems.append(word[:-5] + "y")
+    if word.endswith("en") and len(word) > 4:
+        stems.append(word[:-2])
         stems.append(word[:-1])
-    if word.endswith("ed") and len(word) > 4:
+    if word.endswith("ful") and len(word) > 5:
+        stems.append(word[:-3])
+    if word.endswith("ish") and len(word) > 4:
+        stems.append(word[:-3])
+        stems.append(word[:-3] + "e")
+        plain = undoubled(word[:-3])
+        if plain is not None:
+            stems.append(plain)
+            stems.append(plain + "e")
+    if word.endswith("ment") and len(word) > 6:
+        stems.append(word[:-4])
+    if word.endswith("al") and len(word) > 4:
+        stems.append(word[:-2])
+    if word.endswith("ive") and len(word) > 4:
+        stems.append(word[:-3])
+        stems.append(word[:-3] + "e")
+    if word.endswith("ous") and len(word) > 4:
+        stems.append(word[:-3])
+        stems.append(word[:-3] + "e")
+        if word[:-3].endswith("i"):
+            stems.append(word[:-4] + "y")
+    if word.endswith("ed") and len(word) > 3:
         stems.append(word[:-2])
         stems.append(word[:-1])
         plain = undoubled(word[:-2])
@@ -788,37 +937,54 @@ def _readable_stem(word):
             stems.append(plain)
         if word[:-2].endswith("i"):
             stems.append(word[:-3] + "y")
-    if word.endswith("ing") and len(word) > 5:
+    if word.endswith("ing") and len(word) > 4:
         stems.append(word[:-3])
         stems.append(word[:-3] + "e")
         plain = undoubled(word[:-3])
         if plain is not None:
             stems.append(plain)
-    if word.endswith("ly") and len(word) > 4:
+        if word[:-3].endswith("y"):
+            stems.append(word[:-4] + "ie")
+    if word.endswith("ly") and len(word) > 3:
         stems.append(word[:-2])
+        stems.append(word[:-2] + "e")
         if word[:-2].endswith("i"):
             stems.append(word[:-3] + "y")
     if word.endswith("er") and len(word) > 4:
-        stems.append(word[:-2])
+        stems.append(word[:-1])
+        plain_cut = word[:-2]
+        if plain_cut not in no_gradable \
+                and not plain_cut.endswith("e") \
+                and not short_single_vowel_cvc(plain_cut):
+            stems.append(plain_cut)
         plain = undoubled(word[:-2])
         if plain is not None:
             stems.append(plain)
         if word[:-2].endswith("i"):
             stems.append(word[:-3] + "y")
     if word.endswith("est") and len(word) > 5:
-        stems.append(word[:-3])
+        plain_cut = word[:-3]
+        if plain_cut not in no_gradable \
+                and not short_single_vowel_cvc(plain_cut):
+            stems.append(plain_cut)
         stems.append(word[:-2])
         plain = undoubled(word[:-3])
         if plain is not None:
             stems.append(plain)
         if word[:-3].endswith("i"):
             stems.append(word[:-4] + "y")
-    if word.endswith("y") and len(word) > 4:
-        stems.append(word[:-1])
-        stems.append(word[:-1] + "e")
+    if word.endswith("y") and len(word) > 3:
+        if word[:-1] not in no_y_derivation \
+                and not short_single_vowel_cvc(word[:-1]):
+            stems.append(word[:-1])
+        if word[:-1] + "e" not in no_y_derivation:
+            stems.append(word[:-1] + "e")
         plain = undoubled(word[:-1])
         if plain is not None:
             stems.append(plain)
+        if len(word[:-1]) >= 4:
+            swapped = word[:-3] + word[-2] + word[-3]
+            stems.append(swapped)
     return stems
 
 
@@ -858,9 +1024,14 @@ def _is_readable_word(word):
                      for stem in _readable_stem(candidate)):
                 result = True
             else:
-                for split in range(3, len(candidate) - 2):
-                    if readable(candidate[:split]) \
-                            and readable(candidate[split:]):
+                def compound_part(part):
+                    if len(part) == 2:
+                        return part in _READABLE_LEXICON
+                    return readable(part)
+
+                for split in range(2, len(candidate) - 1):
+                    if compound_part(candidate[:split]) \
+                            and compound_part(candidate[split:]):
                         result = True
                         break
         memo[candidate] = result
@@ -1049,7 +1220,7 @@ def _parley_grounds_stated(other):
         if token in ordinal_numbers:
             window = tokens[max(0, index - 3):index + 4]
             if "parley" in window and any(
-                    word in ("question", "questions")
+                    word in ("question", "questions", "q")
                     for word in window):
                 grounds.add(ordinal_numbers[token])
         if token in ("question", "questions"):
@@ -1119,6 +1290,29 @@ def _parley_grounds_stated(other):
         if number_parley_questions is not None:
             grounds.add(_PARLEY_GROUND_NUMBERS[
                 number_parley_questions.group(1)])
+        q_parley_number = re.fullmatch(
+            r"(?:questions?|q)parley([125]|one|two|five)", token)
+        if q_parley_number is not None:
+            grounds.add(_PARLEY_GROUND_NUMBERS[
+                q_parley_number.group(1)])
+        number_parley_q = re.fullmatch(
+            r"([125]|one|two|five)parleyq", token)
+        if number_parley_q is not None:
+            grounds.add(_PARLEY_GROUND_NUMBERS[
+                number_parley_q.group(1)])
+        ordinal_word = (
+            r"(first|second|fifth|1st|2nd|5th)")
+        for ordinal_pattern in (
+                r"parleyquestions?" + ordinal_word,
+                r"questions?" + ordinal_word + r"parley",
+                r"parley" + ordinal_word + r"q",
+                r"parleyq" + ordinal_word,
+                ordinal_word + r"qparley",
+                r"q" + ordinal_word + r"parley"):
+            ordinal_joined = re.fullmatch(ordinal_pattern, token)
+            if ordinal_joined is not None:
+                grounds.add(ordinal_numbers[
+                    ordinal_joined.group(1)])
         if "parley" in tokens:
             question_number_token = re.fullmatch(
                 r"questions?([125]|one|two|five)", token)
@@ -1272,6 +1466,28 @@ def _parley_grounds_stated(other):
         if re.fullmatch(r"(?:questions?|q)parley", token) \
                 is not None and before in _PARLEY_GROUND_NUMBERS:
             grounds.add(_PARLEY_GROUND_NUMBERS[before])
+    for index in range(len(tokens) - 2):
+        first, second, third = tokens[index:index + 3]
+        if first in ("q", "question", "questions") \
+                and second == "parley" \
+                and third in _PARLEY_GROUND_NUMBERS:
+            grounds.add(_PARLEY_GROUND_NUMBERS[third])
+        if first in _PARLEY_GROUND_NUMBERS \
+                and second == "parley" and third == "q":
+            grounds.add(_PARLEY_GROUND_NUMBERS[first])
+    for index in range(len(tokens) - 1):
+        if tokens[index] in (
+                "qparley", "questionparley", "questionsparley") \
+                and tokens[index + 1] in _PARLEY_GROUND_NUMBERS:
+            grounds.add(
+                _PARLEY_GROUND_NUMBERS[tokens[index + 1]])
+    if any("parley" in token for token in tokens):
+        for index, token in enumerate(tokens):
+            if token in ("question", "questions") \
+                    and index + 1 < len(tokens) \
+                    and tokens[index + 1] in _PARLEY_GROUND_NUMBERS:
+                grounds.add(_PARLEY_GROUND_NUMBERS[
+                    tokens[index + 1]])
     return grounds
 
 

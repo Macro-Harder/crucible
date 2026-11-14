@@ -514,10 +514,12 @@ def _stream_set_classes(stream_set):
     inventory = None
     inventory_found = False
     if isinstance(values, dict):
+        missing = object()
         for key in ("stream_class_inventory", "stream_classes",
                     "inventory", "classes"):
-            if dict.__contains__(values, key):
-                inventory = dict.__getitem__(values, key)
+            found = _base_dict_get(values, key, missing)
+            if found is not missing:
+                inventory = found
                 inventory_found = True
                 break
         if not inventory_found:
@@ -541,8 +543,8 @@ def _stream_set_classes(stream_set):
             name = None
             for key in ("stream_class_identifier", "stream_class",
                         "name", "identifier", "class"):
-                if dict.get(entry, key) is not None:
-                    name = dict.get(entry, key)
+                if _base_dict_get(entry, key) is not None:
+                    name = _base_dict_get(entry, key)
                     break
             if name is None:
                 raise ValueError(
@@ -767,7 +769,15 @@ def make_derivation_input(derivation_version=None, domain=None,
     """
     if not validate_domain(domain):
         raise ValueError("domain outside the two value vocabulary")
-    params = dict(parameter_values or {})
+    if parameter_values is None:
+        params = {}
+    elif isinstance(parameter_values, dict):
+        params = {
+            key: dict.__getitem__(parameter_values, key)
+            for key in dict.__iter__(parameter_values)
+        }
+    else:
+        params = dict(parameter_values)
     for key, value in params.items():
         if not isinstance(value, str):
             raise ValueError(
@@ -812,6 +822,15 @@ def derivation_input_fields():
     return _DERIVATION_INPUT_FIELDS
 
 
+def _stored_name(value):
+    """The stored text of a name or recorded value, read through
+    the base string form where the value stands in text form,
+    never through a string reading the value itself supplies."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return str(value)
+
+
 def derivation_input_record(value):
     """Return one derivation input in the MOD-01 Form 5 field naming.
 
@@ -822,16 +841,25 @@ def derivation_input_record(value):
     """
     if not isinstance(value, dict):
         return {}
-    params = value.get("parameter_values") or {}
+    params = _base_dict_get(value, "parameter_values")
+    if not isinstance(params, dict):
+        params = {}
+    stored_names = list(dict.__iter__(params))
     rendered = tuple(
-        str(name) + "=" + str(params[name]) for name in sorted(params))
+        _stored_name(name) + "=" + _stored_name(
+            dict.__getitem__(params, name))
+        for name in sorted(stored_names, key=_stored_name))
     return {
-        "derivation_version_string": value.get("derivation_version"),
-        "domain": value.get("domain"),
-        "recorded_root_seed": value.get("root_seed_reference"),
-        "scenario_identifier": value.get("scenario_identifier"),
-        "run_identifier": value.get("run_identifier"),
-        "stream_class_identifier": value.get("stream_class_identifier"),
+        "derivation_version_string": _base_dict_get(
+            value, "derivation_version"),
+        "domain": _base_dict_get(value, "domain"),
+        "recorded_root_seed": _base_dict_get(
+            value, "root_seed_reference"),
+        "scenario_identifier": _base_dict_get(
+            value, "scenario_identifier"),
+        "run_identifier": _base_dict_get(value, "run_identifier"),
+        "stream_class_identifier": _base_dict_get(
+            value, "stream_class_identifier"),
         "parameter_values": rendered,
     }
 
@@ -853,12 +881,15 @@ def run_record_derivation_fields(value):
     """
     if not isinstance(value, dict):
         return {"derivation_version": None, "parameter_values": {}}
-    carried = value.get("parameter_values") or {}
+    carried = _base_dict_get(value, "parameter_values")
+    if not isinstance(carried, dict):
+        carried = {}
+    stored_names = list(dict.__iter__(carried))
     return {
-        "derivation_version": value.get("derivation_version"),
+        "derivation_version": _base_dict_get(value, "derivation_version"),
         "parameter_values": {
-            name: carried[name]
-            for name in sorted(carried, key=lambda item: str(item))
+            name: dict.__getitem__(carried, name)
+            for name in sorted(stored_names, key=_stored_name)
         },
     }
 
@@ -922,7 +953,7 @@ def initial_stream_state(stream_class=None, carried_positions=0):
     return {
         "stream_class": stream_class,
         "position": 0,
-        "carried_positions": int(carried_positions),
+        "carried_positions": _position_value(carried_positions),
         "draws_made": 0,
     }
 
@@ -939,11 +970,11 @@ def draw_from_stream(stream_class=None, position=None,
     """
     if state is not None and isinstance(state, dict):
         if stream_class is None:
-            stream_class = state.get("stream_class")
+            stream_class = _base_dict_get(state, "stream_class")
         if position is None:
-            position = state.get("position")
+            position = _base_dict_get(state, "position")
         if carried_positions is None:
-            carried_positions = state.get("carried_positions")
+            carried_positions = _base_dict_get(state, "carried_positions")
     if position is None:
         raise ValueError(
             "stream state lacks a position: supply the position "
@@ -952,11 +983,11 @@ def draw_from_stream(stream_class=None, position=None,
         raise ValueError(
             "stream state lacks its carried positions: supply the "
             "carried positions of the stream")
-    if int(position) >= int(carried_positions):
+    if _position_value(position) >= _position_value(carried_positions):
         return {
             "failure": STREAM_EXHAUSTED_FAILURE,
             "stream_class": stream_class,
-            "position": int(position),
+            "position": _position_value(position),
             "run_status": "failed",
             "partial_records_marked": True,
             "supports_claim": False,
@@ -964,7 +995,7 @@ def draw_from_stream(stream_class=None, position=None,
         }
     refusal = gated_refusal("draw from stream")
     refusal["stream_class"] = stream_class
-    refusal["position"] = int(position)
+    refusal["position"] = _position_value(position)
     return refusal
 
 
@@ -992,14 +1023,15 @@ def encode_candidate_input(values):
     if not isinstance(values, dict):
         raise ValueError("candidate input is not a field mapping")
     parts = []
-    for key in sorted(values, key=lambda item: str(item)):
-        name = str(key)
-        raw = values[key]
+    stored_pairs = list(dict.items(values))
+    stored_pairs.sort(key=lambda pair: _stored_name(pair[0]))
+    for key, raw in stored_pairs:
+        name = _stored_name(key)
         if not isinstance(raw, str):
             raise ValueError(
                 "parameter value for " + name
                 + " is not a recorded string")
-        text = raw
+        text = str.__str__(raw)
         parts.append(
             type(key).__name__ + ":" + str(len(name)) + ":" + name + "="
             + str(len(text)) + ":" + text)
@@ -1029,7 +1061,7 @@ def validate_battery_record(record):
     if not isinstance(inter, dict):
         return False
     for family in dict.__iter__(single):
-        if not _base_dict_get(inter, family):
+        if not _stored_present(_base_dict_get(inter, family)):
             return False
     return True
 
@@ -1151,14 +1183,20 @@ def _carried_generator_state(run_id, stream_classes=None,
             return carried
     streams = {}
     names = list(stream_classes or ())
-    if positions:
-        for name in positions:
-            if name not in names:
+    stored_positions = None
+    if isinstance(positions, dict) and dict.__len__(positions) != 0:
+        stored_positions = positions
+    if stored_positions is not None:
+        for name in dict.__iter__(stored_positions):
+            if not any(_base_value_eq(name, held) for held in names):
                 names.append(name)
-    for name in sorted(names, key=lambda item: str(item)):
+    for name in sorted(names, key=_held_sort_key):
         position = 0
-        if positions and name in positions:
-            position = _position_value(positions[name])
+        if stored_positions is not None and any(
+                _base_value_eq(name, stored_name)
+                for stored_name in dict.__iter__(stored_positions)):
+            position = _position_value(
+                dict.__getitem__(stored_positions, name))
         streams[name] = {"position": position}
     return {
         "run_id": run_id,
@@ -1218,10 +1256,14 @@ def make_exposure_log_entry(values=None):
     A field the caller does not state stands in the entry as not
     recorded, so silence on a channel stays visible in the record.
     """
-    given = dict(values or {})
     entry = {}
+    missing = object()
     for field in _EXPOSURE_LOG_FIELDS:
-        entry[field] = given.get(field, "not recorded")
+        stored = missing
+        if isinstance(values, dict):
+            stored = _base_dict_get(values, field, missing)
+        entry[field] = (
+            "not recorded" if stored is missing else stored)
     return entry
 
 
