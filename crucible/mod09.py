@@ -146,6 +146,13 @@ class NamedAttackerFailure(Exception):
     """An attacker seat failure stated by name."""
 
 
+def _stands_numeric(value):
+    """Return whether a value stands in numeric form, a boolean
+    standing in no numeric form for this module."""
+    return isinstance(value, (int, float)) and not isinstance(
+        value, bool)
+
+
 def mod03_catalogue_record(records=None):
     """Return the catalogue record the Society Generator delivers."""
     return _mod03.catalogue_record(records)
@@ -265,7 +272,27 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
     stated range carries no such value stands rejected, because
     its sweep would not cover the range the seat requires.
     """
-    values = list(strategy.get("external_profit_range", []))
+    if not isinstance(strategy, dict):
+        raise NamedAttackerFailure(
+            "external profit sweep rejected: the strategy stands "
+            "in no record form: " + repr(strategy)
+        )
+    stated_range = strategy.get("external_profit_range", [])
+    if stated_range is None:
+        values = []
+    elif isinstance(stated_range, (list, tuple)):
+        values = list(stated_range)
+    else:
+        raise NamedAttackerFailure(
+            "external profit sweep rejected: the stated range "
+            "stands in no range form: " + repr(stated_range)
+        )
+    for value in values:
+        if not _stands_numeric(value):
+            raise NamedAttackerFailure(
+                "external profit sweep rejected: a stated range "
+                "value stands in no numeric form: " + repr(value)
+            )
     if 0 not in values:
         raise NamedAttackerFailure(
             "external profit sweep rejected: the stated range "
@@ -274,6 +301,12 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
     largest = largest_in_protocol_payoff
     if largest is None:
         largest = strategy.get("in_protocol_payoff", 0)
+    if not _stands_numeric(largest):
+        raise NamedAttackerFailure(
+            "external profit sweep rejected: the largest in "
+            "protocol payoff stands in no numeric form: "
+            + repr(largest)
+        )
     if not any(value > largest for value in values):
         raise NamedAttackerFailure(
             "external profit sweep rejected: the stated range "
@@ -306,6 +339,17 @@ def run_record_carriage(strategy_class, ladder_position,
         raise NamedAttackerFailure(
             "run record rejected: no fixed strategy class stands "
             "stated"
+        )
+    if not isinstance(strategy_class, (list, tuple)):
+        raise NamedAttackerFailure(
+            "run record rejected: the fixed strategy class stands "
+            "in no class list form: " + repr(strategy_class)
+        )
+    if strategies is not None and not isinstance(
+            strategies, (list, tuple)):
+        raise NamedAttackerFailure(
+            "run record rejected: the strategies exercised stand "
+            "in no list form: " + repr(strategies)
         )
     if ladder_position is None:
         raise NamedAttackerFailure(
@@ -383,9 +427,15 @@ def validate_search_record(record, fixed_class=None):
             carriage.get("strategy_class", [])) != list(fixed_class):
         return False
     search = record.get("search_record", {})
+    if not isinstance(search, dict):
+        return False
     for field in SEARCH_RECORD_FIELDS:
         key = field.replace(" ", "_")
         if key not in search or search[key] is None:
+            return False
+        if key != "every_adaptation" and isinstance(
+                search[key], (str, list, tuple, dict, set)) and len(
+                search[key]) == 0:
             return False
     bond = record.get("bond_parameter_search")
     if not isinstance(bond, dict):
@@ -393,7 +443,12 @@ def validate_search_record(record, fixed_class=None):
     if bond.get("worst_griefing_factor") is None or not bond.get(
             "parameter_set"):
         return False
-    for use in record.get("case_uses", []):
+    case_uses = record.get("case_uses", [])
+    if not isinstance(case_uses, (list, tuple)):
+        return False
+    for use in case_uses:
+        if not isinstance(use, dict):
+            return False
         if use.get("fixture") == "F-26" and use.get(
                 "use") != "strategy search point only":
             return False
@@ -458,9 +513,21 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
         else:
             cost = candidate.get("attacker_cost")
             harm = candidate.get("harm")
+            if (harm is not None and not _stands_numeric(harm)) or (
+                    cost is not None and not _stands_numeric(cost)):
+                raise NamedAttackerFailure(
+                    "bond parameter search rejected: a candidate "
+                    "carries a harm or a cost in no numeric form: "
+                    + repr(candidate)
+                )
             if not cost or harm is None:
                 continue
             factor = harm / cost
+        if not _stands_numeric(factor):
+            raise NamedAttackerFailure(
+                "bond parameter search rejected: a griefing factor "
+                "stands in no numeric form: " + repr(factor)
+            )
         scored.append({
             "parameter_set": copy.deepcopy(params),
             "griefing_factor": factor,
@@ -573,6 +640,11 @@ def readout(search_record, found_failure=True, wording="",
             "the readout"
         )
     carriage = search_record.get("run_record", search_record)
+    if not isinstance(carriage, dict):
+        raise NamedAttackerFailure(
+            "readout rejected: the run record carriage stands in "
+            "no record form: " + repr(carriage)
+        )
     position = carriage.get("ladder_position")
     if established:
         raise NamedAttackerFailure(
@@ -585,11 +657,22 @@ def readout(search_record, found_failure=True, wording="",
     else:
         status = "at the readout point, not established"
     exercised = carriage.get("strategies_exercised", [])
+    if not isinstance(exercised, (list, tuple)):
+        raise NamedAttackerFailure(
+            "readout rejected: the strategies exercised stand in "
+            "no list form: " + repr(exercised)
+        )
     swept = search_record.get("external_profit_swept_values", [])
+    if swept is None:
+        swept = []
+    if not isinstance(swept, (list, tuple)):
+        raise NamedAttackerFailure(
+            "readout rejected: the external profit swept values "
+            "stand in no list form: " + repr(swept)
+        )
     in_protocol_only = (
         "conditional briber" not in exercised
-        or not any(isinstance(v, (int, float)) and v > 0
-                   for v in swept)
+        or not any(_stands_numeric(v) and v > 0 for v in swept)
     )
     unit = {
         "wording": wording,
@@ -611,6 +694,11 @@ def attacker_cost_summary(witness_run):
     A descriptive figure beside the witness, priced per failure
     witness run, changing no regime classification.
     """
+    if not isinstance(witness_run, dict):
+        raise NamedAttackerFailure(
+            "attacker cost summary rejected: the witness run "
+            "stands in no record form: " + repr(witness_run)
+        )
     return {
         "witness_run": witness_run.get("run_identifier"),
         "attacker_cost": witness_run.get("attacker_cost"),
@@ -628,6 +716,11 @@ def attacker_cost_summary(witness_run):
 
 def witness_carriage(witness_run, envelope_claim_names_witness=True):
     """The witness carriage this slice supplies for one run."""
+    if not isinstance(witness_run, dict):
+        raise NamedAttackerFailure(
+            "witness carriage rejected: the witness run stands in "
+            "no record form: " + repr(witness_run)
+        )
     carriage = {
         "witness_run": witness_run.get("run_identifier"),
         "regime_classification": witness_run.get(
@@ -647,11 +740,16 @@ def search_record_covers_hostile_kinds(record, family_record_kinds):
     not count as run.
     """
     covered = {}
-    runs = record.get("hostile_kind_runs", {})
+    runs = record.get("hostile_kind_runs", {}) if isinstance(
+        record, dict) else {}
+    if not isinstance(runs, dict):
+        runs = {}
+    family = family_record_kinds if isinstance(
+        family_record_kinds, dict) else {}
     for kind in HOSTILE_INPUT_KINDS:
-        fixed = (family_record_kinds or {}).get(kind)
+        fixed = family.get(kind)
         ran = runs.get(kind)
-        if fixed is None or ran is None:
+        if not _stands_numeric(fixed) or not _stands_numeric(ran):
             covered[kind] = False
         else:
             covered[kind] = ran >= fixed

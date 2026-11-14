@@ -14,6 +14,7 @@ operator procedure as that runbook.
 """
 
 import copy
+import unicodedata
 
 from crucible import mod01 as _mod01
 from crucible import mod10 as _mod10
@@ -545,8 +546,93 @@ _PROTECTED_TARGETS = (
 )
 
 
+# Letter canonicalisation, in the form the Round 5 register
+# states for the shared folded reading: compatibility
+# decomposition with combining marks dropped, so accented and
+# full width forms reduce to their base letters, together with
+# a recorded letter mapping for the dresses decomposition
+# cannot reduce. The mapping below records, per letter, the
+# Latin letters that letter stands for: the Cyrillic letters by
+# the Latin letters they transliterate, which for the letters
+# a, e, and o are also the letters they resemble, and the Greek
+# letters by the Latin letters they resemble.
+_LETTER_MAP = {
+    "\u0430": "a", "\u0431": "b", "\u0432": "v", "\u0433": "g",
+    "\u0434": "d", "\u0435": "e", "\u0436": "zh", "\u0437": "z",
+    "\u0438": "i", "\u0439": "y", "\u043a": "k", "\u043b": "l",
+    "\u043c": "m", "\u043d": "n", "\u043e": "o", "\u043f": "p",
+    "\u0440": "r", "\u0441": "s", "\u0442": "t", "\u0443": "u",
+    "\u0444": "f", "\u0445": "h", "\u0446": "ts", "\u0447": "ch",
+    "\u0448": "sh", "\u0449": "shch", "\u044b": "y",
+    "\u044d": "e", "\u044e": "yu", "\u044f": "ya",
+    "\u0454": "e", "\u0456": "i", "\u0457": "yi", "\u0458": "j",
+    "\u0459": "lj", "\u045a": "nj", "\u045b": "kj", "\u045f": "dz",
+    "\u03b1": "a", "\u03b2": "b", "\u03b3": "y", "\u03b4": "d",
+    "\u03b5": "e", "\u03b6": "z", "\u03b7": "n", "\u03b8": "th",
+    "\u03b9": "i", "\u03ba": "k", "\u03bb": "l", "\u03bc": "m",
+    "\u03bd": "v", "\u03bf": "o", "\u03c0": "n", "\u03c1": "p",
+    "\u03c3": "s", "\u03c4": "t", "\u03c5": "u", "\u03c6": "ph",
+    "\u03c7": "x", "\u03c8": "ps", "\u03c9": "w",
+}
+
+# Digit and leet substitutions inside a word: a digit standing
+# among letters reads as the letter it stands for.
+_LEET_DIGITS = {
+    "0": "o", "1": "l", "2": "z", "3": "e", "4": "a",
+    "5": "s", "6": "g", "7": "t", "8": "b", "9": "g",
+}
+
+
+def _canonicalise_text(value):
+    decomposed = unicodedata.normalize("NFKD", str(value or ""))
+    chars = []
+    for char in decomposed:
+        if unicodedata.combining(char):
+            continue
+        if char in _LETTER_MAP:
+            chars.append(_LETTER_MAP[char])
+        else:
+            chars.append(char)
+    return "".join(chars).lower()
+
+
+def _canonicalise_word(word):
+    if any(char.isalpha() for char in word) and any(
+            char.isdigit() for char in word):
+        word = "".join(
+            _LEET_DIGITS.get(char, char) for char in word)
+    return word
+
+
+_VOCABULARY_WORDS = frozenset(
+    word
+    for phrase in (
+        _PROTECTED_TARGETS + _EDIT_ACTS + _DESTRUCTIVE_ACTS
+        + _READ_ACTS + ("flag rule", "deletion rule"))
+    for word in phrase.split()
+)
+
+
+def _resolve_word(word):
+    """Read one word as the vocabulary word it dresses, where
+    it dresses one: the word itself where it stands plain, and
+    the word with one added letter struck where the candidate
+    carries exactly one letter more than a vocabulary word, so
+    a word carrying an added letter inside it or at its end
+    reads as the word it dresses. Any other word stands as
+    itself."""
+    if word in _VOCABULARY_WORDS:
+        return word
+    if len(word) > 3:
+        for cut in range(len(word)):
+            reduced = word[:cut] + word[cut + 1:]
+            if reduced in _VOCABULARY_WORDS:
+                return reduced
+    return word
+
+
 def _normalise_name(value):
-    text = str(value or "").lower()
+    text = _canonicalise_text(value)
     text = "".join(
         char if char.isalnum() else " " for char in text)
     words = []
@@ -558,7 +644,7 @@ def _normalise_name(value):
             word = word[:-3] + "y"
         elif len(word) > 1 and word.endswith("s"):
             word = word[:-1]
-        words.append(word)
+        words.append(_resolve_word(_canonicalise_word(word)))
     return " ".join(words)
 
 
@@ -610,6 +696,56 @@ _RULE_PATHS_BY_FOLDED = {
 }
 
 
+def _touched_protected_targets(target):
+    """The protected targets a target reading touches, read by
+    containment on the canonicalised reading: a protected target
+    stands touched where its word sequence stands whole inside
+    the target word sequence, or where its folded form stands
+    whole inside the target folded form, the joined spelling
+    with no separator. A target that shares letters with a
+    protected target without containing it whole touches none."""
+    words = target.split()
+    folded = _folded_reading(target)
+    touched = []
+    for protected in _PROTECTED_TARGETS:
+        protected_words = protected.split()
+        width = len(protected_words)
+        contained = any(
+            words[start:start + width] == protected_words
+            for start in range(len(words) - width + 1))
+        if contained or _folded_reading(protected) in folded:
+            touched.append(protected)
+    return touched
+
+
+def _bar_on_target(protected, act, path):
+    if protected == "sealed family record":
+        if act == "read":
+            return None
+        return "no operator action edits a sealed family record"
+    if protected == "closed run record":
+        if act == "read":
+            return None
+        if act == "edit" and path == "flag rule":
+            return None
+        if act == "destructive":
+            return (
+                "no operator action destroys a closed run record, "
+                "on the flag rule path or on any other")
+        return (
+            "no operator action edits a closed run record outside "
+            "the flag rule path")
+    if protected == "checkpoint set":
+        if act == "read":
+            return None
+        if act in ("edit", "destructive") and path == "deletion rule":
+            return None
+        return (
+            "no operator action edits a checkpoint set outside "
+            "the deletion rule")
+    return None
+
+
 def _operator_action_bar(action):
     if not isinstance(action, dict):
         return "the action is not a record of an act and a target"
@@ -628,41 +764,20 @@ def _operator_action_bar(action):
     kind = _normalise_name(raw_kind)
     target = _normalise_name(raw_target)
     path = _normalise_name(action.get("path"))
-    target = _PROTECTED_TARGETS_BY_FOLDED.get(
-        _folded_reading(target), target)
     path = _RULE_PATHS_BY_FOLDED.get(
         _folded_reading(path), path)
+    touched = _touched_protected_targets(target)
     if not kind:
-        if target in _PROTECTED_TARGETS:
+        if touched:
             return (
                 "an action with no kind stated stands refused on a "
-                "protected target: " + target)
+                "protected target: " + touched[0])
         return "an action with no kind stated stands refused"
     act = _act_class(kind)
-    if target == "sealed family record":
-        if act == "read":
-            return None
-        return "no operator action edits a sealed family record"
-    if target == "closed run record":
-        if act == "read":
-            return None
-        if act == "edit" and path == "flag rule":
-            return None
-        if act == "destructive":
-            return (
-                "no operator action destroys a closed run record, "
-                "on the flag rule path or on any other")
-        return (
-            "no operator action edits a closed run record outside "
-            "the flag rule path")
-    if target == "checkpoint set":
-        if act == "read":
-            return None
-        if act in ("edit", "destructive") and path == "deletion rule":
-            return None
-        return (
-            "no operator action edits a checkpoint set outside "
-            "the deletion rule")
+    for protected in touched:
+        bar = _bar_on_target(protected, act, path)
+        if bar is not None:
+            return bar
     return None
 
 
@@ -676,7 +791,18 @@ def validate_operator_action(action):
     a spelling joined with no separator at all, read beside
     the word reading by its folded form of letters and digits
     only, and every such act stands refused
-    outside its stated rule path. A kind or a target standing in
+    outside its stated rule path. The reading stands
+    canonicalised before it is compared: accented and full
+    width letters reduce to their base letters, letters of
+    other scripts read by the recorded letter mapping, digits
+    standing inside a word read as the letters they stand for,
+    and a word carrying one added letter reads as the word it
+    dresses, so a protected target in any such dress names the
+    same target. The protected check reads containment on that
+    reading: a target carrying a protected target whole, alone
+    or beside further target matter, stands under that target
+    bar, and the reason form names the bar on the protected
+    target touched. A kind or a target standing in
     a non text form, and a verb the boundary cannot read as a
     stated act, stand refused on a protected target by name in
     the reason form. No operator action edits a sealed family

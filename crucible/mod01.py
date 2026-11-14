@@ -21,6 +21,7 @@ with no plan stated canonical form enters no hash equality claim.
 """
 
 import copy
+import unicodedata
 
 __all__ = [
     "AC1_STATE_HASH_FIELDS",
@@ -607,10 +608,94 @@ def _carries_reserved_matter(value):
     return False
 
 
+# Letter canonicalisation, standing ahead of the separator fold in
+# every reading below. One name is read in one canonical form:
+# compatibility decomposition with combining marks dropped, so an
+# accented letter and a full width letter reduce to their base letter;
+# then case folding, with any combining mark the folding itself
+# introduces dropped in the same way; then the recorded letter mapping
+# below for the dresses decomposition cannot reduce. The mapping
+# carries, letter by letter, the non Latin letters that stand for the
+# marker letters, in their look alike form where one stands and in
+# their sounded form where a whole word stands transliterated, and the
+# recorded transliterated spelling of the money marker word itself.
+_LETTER_MAP = {
+    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "r",
+    "\u043d": "n", "\u043b": "l", "\u043c": "m", "\u0438": "i",
+    "\u0447": "ch", "\u043a": "k", "\u0445": "x", "\u0441": "c",
+    "\u0443": "y", "\u0432": "v", "\u0442": "t", "\u0434": "d",
+    "\u03b1": "a", "\u03bf": "o", "\u03b5": "e", "\u03b9": "i",
+    "\u03ba": "k", "\u03bc": "m", "\u03bd": "n", "\u03c1": "r",
+    "\u03c4": "t", "\u03c5": "y", "\u03bb": "l", "\u03c3": "s",
+    "\u03c2": "s", "\u03c9": "o", "\u03c7": "x",
+}
+
+_TRANSLITERATED_SPELLINGS = (
+    ("realmani", "real" + "money"),
+)
+
+# A digit standing inside a marker word is read in two recorded ways:
+# as the letter its leet form stands for, and as a dropped separator
+# that holds nothing apart. The digit readings below carry both, with
+# the figure one read as the letter l in one reading and as the
+# letter i in the other, those being its two standing leet letters.
+_LEET_READING_ONE = {
+    "0": "o", "1": "l", "2": "z", "3": "e", "4": "a",
+    "5": "s", "6": "g", "7": "t", "8": "b", "9": "g",
+}
+_LEET_READING_TWO = dict(_LEET_READING_ONE, **{"1": "i"})
+
+
+def _canonicalise_letters(text):
+    decomposed = unicodedata.normalize("NFKD", str(text))
+    without_marks = "".join(
+        character for character in decomposed
+        if not unicodedata.category(character).startswith("M")
+    )
+    folded = unicodedata.normalize("NFKD", without_marks.casefold())
+    characters = []
+    for character in folded:
+        if unicodedata.category(character).startswith("M"):
+            continue
+        if character.isdigit():
+            digit = unicodedata.digit(character, None)
+            if digit is not None:
+                character = str(digit)
+        characters.append(_LETTER_MAP.get(character, character))
+    canonical = "".join(characters)
+    for source, target in _TRANSLITERATED_SPELLINGS:
+        canonical = canonical.replace(source, target)
+    return canonical
+
+
 def _folded_money_key(key):
     return "".join(
-        character for character in str(key).lower()
+        character for character in _canonicalise_letters(key)
         if character.isalnum()
+    )
+
+
+def _folded_key_variants(key):
+    folded = _folded_money_key(key)
+    variants = {folded}
+    for reading in (_LEET_READING_ONE, _LEET_READING_TWO):
+        variants.add("".join(
+            reading.get(character, character) for character in folded
+        ))
+    variants.add("".join(
+        character for character in folded if not character.isdigit()
+    ))
+    return variants
+
+
+def _folded_key_matches(key, folded_target):
+    return folded_target in _folded_key_variants(key)
+
+
+def _folded_key_carries(key, folded_marker):
+    return any(
+        folded_marker in variant
+        for variant in _folded_key_variants(key)
     )
 
 
@@ -621,13 +706,18 @@ _ANCHOR_VALUES_FIELD_FOLDED = _folded_money_key(
 
 def _carries_real_money_value(value):
     if isinstance(value, dict):
-        folded = {
-            _folded_money_key(key): item for key, item in value.items()
-        }
-        if folded.get("amount") is not None and "currency" in folded:
+        amount_carried = any(
+            _folded_key_matches(key, "amount") and item is not None
+            for key, item in value.items()
+        )
+        currency_carried = any(
+            _folded_key_matches(key, "currency")
+            for key in value.keys()
+        )
+        if amount_carried and currency_carried:
             return True
         for key, item in value.items():
-            if _MONEY_MARKER_FOLDED in _folded_money_key(key) and (
+            if _folded_key_carries(key, _MONEY_MARKER_FOLDED) and (
                     item is not None):
                 return True
             if _carries_real_money_value(item):
@@ -734,7 +824,7 @@ def validate_record(form_id, instance):
         if _carries_real_money_value(instance):
             return False
         for key, anchor_values in instance.items():
-            if _folded_money_key(key) != _ANCHOR_VALUES_FIELD_FOLDED:
+            if not _folded_key_matches(key, _ANCHOR_VALUES_FIELD_FOLDED):
                 continue
             if isinstance(anchor_values, dict) and len(anchor_values) != 3:
                 return False

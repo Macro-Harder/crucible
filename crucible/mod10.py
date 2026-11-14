@@ -25,6 +25,7 @@ computed result without changing the value.
 import copy
 import json
 import os
+import unicodedata
 
 from crucible import mod01
 
@@ -76,11 +77,95 @@ class LookupFailure(KeyError):
             ONE_LOOKUP_FAILURE_NAME + ": " + str(run_id))
 
 
+# The canonicalised fold, in the one stated form the Round 5
+# register states for the money surfaces and the barred surfaces.
+# A name stands read as follows. The name stands case folded.
+# Each character then stands reduced by compatibility
+# decomposition with its combining marks dropped, so accented
+# and full width forms reduce to their base letters, and zero
+# width and soft hyphen forms drop. A character the decomposition
+# cannot reduce stands read through one of two recorded letter
+# mappings: a transliteration mapping, which reads the non Latin
+# letters of the marker words as the Latin spellings they
+# transliterate, and a homoglyph mapping, which reads a non Latin
+# letter as the Latin letter it stands rendered as. A non Latin
+# digit stands read as its digit value. The folded readings of a
+# name are the set of its alphanumeric reductions under both
+# mappings, each taken twice over: once with digits read through
+# the recorded leet substitutions, and once with digits dropped,
+# so a digit standing inside a marker word either as a letter
+# substitute or as an inserted character holds the marker apart
+# in neither reading. One recorded spelling correction stands in
+# both readings: the transliterated spelling of the money marker
+# in its phonetic form reads as the marker itself.
+
+_TRANSLITERATION_MAP = {
+    "\u0430": "a", "\u0431": "b", "\u0432": "v", "\u0433": "g",
+    "\u0434": "d", "\u0435": "e", "\u0451": "e", "\u0436": "zh",
+    "\u0437": "z", "\u0438": "i", "\u0439": "y", "\u043a": "k",
+    "\u043b": "l", "\u043c": "m", "\u043d": "n", "\u043e": "o",
+    "\u043f": "p", "\u0440": "r", "\u0441": "s", "\u0442": "t",
+    "\u0443": "u", "\u0444": "f", "\u0445": "h", "\u0446": "ts",
+    "\u0447": "ch", "\u0448": "sh", "\u0449": "shch",
+    "\u044a": "", "\u044b": "y", "\u044c": "", "\u044d": "e",
+    "\u044e": "yu", "\u044f": "ya",
+    "\u03b1": "a", "\u03b2": "b", "\u03b3": "g", "\u03b4": "d",
+    "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "th",
+    "\u03b9": "i", "\u03ba": "k", "\u03bb": "l", "\u03bc": "m",
+    "\u03bd": "n", "\u03bf": "o", "\u03c0": "p", "\u03c1": "r",
+    "\u03c2": "s", "\u03c3": "s", "\u03c4": "t", "\u03c5": "u",
+    "\u03c6": "ph", "\u03c7": "h", "\u03c8": "ps", "\u03c9": "o",
+}
+
+_HOMOGLYPH_MAP = dict(_TRANSLITERATION_MAP)
+_HOMOGLYPH_MAP.update({
+    "\u0440": "p", "\u0441": "c", "\u0445": "x", "\u0443": "y",
+    "\u043d": "h", "\u0432": "b", "\u043a": "k", "\u043c": "m",
+    "\u0442": "t",
+})
+
+_LEET_DIGITS = {
+    "0": "o", "1": "l", "2": "z", "3": "e", "4": "a",
+    "5": "s", "6": "g", "7": "t", "8": "b", "9": "g",
+}
+
+
+def _canonical_text(value, letter_map):
+    pieces = []
+    for character in str(value).casefold():
+        if character in letter_map:
+            pieces.append(letter_map[character])
+            continue
+        if character.isdigit() and not character.isascii():
+            pieces.append(str(unicodedata.digit(character)))
+            continue
+        for part in unicodedata.normalize("NFKD", character):
+            if unicodedata.category(part) in ("Mn", "Me", "Cf"):
+                continue
+            pieces.append(part)
+    return "".join(pieces)
+
+
+def _fold_variants(key):
+    variants = set()
+    for letter_map in (_TRANSLITERATION_MAP, _HOMOGLYPH_MAP):
+        text = _canonical_text(key, letter_map)
+        leet = "".join(
+            _LEET_DIGITS.get(character, character)
+            for character in text if character.isalnum())
+        dropped = "".join(
+            character for character in text if character.isalpha())
+        for variant in (leet, dropped):
+            variants.add(variant.replace("realmani", "realmoney"))
+    return variants
+
+
 def _folded_money_key(key):
     return "".join(
-        character for character in str(key).lower()
+        _LEET_DIGITS.get(character, character)
+        for character in _canonical_text(key, _TRANSLITERATION_MAP)
         if character.isalnum()
-    )
+    ).replace("realmani", "realmoney")
 
 
 _MONEY_MARKER_FOLDED = ("real_" + "money").replace("_", "")
@@ -90,19 +175,25 @@ def _carries_real_money_field(value):
     """Whether a value carries a real money field at any depth, by
     field name (a real money field name with a value standing) or
     by amount and currency shape. Field names and the shape keys
-    stand read folded: case folded, with every character that is
-    not a letter or a digit folded out, so a name stands read as
-    the name it is in any dress."""
+    stand read through the canonicalised fold stated above, so a
+    name stands read as the name it is in any dress the fold
+    covers, and the shape stands read where either shape key
+    stands in any of its folded readings with a value standing."""
     if isinstance(value, dict):
-        folded = {
-            _folded_money_key(key): item for key, item in value.items()
-        }
-        if (folded.get("amount") is not None
-                and folded.get("currency") is not None):
+        amount_stands = any(
+            "amount" in _fold_variants(key) and item is not None
+            for key, item in value.items()
+        )
+        currency_stands = any(
+            "currency" in _fold_variants(key) and item is not None
+            for key, item in value.items()
+        )
+        if amount_stands and currency_stands:
             return True
         for key, item in value.items():
-            if _MONEY_MARKER_FOLDED in _folded_money_key(key) and (
-                    item is not None):
+            if item is not None and any(
+                    _MONEY_MARKER_FOLDED in variant
+                    for variant in _fold_variants(key)):
                 return True
             if _carries_real_money_field(item):
                 return True
@@ -1659,13 +1750,36 @@ _VIEW_BARRED_KEY_PARTS = (
 )
 
 
+_VIEW_BARRED_KEYS_FOLDED = frozenset((
+    "groundtruth", "groundtruthfield", "membership",
+    "honestmembership", "farmmembership", "ishonest", "isfarm",
+    "canary", "canaryvalue", "membershipvalue", "sleeper",
+    "groundtruthlabel", "label",
+    "honestorfarmmembership", "membershipgroundtruth",
+))
+
+_VIEW_BARRED_KEY_PARTS_FOLDED = (
+    "membership",
+    "groundtruth",
+    "canary",
+)
+
+
 def _is_barred_view_key(key):
     """Return whether a key stands barred under the one barred
-    vocabulary, case handled as the cured surfaces handle it."""
-    lowered = str(key).lower()
-    if lowered in _VIEW_BARRED_KEYS:
-        return True
-    return any(part in lowered for part in _VIEW_BARRED_KEY_PARTS)
+    vocabulary. The key stands read through the canonicalised
+    fold stated at the money reading above, in the same form the
+    cured surfaces are charged to share, so a key split inside
+    its marker word, or dressed in a letter or digit dress the
+    fold covers, reads as its marker. The plain word label stands
+    barred as an exact folded name only, never as a part, as on
+    the standing surfaces."""
+    for variant in _fold_variants(key):
+        if variant in _VIEW_BARRED_KEYS_FOLDED:
+            return True
+        if any(part in variant for part in _VIEW_BARRED_KEY_PARTS_FOLDED):
+            return True
+    return False
 
 
 def _carries_barred_key(value):

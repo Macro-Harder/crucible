@@ -19,6 +19,7 @@ release gate and write_checkpoint retaining the checkpoint pair
 through the MOD-10 paired store.
 """
 import copy
+import unicodedata
 
 GATE_EXECUTABLE_RUNS = "DQ7-02"
 
@@ -187,12 +188,75 @@ _BARRED_KEY_PARTS = (
 )
 
 
+_HOMOGLYPH_MAP = {
+    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p",
+    "\u0441": "c", "\u0445": "x", "\u0443": "y", "\u0456": "i",
+    "\u0458": "j", "\u0455": "s", "\u04bb": "h",
+    "\u03b1": "a", "\u03b5": "e", "\u03bf": "o", "\u03c1": "p",
+    "\u03c4": "t", "\u03ba": "k", "\u03b9": "i", "\u03bd": "v",
+    "\u03c7": "x",
+}
+
+_LEET_MAP = {
+    "0": "o", "1": "l", "3": "e", "4": "a", "5": "s",
+    "7": "t", "8": "b", "@": "a", "$": "s",
+}
+
+
+def _folded_readings(key):
+    """The folded readings of one key, in the canonicalised form
+    the Round 5 register states for the barred surfaces. The base
+    reading lowercases the key, applies compatibility decomposition
+    with combining marks dropped, maps non Latin homoglyph letters
+    to the Latin letters they stand for, and drops every character
+    that is not a letter or a digit, so a separator, a zero width
+    character, or a soft hyphen standing inside a word holds the
+    word apart no longer. Two further readings stand beside it: one
+    with digit and symbol substitutions read as the letters they
+    stand for, and one with digits dropped, so a digit standing
+    inside a word as a split reads as the word it splits."""
+    decomposed = unicodedata.normalize("NFKD", str(key).lower())
+    base = "".join(
+        _HOMOGLYPH_MAP.get(character, character)
+        for character in decomposed
+        if not unicodedata.category(character).startswith("M")
+    )
+    plain = "".join(
+        character for character in base if character.isalnum())
+    readings = []
+    for reading in (
+        plain,
+        "".join(_LEET_MAP.get(character, character)
+                for character in plain),
+        "".join(character for character in plain
+                if not character.isdigit()),
+    ):
+        if reading and reading not in readings:
+            readings.append(reading)
+    return tuple(readings)
+
+
+_BARRED_FOLDED_EXACT = frozenset(
+    reading
+    for name in BARRED_PROJECTION_KEYS
+    for reading in _folded_readings(name)
+)
+_BARRED_FOLDED_PARTS = ("membership", "groundtruth", "canary")
+
+
 def _is_barred_key(key):
     lowered = str(key).lower()
-    return (
+    if (
         lowered in BARRED_PROJECTION_KEYS
         or any(part in lowered for part in _BARRED_KEY_PARTS)
-    )
+    ):
+        return True
+    for reading in _folded_readings(key):
+        if reading in _BARRED_FOLDED_EXACT:
+            return True
+        if any(part in reading for part in _BARRED_FOLDED_PARTS):
+            return True
+    return False
 
 
 CLEANING_DEPTH_BOUND = 100

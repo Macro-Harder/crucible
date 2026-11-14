@@ -18,6 +18,7 @@ module carries the field and states the gap, and invents no value.
 """
 
 import copy
+import unicodedata
 
 from . import mod01
 
@@ -148,18 +149,78 @@ def ruling_text_gaps():
 # Escrow bearing results and the core only qualifier
 # ---------------------------------------------------------------------------
 
+_HOMOGLYPH_MAP = {
+    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p",
+    "\u0441": "c", "\u0445": "x", "\u0443": "y", "\u0456": "i",
+    "\u0458": "j", "\u0455": "s", "\u04bb": "h",
+    "\u03b1": "a", "\u03b5": "e", "\u03bf": "o", "\u03c1": "p",
+    "\u03c4": "t", "\u03ba": "k", "\u03b9": "i", "\u03bd": "v",
+    "\u03c7": "x",
+}
+
+_LEET_MAP = {
+    "0": "o", "1": "l", "3": "e", "4": "a", "5": "s",
+    "7": "t", "8": "b", "@": "a", "$": "s",
+}
+
+
+def _folded_readings(key):
+    """The folded readings of one key, in the same canonicalised
+    form the barred surfaces read: compatibility decomposition
+    with combining marks dropped, non Latin homoglyph letters
+    mapped to the Latin letters they stand for, separators and
+    zero width characters dropped, beside a reading with digit
+    substitutions read as letters and a reading with digits
+    dropped. The barred forms themselves stand unmoved; only
+    their reading gains the folded form."""
+    decomposed = unicodedata.normalize("NFKD", str(key).lower())
+    base = "".join(
+        _HOMOGLYPH_MAP.get(character, character)
+        for character in decomposed
+        if not unicodedata.category(character).startswith("M")
+    )
+    plain = "".join(
+        character for character in base if character.isalnum())
+    readings = []
+    for reading in (
+        plain,
+        "".join(_LEET_MAP.get(character, character)
+                for character in plain),
+        "".join(character for character in plain
+                if not character.isdigit()),
+    ):
+        if reading and reading not in readings:
+            readings.append(reading)
+    return tuple(readings)
+
+
+def _key_reads_as(key, folded_name):
+    return folded_name in _folded_readings(key)
+
+
 def _payload_carries_barred(value):
     """Screen a payload at any depth for the barred money and
     anchor forms: a real money value, an amount and currency pair,
-    or a supplied anchor set, which DQ-162 and DQ-163 bar."""
+    or a supplied anchor set, which DQ-162 and DQ-163 bar. The
+    names stand read through the folded reading, so a split or
+    dressed spelling of a barred name stands barred as the plain
+    spelling stands barred."""
     if isinstance(value, dict):
         keys = {str(key).lower() for key in value}
         if "amount" in keys and "currency" in keys:
+            return True
+        if (
+            any(_key_reads_as(key, "amount") for key in value)
+            and any(_key_reads_as(key, "currency") for key in value)
+        ):
             return True
         for key, item in value.items():
             lowered = str(key).lower()
             if "anchor_set" in lowered or lowered.startswith("real_money"):
                 return True
+            for reading in _folded_readings(key):
+                if "anchorset" in reading or reading.startswith("realmoney"):
+                    return True
             if _payload_carries_barred(item):
                 return True
     if isinstance(value, (list, tuple)):

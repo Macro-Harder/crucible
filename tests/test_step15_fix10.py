@@ -54,14 +54,28 @@ class TestHostRequirement(Fix10Base):
 class TestVerificationExpectedResult(Fix10Base):
     def test_tb19_expected_result_stated_in_full(self):
         text = read_readme()
-        self.assertIn("440 tests", text)
-        self.assertIn("391 passes", text)
-        self.assertIn("389 passes", text)
-        self.assertIn("45 skipped", text)
-        self.assertIn("47 skipped", text)
-        self.assertIn("Guards 4 and 6a", text)
-        self.assertIn("step-14-rf13-guard-answers.md", text)
-        self.assertIn("guard tests 3a, 3b, 3c, and 6d", text)
+        step7 = ""
+        for line in text.splitlines():
+            if line.startswith("7. Run the verification command"):
+                step7 = line
+                break
+        self.assertTrue(step7)
+        marker = "The figures stated at Round 1"
+        self.assertIn(marker, step7)
+        operative, historical = step7.split(marker, 1)
+        self.assertIn("858 tests", operative)
+        self.assertIn("808 passes", operative)
+        self.assertIn("46 skipped", operative)
+        self.assertIn("805 passes", operative)
+        self.assertIn("49 skipped", operative)
+        self.assertIn("step-14-rf13-guard-answers.md", operative)
+        self.assertIn("guard tests 3a, 3b, 3c, and 6d", operative)
+        for round1 in (
+            "440 tests", "391 passes", "389 passes",
+            "45 skipped", "47 skipped", "Guards 4 and 6a",
+        ):
+            self.assertIn(round1, historical)
+            self.assertNotIn(round1, operative)
 
     def test_c53_verification_step_states_result_in_form(self):
         text = read_readme()

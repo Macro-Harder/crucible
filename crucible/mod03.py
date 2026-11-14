@@ -19,6 +19,8 @@ module imports no seed or stream engine and no generator from any
 other module, adopted or not.
 """
 
+import unicodedata
+
 from crucible import mod01 as _mod01
 
 DQ163_MARK = _mod01.DQ163_MARK
@@ -65,22 +67,102 @@ _BARRED_KEY_PARTS = (
     "canary",
 )
 
+_HOMOGLYPH_MAP = {
+    "\u0430": "a", "\u0441": "c", "\u0435": "e", "\u043e": "o",
+    "\u0440": "p", "\u0445": "x", "\u0443": "y", "\u0456": "i",
+    "\u0458": "j", "\u0455": "s", "\u04bb": "h", "\u043a": "k",
+    "\u043c": "m", "\u043d": "h", "\u0442": "t", "\u0432": "b",
+    "\u03b1": "a", "\u03b2": "b", "\u03b5": "e", "\u03b9": "i",
+    "\u03ba": "k", "\u03bc": "m", "\u03bf": "o", "\u03c1": "p",
+    "\u03c4": "t", "\u03c7": "x", "\u03c5": "u", "\u03bd": "n",
+    "\u03b3": "g", "\u03b4": "d", "\u03bb": "l", "\u03c3": "s",
+    "\u03c9": "w", "\u03b6": "z", "\u03b8": "t", "\u03c6": "f",
+}
+for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
+    _HOMOGLYPH_MAP[_upper.upper()] = _lower
+
+_DROPPED_INVISIBLE = frozenset(
+    ["\u200b", "\u200c", "\u200d", "\ufeff", "\u00ad", "\u2060"])
+
+_LEET_MAP = {
+    "0": "o", "1": "i", "3": "e", "4": "a",
+    "5": "s", "7": "t", "8": "b", "@": "a", "$": "s",
+}
+
+
+def _canonical_text(key):
+    decomposed = unicodedata.normalize("NFKD", str(key))
+    chars = []
+    for character in decomposed:
+        if character in _DROPPED_INVISIBLE:
+            continue
+        if unicodedata.category(character).startswith("M"):
+            continue
+        chars.append(_HOMOGLYPH_MAP.get(character, character))
+    return "".join(chars).casefold()
+
+
+def _folded_readings(key):
+    canonical = _canonical_text(key)
+    letters_only = "".join(
+        character for character in canonical if character.isalpha())
+    leet_read = "".join(
+        _LEET_MAP.get(character, character) for character in canonical)
+    leet_letters = "".join(
+        character for character in leet_read if character.isalpha())
+    leet_l_read = "".join(
+        "l" if character == "1" else _LEET_MAP.get(character, character)
+        for character in canonical)
+    leet_l_letters = "".join(
+        character for character in leet_l_read if character.isalpha())
+    return (letters_only, leet_letters, leet_l_letters)
+
+
+def _fold_name(name):
+    return "".join(
+        character for character in name if character.isalpha())
+
+
+_BARRED_EXACT_FOLDED = frozenset(
+    _fold_name(name)
+    for name in tuple(GROUND_TRUTH_FIELDS) + tuple(BARRED_PROJECTION_KEYS)
+)
+_BARRED_PARTS_FOLDED = frozenset(
+    _fold_name(part) for part in _BARRED_KEY_PARTS)
+
 
 def _is_barred_key(key):
     """Return whether a key stands barred under the standing vocabulary.
 
     The vocabulary is the one the projection applies one module
-    away: the thirteen projection names, read lowered, beside the
-    ground truth names this module has always barred, with lowered
-    substring matching on the membership, ground truth, and canary
-    parts, so capitalised and variant forms stand barred as well.
+    away: the thirteen projection names, beside the ground truth
+    names this module has always barred, with substring matching
+    on the membership, ground truth, and canary parts, so
+    capitalised and variant forms stand barred as well. The key
+    stands read through the folded reading stated for the barred
+    surfaces: compatibility decomposition with combining marks
+    dropped, invisible characters dropped, non Latin homoglyph
+    letters mapped to their Latin forms, case folded, and every
+    separator or digit standing inside a word dropped, with a
+    second reading in which digit and symbol substitutions stand
+    mapped to the letters they replace. A name that stands barred
+    only in its exact form stays exact in the folded reading, so
+    a name carrying extra letters beside it reads as a different
+    name, as before.
     """
     lowered = str(key).lower()
     if lowered in GROUND_TRUTH_FIELDS:
         return True
     if lowered in BARRED_PROJECTION_KEYS:
         return True
-    return any(part in lowered for part in _BARRED_KEY_PARTS)
+    if any(part in lowered for part in _BARRED_KEY_PARTS):
+        return True
+    for reading in _folded_readings(key):
+        if reading in _BARRED_EXACT_FOLDED:
+            return True
+        if any(part in reading for part in _BARRED_PARTS_FOLDED):
+            return True
+    return False
 
 
 _GENERATOR_SIGNATURE = "behaviour(stream_state, labelled_assumptions)"

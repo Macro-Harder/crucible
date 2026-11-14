@@ -14,6 +14,7 @@ no sweep run starts here.
 """
 
 import copy
+import unicodedata
 
 from crucible import mod01 as _mod01
 from crucible import mod02 as _mod02
@@ -268,10 +269,94 @@ def run_class_markings():
     }
 
 
-def _folded_money_key(key):
+# The letter canonicalisation the money and anchor readings share,
+# stated in one form. A name first reads through the recorded letter
+# mapping below, which covers the letters compatibility decomposition
+# cannot reduce: non Latin letters standing for Latin letters of the
+# marker words, in homoglyph form and in transliteration form, and
+# special Latin letters with no decomposition. The mapped name then
+# reads through compatibility decomposition with combining marks
+# dropped, so accented and fullwidth forms reduce to their base
+# letters, and every remaining digit reads as its decimal value in
+# plain digits. Only letters and digits survive the fold.
+_LETTER_MAP = {
+    "\u0430": "a", "\u0431": "b", "\u0432": "v", "\u0433": "g",
+    "\u0434": "d", "\u0435": "e", "\u0451": "e", "\u0436": "zh",
+    "\u0437": "z", "\u0438": "i", "\u0439": "y", "\u043a": "k",
+    "\u043b": "l", "\u043c": "m", "\u043d": "n", "\u043e": "o",
+    "\u043f": "p", "\u0440": "r", "\u0441": "s", "\u0442": "t",
+    "\u0443": "y", "\u0444": "f", "\u0445": "h", "\u0446": "ts",
+    "\u0447": "ch", "\u0448": "sh", "\u0449": "shch", "\u044a": "",
+    "\u044b": "y", "\u044c": "", "\u044d": "e", "\u044e": "yu",
+    "\u044f": "ya",
+    "\u03b1": "a", "\u03b2": "b", "\u03b3": "g", "\u03b4": "d",
+    "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "th",
+    "\u03b9": "i", "\u03ba": "k", "\u03bb": "l", "\u03bc": "m",
+    "\u03bd": "n", "\u03be": "x", "\u03bf": "o", "\u03c0": "p",
+    "\u03c1": "r", "\u03c3": "s", "\u03c2": "s", "\u03c4": "t",
+    "\u03c5": "y", "\u03c6": "ph", "\u03c7": "ch", "\u03c8": "ps",
+    "\u03c9": "o",
+    "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
+    "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
+    "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
+}
+
+# Digit and leet substitutions inside a marker word read in two
+# further forms beside the canonical form: one where each digit
+# reads as the letter it commonly stands for, and one where digits
+# drop out, for a digit standing inside a word in place of nothing.
+_LEET_MAP = {
+    "0": "o", "1": "l", "2": "z", "3": "e", "4": "a",
+    "5": "s", "6": "g", "7": "t", "8": "b", "9": "g",
+}
+_LEET_MAP_I = dict(_LEET_MAP, **{"1": "i"})
+
+
+def _canonicalised_name(key):
+    mapped = "".join(
+        _LETTER_MAP.get(character, _LETTER_MAP.get(
+            character.lower(), character))
+        for character in str(key)
+    )
+    decomposed = unicodedata.normalize("NFKD", mapped)
+    characters = []
+    for character in decomposed:
+        if unicodedata.combining(character) or \
+                unicodedata.category(character).startswith("M"):
+            continue
+        character = character.lower()
+        digit = unicodedata.digit(character, None)
+        if digit is not None:
+            character = str(digit)
+        characters.append(character)
     return "".join(
-        character for character in str(key).lower()
-        if character.isalnum()
+        character for character in characters if character.isalnum()
+    )
+
+
+def _folded_money_key(key):
+    return _canonicalised_name(key)
+
+
+def _folded_money_variants(key):
+    """The folded forms one name reads under, in one stated set: the
+    canonical form; that form with digit and leet substitutions read
+    as the letters they stand for (the digit 1 read as l and, in a
+    second form, as i); that form with digits dropped; and each of
+    those with the transliterated spelling of the money marker, the
+    Cyrillic spelling that reads realmani in Latin letters, read as
+    the marker itself. A name stands as a barred or counted name
+    where any one of its forms reads as that name."""
+    base = _canonicalised_name(key)
+    forms = {base}
+    for table in (_LEET_MAP, _LEET_MAP_I):
+        forms.add("".join(table.get(character, character)
+                          for character in base))
+    forms.add("".join(
+        character for character in base if not character.isdigit()))
+    marker = _MONEY_MARKER.replace("_", "")
+    return tuple(
+        form.replace("realmani", marker) for form in forms
     )
 
 
@@ -281,14 +366,20 @@ _ANCHOR_VALUES_FIELD_FOLDED = _folded_money_key(_ANCHOR_VALUES_FIELD)
 
 def _carries_barred_money_value(value):
     if isinstance(value, dict):
-        folded = {
-            _folded_money_key(key): item for key, item in value.items()
-        }
-        if "amount" in folded and "currency" in folded:
-            if folded.get("amount") is not None:
-                return True
+        amount_stands = False
+        currency_stands = False
         for key, item in value.items():
-            if _MONEY_MARKER_FOLDED in _folded_money_key(key) and (
+            variants = _folded_money_variants(key)
+            if "amount" in variants and item is not None:
+                amount_stands = True
+            if "currency" in variants:
+                currency_stands = True
+        if amount_stands and currency_stands:
+            return True
+        for key, item in value.items():
+            if any(
+                    _MONEY_MARKER_FOLDED in variant
+                    for variant in _folded_money_variants(key)) and (
                     item is not None):
                 return True
             if _carries_barred_money_value(item):
@@ -322,7 +413,7 @@ def validate_run_record(run):
     if _carries_barred_money_value(run):
         return False
     for key, values in run.items():
-        if _folded_money_key(key) != _ANCHOR_VALUES_FIELD_FOLDED:
+        if _ANCHOR_VALUES_FIELD_FOLDED not in _folded_money_variants(key):
             continue
         try:
             count = len(values)

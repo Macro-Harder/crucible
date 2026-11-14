@@ -15,6 +15,7 @@ values passed in.
 """
 
 import copy
+import unicodedata
 
 from . import mod01
 
@@ -874,9 +875,68 @@ _PANEL_BARRED_KEYS = {
 }
 
 
+_HOMOGLYPH_MAP = {
+    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p",
+    "\u0441": "c", "\u0445": "x", "\u0443": "y", "\u0456": "i",
+    "\u0458": "j", "\u0455": "s", "\u04bb": "h",
+    "\u03b1": "a", "\u03b5": "e", "\u03bf": "o", "\u03c1": "p",
+    "\u03c4": "t", "\u03ba": "k", "\u03b9": "i", "\u03bd": "v",
+    "\u03c7": "x",
+}
+
+_LEET_MAP = {
+    "0": "o", "1": "l", "3": "e", "4": "a", "5": "s",
+    "7": "t", "8": "b", "@": "a", "$": "s",
+}
+
+
+def _folded_readings(key):
+    """The folded readings of one key, in the same canonicalised
+    form the barred surfaces read: compatibility decomposition
+    with combining marks dropped, non Latin homoglyph letters
+    mapped to the Latin letters they stand for, separators and
+    zero width characters dropped, beside a reading with digit
+    substitutions read as letters and a reading with digits
+    dropped. The panel vocabulary itself stands unmoved; only its
+    reading gains the folded form."""
+    decomposed = unicodedata.normalize("NFKD", str(key).lower())
+    base = "".join(
+        _HOMOGLYPH_MAP.get(character, character)
+        for character in decomposed
+        if not unicodedata.category(character).startswith("M")
+    )
+    plain = "".join(
+        character for character in base if character.isalnum())
+    readings = []
+    for reading in (
+        plain,
+        "".join(_LEET_MAP.get(character, character)
+                for character in plain),
+        "".join(character for character in plain
+                if not character.isdigit()),
+    ):
+        if reading and reading not in readings:
+            readings.append(reading)
+    return tuple(readings)
+
+
+_PANEL_BARRED_FOLDED_EXACT = frozenset(
+    reading
+    for name in _PANEL_BARRED_KEYS
+    for reading in _folded_readings(name)
+)
+
+
 def _panel_key_barred(key):
     lowered = str(key).lower()
-    return "ground_truth" in lowered or lowered in _PANEL_BARRED_KEYS
+    if "ground_truth" in lowered or lowered in _PANEL_BARRED_KEYS:
+        return True
+    for reading in _folded_readings(key):
+        if reading in _PANEL_BARRED_FOLDED_EXACT:
+            return True
+        if "groundtruth" in reading:
+            return True
+    return False
 
 
 def _panel_clean(value):

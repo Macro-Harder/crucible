@@ -88,7 +88,8 @@ class TestTG062(unittest.TestCase):
         self.assertFalse(_mod.validate_joint_run(run))
         self.assertEqual(
             _mod.joint_run_failure(run),
-            "joint run missing a tracer passage record fails")
+            {"name": "joint run missing a tracer passage record fails",
+             "run_status": "failed", "complete": False})
         self.assertFalse(
             _mod.seam_headline_claim_stands(run, ["OS-1"]))
 

@@ -174,8 +174,9 @@ def _envelope_part_stands(value, _seen=None):
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.strip().lower() not in _HIDDEN_PART_VALUES \
-            and len(value.strip()) >= 2
+        stripped = str.strip(value)
+        return str.lower(stripped) not in _HIDDEN_PART_VALUES \
+            and len(stripped) >= 2
     if isinstance(value, dict):
         if not value:
             return False
@@ -186,11 +187,11 @@ def _envelope_part_stands(value, _seen=None):
         try:
             return any(
                 _envelope_part_stands(item, seen)
-                for item in value.values())
+                for item in dict.values(value))
         finally:
             seen.discard(id(value))
     if isinstance(value, (bytes, bytearray)):
-        return any(byte != 0 for byte in value)
+        return any(byte != 0 for byte in bytes(value))
     if isinstance(value, memoryview):
         return any(byte != 0 for byte in value.tobytes())
     if isinstance(value, (list, tuple, set, frozenset)):
@@ -201,31 +202,54 @@ def _envelope_part_stands(value, _seen=None):
             return False
         seen.add(id(value))
         try:
+            iter_by_base = {list: list.__iter__, tuple: tuple.__iter__,
+                            set: set.__iter__, frozenset: frozenset.__iter__}
+            base = next(cls for cls in type(value).__mro__
+                        if cls in iter_by_base)
+            base_iter = iter_by_base[base]
             return any(
-                _envelope_part_stands(item, seen) for item in value)
+                _envelope_part_stands(item, seen)
+                for item in base_iter(value))
         finally:
             seen.discard(id(value))
-    if isinstance(value, (int, float, complex)):
-        return value != 0
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return int.__ne__(value, 0)
+    if isinstance(value, float):
+        return float.__ne__(value, 0.0)
+    if isinstance(value, complex):
+        return complex.__ne__(value, 0j)
     return False
+
+
+def _base_iter(value):
+    iter_by_base = {list: list.__iter__, tuple: tuple.__iter__,
+                    set: set.__iter__, frozenset: frozenset.__iter__}
+    base = next(cls for cls in type(value).__mro__
+                if cls in iter_by_base)
+    return iter_by_base[base](value)
 
 
 def _region_stands(value):
     if isinstance(value, dict):
-        points = value.get("sampled_points")
-        if not isinstance(points, (list, tuple)) or not points:
+        points = dict.get(value, "sampled_points")
+        if not isinstance(points, (list, tuple)):
+            return False
+        points = list(_base_iter(points))
+        if not points:
             return False
         for point in points:
             if not isinstance(point, dict):
                 return False
-            if not point.get("outcome"):
+            if not dict.get(point, "outcome"):
                 return False
-            axes = point.get("axis_values")
+            axes = dict.get(point, "axis_values")
             if not isinstance(axes, dict) or not axes:
                 return False
             if not all(isinstance(item, (int, float))
                        and not isinstance(item, bool)
-                       for item in axes.values()):
+                       for item in dict.values(axes)):
                 return False
         return True
     return _envelope_part_stands(value)
@@ -248,20 +272,27 @@ def validate_headline_unit(unit):
     as axis values in numbers with its outcome in words."""
     if not isinstance(unit, dict):
         return False
-    if tuple(unit.keys()) != HEADLINE_UNIT_FIELDS:
+    if tuple(dict.keys(unit)) != HEADLINE_UNIT_FIELDS:
         return False
-    identifier = str(unit.get("headline_unit_identifier_and_issue_date"))
+    identifier = dict.get(unit, "headline_unit_identifier_and_issue_date")
+    if isinstance(identifier, str):
+        identifier = str.__str__(identifier)
+    else:
+        identifier = str(identifier)
     if F01_UNIT_MARK in identifier:
         return False
     for field in HEADLINE_UNIT_FIELDS:
-        if unit.get(field) is None:
+        if dict.get(unit, field) is None:
             return False
-        if not _envelope_part_stands(unit.get(field)):
+        if not _envelope_part_stands(dict.get(unit, field)):
             return False
     for field in ("holding_region", "failure_region"):
-        if not _region_stands(unit.get(field)):
+        if not _region_stands(dict.get(unit, field)):
             return False
-    claim = str(unit.get("claim_sentence")).lower()
+    claim = dict.get(unit, "claim_sentence")
+    if isinstance(claim, str):
+        claim = str.__str__(claim)
+    claim = str(claim).lower()
     if "everywhere" in claim or "all points" in claim:
         return False
     return True
@@ -737,6 +768,68 @@ def claim_enters_family(family_record, claim, results_seen):
     return claim in ((family_record or {}).get("headline_claims") or [])
 
 
+_VISUAL_PRESENTATIONS = ("position", "extent", "colour", "layout")
+
+
+def validate_readout(readout):
+    """Return True only under the readout equivalence duty of
+    Amendment TG4-56: every quantity presented by position,
+    extent, colour, or layout also stands in the same readout as
+    a recorded number, and any class rule a quantity rests on
+    stands stated in words in the same unit. A readout presenting
+    a quantity only in a visual or positional form is not
+    published, and this function returns False for it."""
+    if not isinstance(readout, dict):
+        return False
+    quantities = readout.get("quantities")
+    if not isinstance(quantities, (list, tuple)) or not quantities:
+        return False
+    for quantity in quantities:
+        if not isinstance(quantity, dict):
+            return False
+        number = quantity.get("recorded_number")
+        if isinstance(number, bool) or not isinstance(number, (int, float)):
+            return False
+        if quantity.get("class_based"):
+            rule = quantity.get("class_rule")
+            if not isinstance(rule, str) or not rule.strip():
+                return False
+    return True
+
+
+def validate_disclosure_form(form):
+    """Return True only under the disclosure form identification
+    duty of Amendment TG4-64: every entry of a disclosure table,
+    triangle, or period form states its reported quantity with
+    its row identifier and its column or period identifier
+    attached to the quantity itself, in the fixed order row,
+    column or period, quantity, a form that survives removal of
+    the layout. A form whose quantities are identified only by
+    their position on the page is not published, and this
+    function returns False for it."""
+    if not isinstance(form, dict):
+        return False
+    entries = form.get("entries")
+    if not isinstance(entries, (list, tuple)) or not entries:
+        return False
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return False
+        keys = tuple(entry.keys())
+        if keys not in (("row", "column", "quantity"),
+                        ("row", "period", "quantity")):
+            return False
+        for identifier in (entry["row"], entry[keys[1]]):
+            if identifier is None or (isinstance(identifier, str)
+                                      and not identifier.strip()):
+                return False
+        quantity = entry["quantity"]
+        if isinstance(quantity, bool) or not isinstance(
+                quantity, (int, float)):
+            return False
+    return True
+
+
 def validate_family_record(family_record):
     """Return whether a family record passes MOD-01 validation
     for Form 1 and supports a reportable run under its
@@ -789,4 +882,6 @@ __all__ = [
     "next_weekly_container",
     "claim_enters_family",
     "validate_family_record",
+    "validate_readout",
+    "validate_disclosure_form",
 ]

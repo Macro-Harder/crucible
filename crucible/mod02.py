@@ -556,10 +556,60 @@ def determinism_statement_permitted(battery_state=None,
     return False
 
 
-def _carried_generator_state(run_id, stream_classes=None):
+def _position_value(value):
+    if isinstance(value, dict):
+        return int(value.get("position", 0))
+    return int(value)
+
+
+def _state_from_held(held_state):
+    if not isinstance(held_state, dict):
+        return None
+    if "stream_states" in held_state:
+        streams = {}
+        for name in sorted(held_state.get("stream_states") or {},
+                           key=lambda item: str(item)):
+            streams[name] = {
+                "position": _position_value(
+                    held_state["stream_states"][name])}
+        return {
+            "run_id": held_state.get("run_id"),
+            "stream_states": streams,
+            "stream_inventory_standing": held_state.get(
+                "stream_inventory_standing", _CARDINALITY_BASIS),
+            "carriage": held_state.get(
+                "carriage", "generator state for checkpoints"),
+        }
     streams = {}
-    for name in sorted(stream_classes or (), key=lambda item: str(item)):
-        streams[name] = {"position": 0}
+    for name in sorted(held_state, key=lambda item: str(item)):
+        streams[name] = {"position": _position_value(held_state[name])}
+    return {
+        "run_id": None,
+        "stream_states": streams,
+        "stream_inventory_standing": _CARDINALITY_BASIS,
+        "carriage": "generator state for checkpoints",
+    }
+
+
+def _carried_generator_state(run_id, stream_classes=None,
+                             held_state=None, positions=None):
+    if held_state is not None:
+        carried = _state_from_held(held_state)
+        if carried is not None:
+            if run_id is not None:
+                carried["run_id"] = run_id
+            return carried
+    streams = {}
+    names = list(stream_classes or ())
+    if positions:
+        for name in positions:
+            if name not in names:
+                names.append(name)
+    for name in sorted(names, key=lambda item: str(item)):
+        position = 0
+        if positions and name in positions:
+            position = _position_value(positions[name])
+        streams[name] = {"position": position}
     return {
         "run_id": run_id,
         "stream_states": streams,
@@ -568,20 +618,38 @@ def _carried_generator_state(run_id, stream_classes=None):
     }
 
 
-def checkpoint_generator_state(run_id=None, stream_classes=None):
-    """Return the generator state a checkpoint holds for a run."""
-    return _carried_generator_state(run_id, stream_classes)
+def checkpoint_generator_state(run_id=None, stream_classes=None,
+                               held_state=None, positions=None):
+    """Return the generator state a checkpoint holds for a run.
+
+    Where the caller hands in held positions, through the positions
+    mapping or through a held state, the checkpoint carries those
+    positions as they stand, never a regenerated initial position.
+    With no held positions handed in, every stream stands at its
+    first position, as before. This is state carriage only: it
+    draws no seed and assigns none.
+    """
+    return _carried_generator_state(
+        run_id, stream_classes, held_state=held_state,
+        positions=positions)
 
 
 def resume_consumed_generator_state(run_id=None, scope=None,
-                                    stream_classes=None):
+                                    stream_classes=None,
+                                    held_state=None, positions=None):
     """Return the generator state the resume path consumes.
 
-    Carriage only: the consumed state is the held state, field for
-    field. The scope argument names the resume scope the caller
+    Carriage only: where a held state stands handed in, the
+    consumed state is that held state, field for field, at the
+    positions it carries. With no held state handed in, the
+    consumed state stands built from the run identifier and the
+    stream classes, or from the positions handed in, as before.
+    The scope argument names the resume scope the caller
     states and forms no part of the carried state.
     """
-    return _carried_generator_state(run_id, stream_classes)
+    return _carried_generator_state(
+        run_id, stream_classes, held_state=held_state,
+        positions=positions)
 
 
 def validate_generator_state_carriage(held, consumed):

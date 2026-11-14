@@ -73,7 +73,11 @@ def validate_dependency_record(record):
     core edge and MOD-07 stands as the sole joint dependent."""
     if not isinstance(record, dict):
         return False
-    edges = [tuple(edge) for edge in record.get("edges") or []]
+    edges = []
+    for edge in record.get("edges") or []:
+        if not isinstance(edge, (list, tuple)) or len(edge) != 2:
+            return False
+        edges.append(tuple(edge))
     for source, target in edges:
         if {source, target} == {"MOD-05", "MOD-06"}:
             return False
@@ -333,25 +337,32 @@ def validate_joint_run(run):
 
 
 def joint_run_failure(run):
-    """Return the named failure standing on a joint run, or None
-    where the run stands. An unapproved choice, a missing tracer
-    record, and a settled cross seam effect each fail the run by
-    name."""
+    """Return the failure standing on a joint run, in the MOD-01
+    failure value form, or None where the run stands. The name the
+    value carries is the standing name of the ground that fails the
+    run: an unapproved choice, a missing tracer record, and a
+    settled cross seam effect each fail the run under their name,
+    with run_status failed and complete False."""
     if not isinstance(run, dict):
-        return "joint run record absent"
+        return mod01.failure_value("joint run record absent")
     for choice in run.get("adapter_choices") or []:
         if not choice_approval_stands(choice):
-            return "run using an unapproved adapter choice fails"
+            return mod01.failure_value(
+                "run using an unapproved adapter choice fails")
         if not validate_adapter_choice(choice):
-            return "adapter choice stands outside its recorded form"
+            return mod01.failure_value(
+                "adapter choice stands outside its recorded form")
     records = run.get("tracer_passage_records") or []
     if len(records) != len(OPEN_SEMANTIC_ITEMS):
-        return "joint run missing a tracer passage record fails"
+        return mod01.failure_value(
+            "joint run missing a tracer passage record fails")
     if not validate_tracer_passage_set(records, run.get("positive_control")):
-        return "joint run has no valid tracer passage record"
+        return mod01.failure_value(
+            "joint run has no valid tracer passage record")
     for effect in run.get("cross_seam_effects") or []:
         if not validate_cross_seam_effect(effect):
-            return "cross seam effect carries settled wording"
+            return mod01.failure_value(
+                "cross seam effect carries settled wording")
     return None
 
 
@@ -373,7 +384,10 @@ def seam_effect_report(effect):
     a vouch lien amount, a vouch release, or a slash outcome,
     reported as computed in Parley and not settled in the chosen
     escrow, with the lien state computed not settled, while NQ-45
-    stands open."""
+    stands open. A value that is not an effect record reads as an
+    empty effect, in the form the slash report reads its outcome."""
+    if not isinstance(effect, dict):
+        effect = {}
     return {
         "effect": effect.get("kind"),
         "reporting": INTERIM_REPORTING,

@@ -84,7 +84,8 @@ class TestTG061(unittest.TestCase):
         self.assertFalse(_mod.validate_joint_run(run))
         self.assertEqual(
             _mod.joint_run_failure(run),
-            "run using an unapproved adapter choice fails")
+            {"name": "run using an unapproved adapter choice fails",
+             "run_status": "failed", "complete": False})
 
     def test_no_direct_core_to_core_call(self):
         """

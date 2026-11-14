@@ -501,7 +501,13 @@ def score(record_or_records, society_state=None, mode="conformance",
             record_or_records, (list, tuple)):
         records = [record_or_records]
     else:
-        records = list(record_or_records)
+        try:
+            records = list(record_or_records)
+        except TypeError:
+            raise NamedDetectionFailure(
+                "delivery rejected: the record is not a "
+                "DetectionInput record"
+            )
     return score_day(records, society_state=society_state, mode=mode,
                      uses=uses, run_identifier=run_identifier)
 
@@ -854,6 +860,12 @@ def compare_verdict_determinism(material_a, material_b=None):
     in hash entry or in resume comparison.
     """
     second = material_b if material_b is not None else material_a
+    for material in (material_a, second):
+        if not isinstance(material, (list, tuple)):
+            raise NamedDetectionFailure(
+                "delivery rejected: the determinism material stands "
+                "in no record list form"
+            )
 
     def _canonical(records):
         return sorted(
