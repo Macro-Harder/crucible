@@ -182,6 +182,7 @@ _HOMOGLYPH_MAP.update({
     "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
     "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
     "\u1d22": "z",
+    "\u1d31": "e", "\u1d38": "l", "\u1d3c": "o", "\u1d40": "t",
     "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
     "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
     "\u00a5": "y", "$": "s",
@@ -252,6 +253,39 @@ _MULTI_READINGS = {
 }
 
 
+def _fold_characters(key):
+    """The characters of one key in folded form: lowercased,
+    compatibility decomposed and lowercased again, so a modifier
+    small capital letter reduces to the Latin letter it stands
+    for, with combining marks dropped."""
+    decomposed = unicodedata.normalize(
+        "NFKD", str(key).lower()).lower()
+    return [
+        character for character in decomposed
+        if not unicodedata.category(character).startswith("M")
+    ]
+
+
+def _character_reading_options(character):
+    """Every reading one character carries across the reading
+    kinds of this module: the homoglyph reading, the
+    transliteration reading, the vo variant readings of both, and
+    the multi readings where the character carries two. A
+    character recorded in no map reads as itself."""
+    options = set()
+    if character in _MULTI_READINGS:
+        options.update(_MULTI_READINGS[character])
+    for letter_map in (
+        _HOMOGLYPH_MAP, _TRANSLITERATION_MAP,
+        _HOMOGLYPH_MAP_VO, _TRANSLITERATION_MAP_VO,
+    ):
+        if character in letter_map:
+            options.add(letter_map[character])
+    if not options:
+        options.add(character)
+    return tuple(sorted(options))
+
+
 def _folded_readings(key):
     """The folded readings of one key, in the same canonicalised
     form the barred surfaces read: compatibility decomposition
@@ -264,13 +298,21 @@ def _folded_readings(key):
     under both the homoglyph map and the transliteration map, and
     under both readings of the figure one, as l and as i, and the
     transliterated spelling of the money marker word itself reads
-    as the marker."""
+    as the marker. The readings also stand generated position by
+    position over every reading a character carries across the
+    reading kinds, so a key needing a homoglyph reading at one
+    position and a transliteration or multi reading at another
+    stands read as the word it spells. The combined generation
+    stands abandoned past 4096 combined texts, never trimmed
+    partway through a key, and the character by character
+    readings below cover the combinations past that bound."""
     readings = []
     for letter_map in (
         _HOMOGLYPH_MAP, _TRANSLITERATION_MAP,
         _HOMOGLYPH_MAP_VO, _TRANSLITERATION_MAP_VO,
     ):
-        decomposed = unicodedata.normalize("NFKD", str(key).lower())
+        decomposed = unicodedata.normalize(
+            "NFKD", str(key).lower()).lower()
         base = "".join(
             letter_map.get(character, character)
             for character in decomposed
@@ -290,31 +332,22 @@ def _folded_readings(key):
             reading = reading.replace("realmani", "realmoney")
             if reading and reading not in readings:
                 readings.append(reading)
-    decomposed = unicodedata.normalize("NFKD", str(key).lower())
-    characters = [
-        character for character in decomposed
-        if not unicodedata.category(character).startswith("M")
-    ]
-    if any(character in _MULTI_READINGS for character in characters):
+    characters = _fold_characters(key)
+    if any(
+        len(_character_reading_options(character)) > 1
+        for character in characters
+    ):
         variants = [""]
         for character in characters:
-            options = _MULTI_READINGS.get(character)
-            if options is None:
-                options = (
-                    _TRANSLITERATION_MAP.get(character, character),)
+            options = _character_reading_options(character)
             variants = [
                 variant + option
                 for variant in variants for option in options
             ]
-            if len(variants) > 1024:
-                # The variant set stands trimmed back to the cap,
-                # never abandoned: generation carries on over the
-                # rest of the key, so every retained variant reads
-                # the whole key and no later character is dropped.
-                # The character by character readings below cover
-                # the combinations the trim sets aside.
-                variants = variants[:1024]
-        for variant in variants:
+            if len(variants) > 4096:
+                variants = None
+                break
+        for variant in variants or ():
             plain = "".join(
                 character for character in variant if character.isalnum())
             for reading in (
@@ -348,23 +381,29 @@ def _multi_folded_segment(option, mode):
 
 def _multi_segments_by_character(key, mode):
     """The per character segment options of one key under one
-    folded mode, in the form the multi reading generation builds:
-    a letter carrying two recorded readings offers both segments,
-    and every other letter offers its transliterated segment. No
-    variant is enumerated, so the reading covers the whole key at
-    any count of multi reading letters."""
-    decomposed = unicodedata.normalize("NFKD", str(key).lower())
+    folded mode, in the form the combined reading generation
+    builds: every letter offers each reading it carries across
+    the reading kinds, the homoglyph reading, the transliteration
+    reading, the vo variant readings, and the multi readings
+    where it carries two. No variant is enumerated, so the
+    reading covers the whole key at any count of letters carrying
+    more than one reading."""
     segments = []
-    for character in decomposed:
-        if unicodedata.category(character).startswith("M"):
-            continue
-        options = _MULTI_READINGS.get(character)
-        if options is None:
-            options = (
-                _TRANSLITERATION_MAP.get(character, character),)
+    for character in _fold_characters(key):
+        options = _character_reading_options(character)
         segments.append(tuple(
             {_multi_folded_segment(option, mode) for option in options}))
     return segments
+
+
+def _has_combined_reading(key):
+    """Whether any character of the key carries more than one
+    reading across the reading kinds, so a combined reading of
+    the key can differ from every whole map reading."""
+    return any(
+        len(_character_reading_options(character)) > 1
+        for character in _fold_characters(key)
+    )
 
 
 def _multi_prefix_state(pattern, state, character):
@@ -411,15 +450,14 @@ def _multi_segments_match(segments_by_character, target):
 
 
 def _key_carries_multi_reading(key, marker):
-    """Whether some position by position multi reading of the
+    """Whether some position by position combined reading of the
     whole key carries the marker, read character by character
     without enumerating the variants, so a marker whose reading
-    stands past the variant cap still stands read. The
-    transliterated spelling realmani reads as the marker
+    stands past the combined generation bound still stands read.
+    The transliterated spelling realmani reads as the marker
     realmoney under the same replacement the folded readings
     apply, so that spelling stands checked beside the marker."""
-    decomposed = unicodedata.normalize("NFKD", str(key).lower())
-    if not any(character in _MULTI_READINGS for character in decomposed):
+    if not _has_combined_reading(key):
         return False
     patterns = (marker, "realmani") if marker == "realmoney" else (marker,)
     for mode in _MULTI_FOLDED_MODES:
@@ -433,11 +471,10 @@ def _key_carries_multi_reading(key, marker):
 
 
 def _key_matches_multi_reading(key, target):
-    """Whether some position by position multi reading of the
+    """Whether some position by position combined reading of the
     whole key stands equal to the target, read character by
     character without enumerating the variants."""
-    decomposed = unicodedata.normalize("NFKD", str(key).lower())
-    if not any(character in _MULTI_READINGS for character in decomposed):
+    if not _has_combined_reading(key):
         return False
     targets = (target, "realmani") if target == "realmoney" else (target,)
     for mode in _MULTI_FOLDED_MODES:

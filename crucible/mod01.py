@@ -636,22 +636,50 @@ def _base_iter(value):
     return set.__iter__(value)
 
 
-def _guard_copyable(value, depth=0, seen=None):
+def _base_len(value):
+    """The length of a handed container or text value, read through
+    the base class length of its kind, never through a length
+    reading the value itself supplies."""
+    if isinstance(value, list):
+        return list.__len__(value)
+    if isinstance(value, tuple):
+        return tuple.__len__(value)
+    if isinstance(value, frozenset):
+        return frozenset.__len__(value)
+    if isinstance(value, set):
+        return set.__len__(value)
+    if isinstance(value, dict):
+        return dict.__len__(value)
+    if isinstance(value, str):
+        return str.__len__(value)
+    if isinstance(value, bytearray):
+        return bytearray.__len__(value)
+    if isinstance(value, bytes):
+        return bytes.__len__(value)
+    raise TypeError("the handed value carries no base class length")
+
+
+def _guard_copyable(value, depth=0, seen=None, _walked=None):
     if seen is None:
         seen = set()
+    if _walked is None:
+        _walked = set()
     if isinstance(value, (dict, list, tuple, set, frozenset)):
         _traversal_guard(value, depth, seen)
+        if (id(value), depth) in _walked:
+            return
         seen.add(id(value))
         try:
             if isinstance(value, dict):
                 for key, item in dict.items(value):
-                    _guard_copyable(key, depth + 1, seen)
-                    _guard_copyable(item, depth + 1, seen)
+                    _guard_copyable(key, depth + 1, seen, _walked)
+                    _guard_copyable(item, depth + 1, seen, _walked)
             else:
                 for item in _base_iter(value):
-                    _guard_copyable(item, depth + 1, seen)
+                    _guard_copyable(item, depth + 1, seen, _walked)
         finally:
             seen.discard(id(value))
+        _walked.add((id(value), depth))
 
 
 def _carries_reserved_matter(value, _depth=0, _seen=None):
@@ -701,8 +729,11 @@ _LETTER_MAP = {
     "\u043d": "n", "\u043b": "l", "\u043c": "m", "\u0438": "i",
     "\u0447": "ch", "\u043a": "k", "\u0445": "x", "\u0441": "c",
     "\u0443": "y", "\u0432": "v", "\u0442": "t", "\u0434": "d",
-    "\u044d": "e",
+    "\u044d": "e", "\u0439": "i", "\u0419": "i",
+    "\u044b": "y", "\u042b": "y",
+    "\u044e": "yu", "\u042e": "yu", "\u044f": "ya", "\u042f": "ya",
     "\u03b1": "a", "\u03bf": "o", "\u03b5": "e", "\u03b9": "i",
+    "\u03b7": "e", "\u0397": "e",
     "\u03ba": "k", "\u03bc": "m", "\u03bd": "n", "\u03c1": "r",
     "\u03c4": "t", "\u03c5": "y", "\u03bb": "l", "\u03c3": "s",
     "\u03c8": "ps",
@@ -744,6 +775,10 @@ _MULTI_READINGS = {
     "\u03c5": ("y", "u"),
     "\u043d": ("n", "h"),
     "\u0578": ("n", "un"),
+    "\u0445": ("x", "h"),
+    "\u0425": ("x", "h"),
+    "\u0439": ("i", "y"),
+    "\u0419": ("i", "y"),
 }
 
 # Symbol substitutions in the leet readings, beside the digit readings
@@ -770,8 +805,19 @@ _LEET_READING_ONE = {
 _LEET_READING_TWO = dict(_LEET_READING_ONE, **{"1": "i"})
 
 
+_SHORT_I_PLACEHOLDER = "\ue000"
+
+
 def _normalised_characters(text):
-    decomposed = unicodedata.normalize("NFKD", str(text))
+    # Cyrillic short i is held apart from the decomposition below,
+    # which would otherwise reduce it to Cyrillic i and lose its
+    # second recorded reading as y. The placeholder stands in its
+    # place through the decomposition and the case folding, and the
+    # letter itself stands restored in the returned characters.
+    source = str(text).replace(
+        "\u0419", _SHORT_I_PLACEHOLDER).replace(
+        "\u0439", _SHORT_I_PLACEHOLDER)
+    decomposed = unicodedata.normalize("NFKD", source)
     without_marks = "".join(
         character for character in decomposed
         if not unicodedata.category(character).startswith("M")
@@ -785,6 +831,8 @@ def _normalised_characters(text):
             digit = unicodedata.digit(character, None)
             if digit is not None:
                 character = str(digit)
+        if character == _SHORT_I_PLACEHOLDER:
+            character = "\u0439"
         characters.append(character)
     return characters
 
@@ -932,6 +980,28 @@ def _matches_under_every_reading(key, folded_target):
                 break
         if len(folded_target) in positions:
             return True
+    # One digit position of a name may take its leet letter reading
+    # while another digit position of the same name takes the dropped
+    # reading, so this pass reads every position under every recorded
+    # digit reading at once, combined position by position.
+    positions = {0}
+    for options in options_by_character:
+        segments = {
+            _folded_segment(reading, mode)
+            for reading in options
+            for mode in _FOLDED_MODES
+        }
+        next_positions = set()
+        for position in positions:
+            for segment in segments:
+                if folded_target[
+                        position:position + len(segment)] == segment:
+                    next_positions.add(position + len(segment))
+        positions = next_positions
+        if not positions:
+            break
+    if len(folded_target) in positions:
+        return True
     return False
 
 
@@ -948,6 +1018,20 @@ def _carries_under_every_reading(key, folded_marker):
         ]
         if _segments_carry_pattern(segments_by_character, folded_marker):
             return True
+    # The combined reading of the matching read above, in carries
+    # form: every position stands read under every recorded digit
+    # reading at once, so one position may take its leet letter
+    # reading while another takes the dropped reading.
+    combined_segments = [
+        tuple({
+            _folded_segment(reading, mode)
+            for reading in options
+            for mode in _FOLDED_MODES
+        })
+        for options in options_by_character
+    ]
+    if _segments_carry_pattern(combined_segments, folded_marker):
+        return True
     for source, target in _TRANSLITERATED_SPELLINGS:
         if folded_marker == target and _segments_carry_pattern(
                 [tuple(options) for options in options_by_character],
@@ -1000,6 +1084,44 @@ def _folded_key_variants(key):
                 letters[position] = reading
             mixed.add("".join(letters))
     variants.update(mixed)
+    # The variants also carry every mixture of the two recorded
+    # digit readings across the digit positions of one name, the
+    # leet letter reading at one position and the dropped reading
+    # at another, with the digit itself kept as a further choice.
+    # The mixture stands bounded in the same form as the figure
+    # one mixture above: a name whose mixtures would pass 65536
+    # variants keeps the whole name readings above, and the
+    # character by character matching reads still read it in full.
+    digit_mixed = set()
+    for folded in list(variants):
+        digit_positions = [
+            index for index, character in enumerate(folded)
+            if character.isdigit()
+        ]
+        if not digit_positions:
+            continue
+        choices = []
+        total = 1
+        for position in digit_positions:
+            digit = folded[position]
+            options = {
+                digit, _LEET_READING_ONE.get(digit, digit),
+                _LEET_READING_TWO.get(digit, digit), "",
+            }
+            choices.append(sorted(options))
+            total *= len(options)
+        if total > 65536:
+            continue
+        for choice in itertools.product(*choices):
+            parts = []
+            last = 0
+            for position, reading in zip(digit_positions, choice):
+                parts.append(folded[last:position])
+                parts.append(reading)
+                last = position + 1
+            parts.append(folded[last:])
+            digit_mixed.add("".join(parts))
+    variants.update(digit_mixed)
     return variants
 
 
@@ -1044,6 +1166,8 @@ def _carries_real_money_value(value, _depth=0, _seen=None):
                 if _folded_key_carries(key, _MONEY_MARKER_FOLDED) and (
                         item is not None):
                     return True
+                if _carries_real_money_value(key, _depth + 1, _seen):
+                    return True
                 if _carries_real_money_value(item, _depth + 1, _seen):
                     return True
             return False
@@ -1055,7 +1179,7 @@ def _carries_real_money_value(value, _depth=0, _seen=None):
         try:
             return any(
                 _carries_real_money_value(v, _depth + 1, _seen)
-                for v in value)
+                for v in _base_iter(value))
         finally:
             _seen.discard(id(value))
     return False
@@ -1147,12 +1271,16 @@ def _validate_record_inner(form_id, instance):
                 dict.__getitem__(instance, field) is None):
             return False
     for condition in _conditions_for(fid):
-        discriminator = instance.get(condition["discriminator"])
+        if dict.__contains__(instance, condition["discriminator"]):
+            discriminator = dict.__getitem__(
+                instance, condition["discriminator"])
+        else:
+            discriminator = None
         if discriminator is not None and not isinstance(
                 discriminator, bool):
             return False
         if discriminator is True:
-            if condition["field"] not in instance:
+            if not dict.__contains__(instance, condition["field"]):
                 return False
     if fid == "4":
         if _carries_real_money_value(instance):
@@ -1161,7 +1289,7 @@ def _validate_record_inner(form_id, instance):
             if not _folded_key_matches(key, _ANCHOR_VALUES_FIELD_FOLDED):
                 continue
             try:
-                anchor_count = len(anchor_values)
+                anchor_count = _base_len(anchor_values)
             except TypeError:
                 return False
             if anchor_count != 3:
@@ -1220,19 +1348,21 @@ def validate_record(form_id, instance):
 
 def _validate_eventlog(instance):
     for field in _EVENTLOG_BASE_FIELDS:
-        if field not in instance or instance[field] is None:
+        if not dict.__contains__(instance, field) or (
+                dict.__getitem__(instance, field) is None):
             return False
-    kind = instance.get("entry_kind")
+    kind = dict.get(instance, "entry_kind")
     if kind is not None and kind not in (
             "ordinary", "agent", "supersession"):
         return False
     if kind is None:
         if (
-            "superseded_from_journal_position" in instance
-            or "resume_attempt_identifier" in instance
+            dict.__contains__(
+                instance, "superseded_from_journal_position")
+            or dict.__contains__(instance, "resume_attempt_identifier")
         ):
             kind = "supersession"
-        elif "agent_identifier" in instance:
+        elif dict.__contains__(instance, "agent_identifier"):
             kind = "agent"
         else:
             kind = "ordinary"
@@ -1242,25 +1372,27 @@ def _validate_eventlog(instance):
             "superseded_from_journal_position",
             "resume_attempt_identifier",
         ):
-            if field in instance:
+            if dict.__contains__(instance, field):
                 return False
     if kind == "agent":
         for field in (
             "superseded_from_journal_position",
             "resume_attempt_identifier",
         ):
-            if field in instance:
+            if dict.__contains__(instance, field):
                 return False
-    if kind == "supersession" and "agent_identifier" in instance:
+    if kind == "supersession" and dict.__contains__(
+            instance, "agent_identifier"):
         return False
-    if kind == "agent" and "agent_identifier" not in instance:
+    if kind == "agent" and not dict.__contains__(
+            instance, "agent_identifier"):
         return False
     if kind == "supersession":
         for field in (
             "superseded_from_journal_position",
             "resume_attempt_identifier",
         ):
-            if field not in instance:
+            if not dict.__contains__(instance, field):
                 return False
     if _carries_reserved_matter(instance):
         return False
@@ -1467,6 +1599,30 @@ def _is_share_value(value):
     return False
 
 
+def _stored_value_present(value):
+    """Whether a handed value stands present, judged by what it
+    stores. A text value stands present where the text it stores
+    stands non empty, read through the base class length, so a
+    string storing no text reports itself absent whatever truth
+    reading it supplies. Any other value stands judged by its
+    plain truth reading, as before."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return str.__len__(value) > 0
+    return bool(value)
+
+
+def _stored_key(key):
+    """The stored form of a handed mapping key. A text key stands
+    as the text it stores, read through the base class, so a key
+    storing one text while its hash and equality readings answer
+    as another stands compared as the text it stores."""
+    if isinstance(key, str):
+        return str.__str__(key)
+    return key
+
+
 def validate_provenance_block(block):
     try:
         data = ProvenanceBlock.as_dict(block) if isinstance(
@@ -1481,7 +1637,8 @@ def validate_provenance_block(block):
         return False
     if dict.__len__(counts) == 0 or dict.__len__(shares) == 0:
         return False
-    if set(dict.keys(counts)) != set(dict.keys(shares)):
+    if {_stored_key(key) for key in dict.keys(counts)} != {
+            _stored_key(key) for key in dict.keys(shares)}:
         return False
     count_values = list(dict.values(counts))
     share_values = list(dict.values(shares))
@@ -1501,15 +1658,21 @@ def validate_provenance_block(block):
     elif not entries:
         return False
     for entry in entries:
-        if not isinstance(entry, dict) or not dict.get(entry, "field"):
+        if not isinstance(entry, dict) or not _stored_value_present(
+                dict.get(entry, "field")):
             return False
         if not dict.__contains__(entry, "applicability"):
             return False
+        field_value = dict.get(entry, "field")
+        field_text = (
+            str.__str__(field_value) if isinstance(field_value, str)
+            else str(field_value))
         field_reading = " ".join(
-            str(dict.get(entry, "field")).lower().replace(
+            field_text.lower().replace(
                 "_", " ").replace("-", " ").replace("\t", " ").split())
         if "arbiter accuracy" in field_reading:
-            if not dict.get(entry, "error_direction"):
+            if not _stored_value_present(
+                    dict.get(entry, "error_direction")):
                 return False
     return True
 

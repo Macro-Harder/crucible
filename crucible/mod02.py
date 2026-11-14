@@ -252,16 +252,44 @@ def validate_stream_cardinality(counts=None, stream_set=None,
         return False
     classes = _stream_set_classes(stream_set)
     if classes is not None:
-        if set(name for name, _count in items) != set(classes):
-            return False
         if len(items) != len(classes):
             return False
+        remaining = list(classes)
+        for name, _count in items:
+            matched = None
+            for index, candidate in enumerate(remaining):
+                if _base_name_eq(name, candidate):
+                    matched = index
+                    break
+            if matched is None:
+                return False
+            remaining.pop(matched)
     for _name, count in items:
-        if isinstance(count, (list, tuple)):
-            count = len(count)
-        if count != 1:
+        if isinstance(count, list):
+            count = list.__len__(count)
+        elif isinstance(count, tuple):
+            count = tuple.__len__(count)
+        if isinstance(count, bool):
+            if count is not True:
+                return False
+        elif isinstance(count, int):
+            if not int.__eq__(int.__new__(int, count), 1):
+                return False
+        elif count != 1:
             return False
     return True
+
+
+def _base_name_eq(name, candidate):
+    """Return whether two class names stand equal under the base
+    string equality, never under a hash or equality reading a
+    handed name supplies. Names that are not strings stand judged
+    by identity or by their plain form, as before."""
+    if isinstance(name, str) and isinstance(candidate, str):
+        return str.__eq__(name, candidate) is True
+    if isinstance(name, str) or isinstance(candidate, str):
+        return False
+    return name is candidate or name == candidate
 
 
 def cardinality_basis():

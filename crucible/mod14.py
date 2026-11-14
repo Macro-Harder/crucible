@@ -69,7 +69,15 @@ def _freeze(value, _depth=0, _memo=None):
     a key already carried in the same dict stands carried
     under a distinct numbered form of that key, so two
     distinct keys past the bound never collapse into one key
-    and no carried entry is silently dropped."""
+    and no carried entry is silently dropped. A dict part
+    stands read through the base dict items reading, and a
+    set or frozenset part stands read through its base
+    iteration reading and rebuilt through the plain set or
+    plain frozenset constructor, never through a constructor
+    or a reading the part itself supplies. Two distinct set
+    or frozenset elements that freeze to the same form stand
+    carried under distinct numbered forms, so no carried
+    element is silently dropped either."""
     if value is None or isinstance(value, (str, bytes, int, float, bool)):
         return value
     if _depth > _FREEZE_DEPTH_BOUND and isinstance(
@@ -81,7 +89,7 @@ def _freeze(value, _depth=0, _memo=None):
             return memo[id(value)]
         copied = {}
         memo[id(value)] = copied
-        for key, item in value.items():
+        for key, item in dict.items(value):
             frozen_key = _freeze(key, _depth + 1, memo)
             frozen_item = _freeze(item, _depth + 1, memo)
             try:
@@ -119,10 +127,31 @@ def _freeze(value, _depth=0, _memo=None):
         memo[id(value)] = copied
         return copied
     if isinstance(value, (set, frozenset)):
-        copied_items = [
-            _freeze(item, _depth + 1, memo) for item in value]
+        if isinstance(value, frozenset):
+            base_iter = frozenset.__iter__
+            plain_constructor = frozenset
+        else:
+            base_iter = set.__iter__
+            plain_constructor = set
+        copied_items = []
+        for item in base_iter(value):
+            frozen_item = _freeze(item, _depth + 1, memo)
+            if frozen_item in copied_items:
+                counter = 2
+                while True:
+                    if isinstance(frozen_item, str):
+                        distinct_item = (
+                            frozen_item + " (carried element "
+                            + str(counter) + ")")
+                    else:
+                        distinct_item = (frozen_item, counter)
+                    if distinct_item not in copied_items:
+                        frozen_item = distinct_item
+                        break
+                    counter += 1
+            copied_items.append(frozen_item)
         try:
-            copied = type(value)(copied_items)
+            copied = plain_constructor(copied_items)
         except TypeError:
             copied = copied_items
         return copied
@@ -573,7 +602,9 @@ def _stated_text(entry):
     spacing, carries no readable text and states no
     condition."""
     cleaned = "".join(
-        char for char in entry if char not in _ZERO_WIDTH_CHARS)
+        char for char in entry
+        if char not in _ZERO_WIDTH_CHARS
+        and unicodedata.category(char) != "Cf")
     return cleaned.strip()
 
 
@@ -853,17 +884,22 @@ def _segments_into_vocabulary(word, vocabulary):
 def _resolve_against(word, ordered, vocabulary):
     """Read one word as the vocabulary word it dresses, where
     it dresses one: the word itself where it stands plain, a
-    word with one, two, three, four, or five added letters
-    struck, a word with one letter dropped from a vocabulary
-    word, a word with one letter replaced, a word with two
-    adjacent letters transposed, and the compounded forms,
-    one letter dropped together with one letter replaced,
-    one transposition together with one letter dropped, two
-    letters replaced, two letters dropped from a vocabulary
-    word, one transposition together with one letter
-    replaced, three letters replaced, three letters dropped
-    from a vocabulary word, two transpositions, and one
-    transposition together with two letters replaced. The
+    word with one, two, three, four, five, or six added
+    letters struck, a word with one letter dropped from a
+    vocabulary word, a word with one letter replaced, a word
+    with two adjacent letters transposed, and the compounded
+    forms, one letter dropped together with one letter
+    replaced, one transposition together with one letter
+    dropped, two letters replaced, two letters dropped from
+    a vocabulary word, one transposition together with one
+    letter replaced, three letters replaced, three letters
+    dropped from a vocabulary word, two transpositions, one
+    transposition together with two letters replaced, four
+    letters replaced, four letters dropped from a vocabulary
+    word, three transpositions, and transpositions composed
+    with replacements where the total number of changes
+    stands past three, up to three replacements composed
+    with up to two transpositions. The
     dropped, replaced, and transposed limbs run on words of
     two letters as well, so a drop from a three letter word
     still resolves. A word of one letter stands read through
@@ -875,7 +911,7 @@ def _resolve_against(word, ordered, vocabulary):
         return word
     if _segments_into_vocabulary(word, vocabulary):
         return word
-    for added in (1, 2, 3, 4, 5):
+    for added in (1, 2, 3, 4, 5, 6):
         if len(word) > added:
             for cuts in itertools.combinations(range(len(word)), added):
                 reduced = "".join(
@@ -927,6 +963,15 @@ def _resolve_against(word, ordered, vocabulary):
             if len(candidate) == len(word) + 3:
                 for cuts in itertools.combinations(
                         range(len(candidate)), 3):
+                    reduced = "".join(
+                        char for index, char in enumerate(candidate)
+                        if index not in cuts)
+                    if reduced == word:
+                        return candidate
+        for candidate in ordered:
+            if len(candidate) == len(word) + 4:
+                for cuts in itertools.combinations(
+                        range(len(candidate)), 4):
                     reduced = "".join(
                         char for index, char in enumerate(candidate)
                         if index not in cuts)
@@ -998,9 +1043,41 @@ def _resolve_against(word, ordered, vocabulary):
         for candidate in ordered:
             if len(candidate) != len(word):
                 continue
+            differing = [
+                index for index in range(len(word))
+                if candidate[index] != word[index]]
+            swaps = 0
+            remaining = 0
+            position = 0
+            while position < len(differing):
+                index = differing[position]
+                if (position + 1 < len(differing)
+                        and differing[position + 1] == index + 1
+                        and word[index] == candidate[index + 1]
+                        and word[index + 1] == candidate[index]):
+                    swaps += 1
+                    position += 2
+                else:
+                    remaining += 1
+                    position += 1
+            if swaps >= 1 and remaining == 0 and swaps <= 3:
+                return candidate
+            if (1 <= swaps <= 2 and 1 <= remaining <= 3
+                    and swaps + remaining > 3):
+                return candidate
+        for candidate in ordered:
+            if len(candidate) != len(word):
+                continue
             differences = sum(
                 1 for left, right in zip(candidate, word) if left != right)
             if differences == 3:
+                return candidate
+        for candidate in ordered:
+            if len(candidate) != len(word):
+                continue
+            differences = sum(
+                1 for left, right in zip(candidate, word) if left != right)
+            if differences == 4:
                 return candidate
         for candidate in ordered:
             if len(candidate) != len(word):
@@ -1067,21 +1144,32 @@ def _group_reading(fragments):
     """The reading of several fragments joined with no
     separator, where they join into one vocabulary word:
     the joined word where its plural form stands in the
-    vocabulary, and None where the joined form stands as no
-    vocabulary word. The joined form stands read exact only,
-    never through the resolver, so a group reading cannot
-    strike a whole fragment away to reach a shorter word.
-    Where the plain joined form stands as no vocabulary
-    word, the joined form stands tried again with article
-    fragments standing between the first and last fragments
-    dropped, so a word split by an inserted article still
-    reads as the word it names. The plain joined form stands
-    tried first, so a fragment that is itself a letter of
-    the word, including the letter a, is never dropped where
-    the plain joining already reads as the word."""
+    vocabulary, the joined form read through the resolver
+    where it dresses a vocabulary word, and None where the
+    joined form stands as no vocabulary word under either
+    reading. The exact reading stands tried first, so a
+    group reading reaches a shorter word through the
+    resolver only where the plain joining does not already
+    read as a word, and a resolved group reading stands
+    accepted only where the resolver strikes fewer letters
+    than the shortest fragment carries, so no whole
+    fragment stands struck away to reach a shorter word. Where the plain joined form stands as
+    no vocabulary word, the joined form stands tried again
+    with article fragments standing between the first and
+    last fragments dropped, under both readings, so a word
+    split by an inserted article still reads as the word it
+    names. The plain joined form stands tried first, so a
+    fragment that is itself a letter of the word, including
+    the letter a, is never dropped where the plain joining
+    already reads as the word."""
     joined = _plural_form("".join(fragments))
     if joined in _VOCABULARY_WORDS:
         return joined, "exact"
+    resolved = _resolve_word(_canonicalise_word(joined))
+    if resolved in _VOCABULARY_WORDS and (
+            len(joined) - len(resolved)
+            < min(len(fragment) for fragment in fragments)):
+        return resolved, "resolved"
     if len(fragments) >= 3 and any(
             fragment in _ARTICLES for fragment in fragments[1:-1]):
         kept = [fragments[0]] + [
@@ -1090,6 +1178,11 @@ def _group_reading(fragments):
         joined = _plural_form("".join(kept))
         if joined in _VOCABULARY_WORDS:
             return joined, "exact"
+        resolved = _resolve_word(_canonicalise_word(joined))
+        if resolved in _VOCABULARY_WORDS and (
+                len(joined) - len(resolved)
+                < min(len(fragment) for fragment in kept)):
+            return resolved, "resolved"
     return None
 
 
@@ -1121,7 +1214,7 @@ def _reading_words(fragments):
         if fragments[start] in _ARTICLES:
             options.append((5 + rest_score, rest_words))
         joined = [fragments[start]]
-        for size in range(2, min(8, len(fragments) - start) + 1):
+        for size in range(2, min(16, len(fragments) - start) + 1):
             joined.append(fragments[start + size - 1])
             if len("".join(joined)) > 24:
                 break

@@ -229,6 +229,7 @@ _HOMOGLYPH_MAP = {
     "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
     "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
     "\u1d22": "z",
+    "\u1d31": "e", "\u1d38": "l", "\u1d3c": "o", "\u1d40": "t",
     "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
     "\u0452": "s", "\u0493": "h",
     "\u13d2": "r", "\uaba2": "r", "\u13ac": "e", "\uab7c": "e",
@@ -237,7 +238,7 @@ _HOMOGLYPH_MAP = {
     "\u13c1": "n", "\uab91": "n", "\u13ef": "y", "\uabbf": "y",
     "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
     "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
-    "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l", "\u00a5": "y",
+    "\u20ac": "e", "\u00a3": "l", "\u00a2": "c", "!": "l", "|": "l", "\u00a5": "y",
     "\u00a7": "s", "+": "t",
 }
 for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
@@ -283,7 +284,15 @@ def _folded_readings(key):
     and a reading with digits dropped. The barred vocabulary of
     this module itself stands unmoved; only its reading gains
     the folded form. The readings stand taken under both the
-    homoglyph map and the transliteration map."""
+    homoglyph map and the transliteration map, and under every
+    combination of the two readings position by position, so a
+    key needing the transliteration reading at one position and
+    the homoglyph reading at another position of the same word
+    stands read as the word it spells. The decomposed text stands
+    lowered after decomposition, in the sister form at MOD-04,
+    so a letter whose decomposition stands as a capital, as the
+    modifier small capital letters decompose, reads as its small
+    letter."""
     readings = []
 
     def add(transformed):
@@ -294,7 +303,8 @@ def _folded_readings(key):
             readings.append(plain)
 
     for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
-        decomposed = unicodedata.normalize("NFKD", str(key).lower())
+        decomposed = unicodedata.normalize(
+            "NFKD", str(key).lower()).lower()
         base = "".join(
             letter_map.get(character, character)
             for character in decomposed
@@ -307,6 +317,37 @@ def _folded_readings(key):
                     for character in base))
         add("".join(character for character in base
                     if not character.isdigit()))
+    characters = [
+        character
+        for character in unicodedata.normalize(
+            "NFKD", str(key).lower()).lower()
+        if not unicodedata.category(character).startswith("M")
+    ]
+    texts = {""}
+    combined = True
+    for character in characters:
+        options = {
+            letter_map.get(character, character)
+            for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP)
+        }
+        expanded = {
+            prefix + option
+            for prefix in texts
+            for option in options
+        }
+        if len(expanded) > 4096:
+            combined = False
+            break
+        texts = expanded
+    if combined:
+        for base in texts:
+            add(base)
+            add("".join(_LEET_MAP.get(character, character)
+                        for character in base))
+            add("".join(_LEET_L_MAP.get(character, character)
+                        for character in base))
+            add("".join(character for character in base
+                        if not character.isdigit()))
     return tuple(readings)
 
 _BARRED_FOLDED_EXACT = frozenset(
@@ -445,7 +486,9 @@ def _undirected_copy(value, _memo=None, _depth=0):
     if isinstance(value, (set, frozenset)):
         base_iter = set.__iter__ if isinstance(value, set) \
             else frozenset.__iter__
-        return type(value)(
+        plain_constructor = set if isinstance(value, set) \
+            else frozenset
+        return plain_constructor(
             _undirected_copy(item, _memo, _depth + 1)
             for item in base_iter(value))
     if isinstance(value, (str, bytes, bytearray, int, float,

@@ -445,6 +445,7 @@ _ALT_READINGS = {
     "\u03c5": ("u", "y"),
     "\u0443": ("u", "y"),
     "\u043d": ("n", "h"),
+    "\u0439": ("y", "i"),
     "\u0578": ("n", "un"),
     "\u00a2": ("", "c"),
     "$": ("", "s"),
@@ -527,6 +528,19 @@ def _folded_money_variants(key):
                               for character in base))
         forms.add("".join(
             character for character in base if not character.isdigit()))
+        digit_choices = []
+        for character in base:
+            if character == "1":
+                digit_choices.append(("l", "i", ""))
+            elif character.isdigit() and character in _LEET_MAP:
+                digit_choices.append((_LEET_MAP[character], ""))
+            else:
+                digit_choices.append((character,))
+        for index, combination in enumerate(
+                itertools.product(*digit_choices)):
+            if index >= 4096:
+                break
+            forms.add("".join(combination))
     marker = _MONEY_MARKER.replace("_", "")
     return tuple(
         form.replace("realmani", marker) for form in forms
@@ -549,14 +563,18 @@ _ANCHOR_VALUES_FIELD_FOLDED = _folded_money_key(_ANCHOR_VALUES_FIELD)
 # of the bound free character read at MOD-01. Each character
 # stands under the readings of every canonical map and under its
 # alt readings where it carries them, and the walk then runs
-# under three whole name modes: the readings as they stand, the
-# leet mode, and the digit drop mode. In the leet mode a digit
+# under four whole name modes: the readings as they stand, the
+# leet mode, the digit drop mode, and the combined mode, where
+# each digit position on its own reads as its leet letter or
+# drops out, so one name can carry a leet reading at one digit
+# position and a drop reading at another in a single reading.
+# In the leet mode a digit
 # reads as the letter it stands for at that position, and the
 # figure 1 reads as l or as i at each position on its own, so one
 # name can carry the i reading at one position and the l reading
 # at another in a single reading.
 
-_FOLDED_READ_MODES = (None, "leet", "drop")
+_FOLDED_READ_MODES = (None, "leet", "drop", "leetdrop")
 
 
 def _base_reading_options(key):
@@ -582,6 +600,22 @@ def _folded_segment_options(segment, mode):
         return {"".join(
             character for character in segment
             if not character.isdigit())}
+    if mode == "leetdrop":
+        choices = []
+        for character in segment:
+            if character == "1":
+                choices.append(("l", "i", ""))
+            elif character.isdigit() and character in _LEET_MAP:
+                choices.append((_LEET_MAP[character], ""))
+            elif character.isdigit():
+                choices.append((character, ""))
+            else:
+                choices.append((character,))
+        if not choices:
+            return {""}
+        return {
+            "".join(parts)
+            for parts in itertools.product(*choices)}
     if mode == "leet":
         choices = []
         for character in segment:
@@ -680,6 +714,57 @@ def _folded_name_carries(key, folded_marker):
 _MAX_BARRED_READ_DEPTH = 100
 
 
+def _base_iter(value):
+    """Iterate a list, tuple, set, or frozenset part through its
+    base class iteration, never through a reading the part itself
+    supplies, so a part whose own iteration yields nothing still
+    stands read by the contents in its base class storage."""
+    if isinstance(value, list):
+        return list.__iter__(value)
+    if isinstance(value, tuple):
+        return tuple.__iter__(value)
+    if isinstance(value, frozenset):
+        return frozenset.__iter__(value)
+    return set.__iter__(value)
+
+
+def _base_children(value):
+    """The parts one container holds, read through base class
+    operations only: dict keys beside dict values through the
+    base dict readings, and every other container through its
+    base class iteration."""
+    if isinstance(value, dict):
+        return list(dict.keys(value)) + list(dict.values(value))
+    return list(_base_iter(value))
+
+
+def _base_count(value):
+    """The count of a handed value through its base class length
+    reading, never through a length reading the value itself
+    supplies. A value in no sized base form falls back to the
+    plain length call, whose TypeError the caller handles."""
+    if isinstance(value, list):
+        return list.__len__(value)
+    if isinstance(value, tuple):
+        return tuple.__len__(value)
+    if isinstance(value, frozenset):
+        return frozenset.__len__(value)
+    if isinstance(value, set):
+        return set.__len__(value)
+    if isinstance(value, dict):
+        return dict.__len__(value)
+    if isinstance(value, str):
+        return str.__len__(value)
+    if isinstance(value, bytearray):
+        return bytearray.__len__(value)
+    if isinstance(value, bytes):
+        return bytes.__len__(value)
+    return len(value)
+
+
+_CONTAINER_TYPES = (dict, list, tuple, set, frozenset)
+
+
 def _shape_exceeds_bounds(value):
     """True where a value stands deeper than the barred read bound
     or carries a cycle on one of its paths. The walk counts
@@ -687,65 +772,125 @@ def _shape_exceeds_bounds(value):
     below a chain of containers adds no level of its own, and it
     walks dict keys beside dict values, so nesting that stands
     in a dict key counts in the same way as nesting in a dict
-    value. The check walks with an explicit stack, so a hostile
-    shape is reported in this form and never as a bare
-    RecursionError."""
-    stack = [(value, 0, frozenset())]
+    value. Every container stands read through base class
+    operations only, and every distinct container stands walked
+    once: the walk first gathers the distinct containers the
+    value reaches and the child containers each one holds, then
+    reads that graph once for a cycle and once for the longest
+    container path from the root, so a container shared by two
+    siblings costs one walk, not one walk per path. A container
+    repeated on a path stands as a cycle in that graph, and the
+    bound stands crossed where the longest container path from
+    the root runs past it. The check walks with explicit stacks,
+    so a hostile shape is reported in this form and never as a
+    bare RecursionError."""
+    if not isinstance(value, _CONTAINER_TYPES):
+        return False
+    children_by_id = {}
+    nodes_by_id = {}
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        if id(current) in children_by_id:
+            continue
+        nodes_by_id[id(current)] = current
+        child_containers = [
+            child for child in _base_children(current)
+            if isinstance(child, _CONTAINER_TYPES)]
+        children_by_id[id(current)] = [
+            id(child) for child in child_containers]
+        for child in child_containers:
+            if id(child) not in children_by_id:
+                pending.append(child)
+    root_id = id(value)
+    heights = {}
+    on_path = {root_id}
+    stack = [(root_id, iter(children_by_id[root_id]))]
     while stack:
-        current, depth, path = stack.pop()
-        if isinstance(current, (dict, list, tuple, set, frozenset)):
-            if depth > _MAX_BARRED_READ_DEPTH:
+        node_id, child_iter = stack[-1]
+        advanced = False
+        for child_id in child_iter:
+            if child_id in on_path:
                 return True
-            if id(current) in path:
-                return True
-            path = path | {id(current)}
-            if isinstance(current, dict):
-                children = list(current.keys()) + list(
-                    current.values())
+            if child_id in heights:
+                continue
+            on_path.add(child_id)
+            stack.append((child_id, iter(children_by_id[child_id])))
+            advanced = True
+            break
+        if not advanced:
+            stack.pop()
+            on_path.discard(node_id)
+            child_ids = children_by_id[node_id]
+            if child_ids:
+                heights[node_id] = 1 + max(
+                    heights[child_id] for child_id in child_ids)
             else:
-                children = list(current)
-            for child in children:
-                stack.append((child, depth + 1, path))
-    return False
+                heights[node_id] = 0
+    return heights[root_id] > _MAX_BARRED_READ_DEPTH
 
 
 def _carries_barred_money_value(value, _depth=0, _seen=None):
+    """True where a barred money field stands in the value within
+    the barred read bound. Every distinct container stands read
+    once, at the least depth any path reaches it, through base
+    class operations only: a dict part through the base dict
+    items reading, and every other container through its base
+    class iteration. A container shared by two siblings therefore
+    costs one read, not one read per path, while a money field
+    standing within the bound on any path still stands read,
+    because the least depth path reads the widest part of the
+    shared subtree. Dict keys stand unread by this read, as
+    before; the walk runs over dict values and over the elements
+    of the other container forms."""
     if _depth > _MAX_BARRED_READ_DEPTH:
         return False
-    if isinstance(value, (dict, list, tuple, set, frozenset)):
-        if _seen is None:
-            _seen = frozenset()
-        if id(value) in _seen:
-            return False
-        _seen = _seen | {id(value)}
-    if isinstance(value, dict):
-        amount_stands = False
-        currency_stands = False
-        for key, item in value.items():
-            variants = _folded_money_variants(key)
-            if ("amount" in variants
-                    or _folded_name_matches(key, "amount")) \
-                    and item is not None:
-                amount_stands = True
-            if "currency" in variants \
-                    or _folded_name_matches(key, "currency"):
-                currency_stands = True
-        if amount_stands and currency_stands:
-            return True
-        for key, item in value.items():
-            if (any(
-                    _MONEY_MARKER_FOLDED in variant
-                    for variant in _folded_money_variants(key))
-                    or _folded_name_carries(
-                        key, _MONEY_MARKER_FOLDED)) and (
-                    item is not None):
+    if not isinstance(value, _CONTAINER_TYPES):
+        return False
+    best_depth = {id(value): _depth}
+    stack = [(value, _depth)]
+    while stack:
+        current, depth = stack.pop()
+        if depth > _MAX_BARRED_READ_DEPTH:
+            continue
+        if best_depth.get(id(current), depth) < depth:
+            continue
+        if isinstance(current, dict):
+            entries = list(dict.items(current))
+            amount_stands = False
+            currency_stands = False
+            for key, item in entries:
+                variants = _folded_money_variants(key)
+                if ("amount" in variants
+                        or _folded_name_matches(key, "amount")) \
+                        and item is not None:
+                    amount_stands = True
+                if "currency" in variants \
+                        or _folded_name_matches(key, "currency"):
+                    currency_stands = True
+            if amount_stands and currency_stands:
                 return True
-            if _carries_barred_money_value(item, _depth + 1, _seen):
-                return True
-    elif isinstance(value, (list, tuple, set, frozenset)):
-        return any(
-            _carries_barred_money_value(item, _depth + 1, _seen)
-            for item in value)
+            for key, item in entries:
+                if (any(
+                        _MONEY_MARKER_FOLDED in variant
+                        for variant in _folded_money_variants(key))
+                        or _folded_name_carries(
+                            key, _MONEY_MARKER_FOLDED)) and (
+                        item is not None):
+                    return True
+            children = [item for key, item in entries]
+        else:
+            children = list(_base_iter(current))
+        for child in children:
+            if not isinstance(child, _CONTAINER_TYPES):
+                continue
+            child_depth = depth + 1
+            if child_depth > _MAX_BARRED_READ_DEPTH:
+                continue
+            if child_depth < best_depth.get(
+                    id(child), _MAX_BARRED_READ_DEPTH + 1):
+                best_depth[id(child)] = child_depth
+                stack.append((child, child_depth))
     return False
 
 
@@ -780,7 +925,7 @@ def validate_run_record(run):
                     key, _ANCHOR_VALUES_FIELD_FOLDED):
             continue
         try:
-            count = len(values)
+            count = _base_count(values)
         except TypeError:
             return False
         if count != 3:

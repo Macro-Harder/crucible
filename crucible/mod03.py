@@ -70,6 +70,7 @@ _BARRED_KEY_PARTS = (
 _HOMOGLYPH_MAP = {
     "\u0430": "a", "\u0441": "c", "\u0435": "e", "\u043e": "o",
     "\u0440": "p", "\u0445": "x", "\u0443": "y", "\u0456": "i",
+    "\u0439": "i",
     "\u0458": "j", "\u0455": "s", "\u04bb": "h", "\u043a": "k",
     "\u043c": "m", "\u043d": "h", "\u0442": "t", "\u0432": "b",
     "\u03b1": "a", "\u03b2": "b", "\u03b5": "e", "\u03b9": "i",
@@ -137,7 +138,7 @@ _WIDE_LETTER_MAP.update(_WIDER_READING_MAP)
 # reading above, never in place of it.
 _TRANSLITERATION_OVERRIDES = {
     "\u0440": "r", "\u0445": "h", "\u0432": "v", "\u0441": "s",
-    "\u043d": "n", "\u0443": "u",
+    "\u043d": "n", "\u0443": "u", "\u0439": "y",
     "\u03b7": "e", "\u03c0": "p", "\u03c7": "h", "\u03c1": "r",
     "\u03c9": "o",
 }
@@ -159,14 +160,26 @@ _LEET_MAP = {
 
 def _canonical_text(key, letter_map=None):
     mapping = _HOMOGLYPH_MAP if letter_map is None else letter_map
-    decomposed = unicodedata.normalize("NFKD", str(key))
     chars = []
-    for character in decomposed:
-        if character in _DROPPED_INVISIBLE:
+    for character in str(key):
+        if character.casefold() == "\u0439":
+            # Cyrillic short i stands read as a whole letter,
+            # never reduced by compatibility decomposition to
+            # Cyrillic i plus a combining mark before any letter
+            # map reads it, so each map records its own reading
+            # of the letter: i in the homoglyph and wide maps
+            # and y in the alternate map.
+            chars.append(mapping.get(
+                character,
+                mapping.get("\u0439", mapping.get("\u0419", "i"))))
             continue
-        if unicodedata.category(character).startswith("M"):
-            continue
-        chars.append(mapping.get(character, character))
+        decomposed = unicodedata.normalize("NFKD", character)
+        for part in decomposed:
+            if part in _DROPPED_INVISIBLE:
+                continue
+            if unicodedata.category(part).startswith("M"):
+                continue
+            chars.append(mapping.get(part, part))
     return "".join(chars).casefold()
 
 
@@ -193,6 +206,15 @@ def _folded_readings(key):
     for reading in _readings_for(_canonical_text(key, _ALT_LETTER_MAP)):
         if reading not in readings:
             readings.append(reading)
+    # The counting basis for the 4096 combined text bound is one
+    # basis at every surface: the number of distinct combined
+    # texts built position by position over the original
+    # characters of the key, each original character contributing
+    # the set of its distinct readings across the letter maps.
+    # Cyrillic short i contributes two readings on that basis, i
+    # and y, and Greek chi contributes two, x and h, so a key
+    # stands inside or past the bound alike at MOD-03, MOD-04,
+    # MOD-05, and MOD-10.
     texts = {""}
     overflow = False
     for character in str(key):
@@ -702,7 +724,8 @@ def construct_farm(member_ids, farm_size=None, edges=None):
                     "farm rejected: an edge carries no vouchee, "
                     "not as a voucher and vouchee pair: "
                     + repr(edge))
-            first, second = edge.get("voucher"), edge.get("vouchee")
+            first, second = (
+                dict.get(edge, "voucher"), dict.get(edge, "vouchee"))
         elif isinstance(edge, (str, bytes)):
             raise NamedGeneratorFailure(
                 "farm rejected: an edge stands as text, not as a "
@@ -827,6 +850,29 @@ def _base_iter(value):
     return iter(value)
 
 
+def _key_carries_rule_state(key):
+    """Return whether a dict key carries a rule state field name.
+
+    A plain string key stands judged through the base string
+    equality against each field name, never through an equality
+    reading the key itself supplies. A container key stands
+    judged by every string standing inside it, at any nesting,
+    in the form the ground truth read judges container keys.
+    """
+    if isinstance(key, str):
+        return any(
+            str.__eq__(key, field) is True
+            for field in RULE_STATE_FIELDS)
+    if isinstance(key, dict):
+        return any(
+            _key_carries_rule_state(part)
+            for part in dict.keys(key))
+    if isinstance(key, (list, tuple, set, frozenset)):
+        return any(
+            _key_carries_rule_state(part) for part in _base_iter(key))
+    return False
+
+
 def _value_carries_rule_state(value, _depth=0, _seen=None, _path=""):
     """Return whether a value carries a rule state field at any depth.
 
@@ -846,14 +892,14 @@ def _value_carries_rule_state(value, _depth=0, _seen=None, _path=""):
         try:
             if isinstance(value, dict):
                 for key, item in dict.items(value):
-                    if key in RULE_STATE_FIELDS:
-                        return True
                     if isinstance(
                             key, (dict, list, tuple, set, frozenset)):
                         if _value_carries_rule_state(
                                 key, _depth + 1, seen,
                                 _path + "/key"):
                             return True
+                    if _key_carries_rule_state(key):
+                        return True
                     if _value_carries_rule_state(
                             item, _depth + 1, seen,
                             _path + "/" + str(key)):
@@ -897,38 +943,58 @@ def _value_carries_ground_truth(value, _depth=0, _seen=None, _path=""):
 
     Dicts are read by their keys and by every value they hold, and
     lists, tuples, and sets are read by every item they hold, so a
-    barred key nested inside a feature value, inside a rule record,
-    or inside a container at any further depth still counts.
+    barred key nested inside a feature value, inside a rule
+    record, or inside a container at any further depth still counts.
+
+    A container shared by two siblings stands walked once: its
+    walked standing stands carried across every path that reaches
+    it, so the walk grows with the size of the value. A container
+    that stands on its own walk path still stands as a cycle and
+    stands refused in the module named failure form.
     """
     if isinstance(value, (dict, list, tuple, set, frozenset)):
-        seen = _seen if _seen is not None else set()
-        _traversal_guard(value, _depth, seen, _path)
-        seen.add(id(value))
+        if isinstance(_seen, dict):
+            state = _seen
+        else:
+            state = {"active": set(_seen or ()), "done": {}}
+        marker = id(value)
+        if marker in state["done"]:
+            return state["done"][marker]
+        _traversal_guard(value, _depth, state["active"], _path)
+        state["active"].add(marker)
         try:
+            result = False
             if isinstance(value, dict):
                 for key, item in dict.items(value):
                     if isinstance(
                             key, (dict, list, tuple, set, frozenset)):
                         if _value_carries_ground_truth(
-                                key, _depth + 1, seen,
+                                key, _depth + 1, state,
                                 _path + "/key"):
-                            return True
+                            result = True
+                            break
                         if _key_string_is_barred(key):
-                            return True
+                            result = True
+                            break
                     elif _is_barred_key(key):
-                        return True
+                        result = True
+                        break
                     if _value_carries_ground_truth(
-                            item, _depth + 1, seen,
+                            item, _depth + 1, state,
                             _path + "/" + str(key)):
-                        return True
-                return False
-            return any(
-                _value_carries_ground_truth(
-                    item, _depth + 1, seen, _path + "[" + str(index) + "]")
-                for index, item in enumerate(_base_iter(value))
-            )
+                        result = True
+                        break
+            else:
+                for index, item in enumerate(_base_iter(value)):
+                    if _value_carries_ground_truth(
+                            item, _depth + 1, state,
+                            _path + "[" + str(index) + "]"):
+                        result = True
+                        break
+            state["done"][marker] = result
+            return result
         finally:
-            seen.discard(id(value))
+            state["active"].discard(marker)
     return False
 
 

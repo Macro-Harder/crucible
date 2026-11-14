@@ -354,6 +354,12 @@ def validate_tracer_passage_set(records, positive_control=None):
                 if isinstance(field_value, bool) \
                         and field_value is False:
                     return False
+                if isinstance(field_value, (bytes, bytearray)) \
+                        and not bytes(field_value).strip():
+                    return False
+                if isinstance(field_value, memoryview) \
+                        and len(field_value) == 0:
+                    return False
                 if isinstance(
                         field_value,
                         (list, tuple, dict, set, frozenset,

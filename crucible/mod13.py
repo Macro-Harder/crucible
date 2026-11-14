@@ -15,8 +15,6 @@ run produces, and again at run close. No third comparison point
 stands in this module.
 """
 
-import copy
-
 from crucible import mod01 as _mod01
 
 DETECTION_COMPARISON_POINTS = (
@@ -35,8 +33,51 @@ class NamedReplicationFailure(Exception):
     """A failure stated by name, never a silent gap."""
 
 
-def _freeze(value):
-    return copy.deepcopy(value)
+def _freeze(value, _memo=None):
+    """Copy a value through base class readings only.
+
+    Dict parts stand read through the base dict items reading,
+    and list, tuple, set, and frozenset parts through their
+    base iteration readings, so no reading a part itself
+    supplies directs the copy. A set part stands rebuilt
+    through the plain set constructor and a frozenset part
+    through the plain frozenset constructor, never through a
+    constructor the part itself supplies. A part in no
+    container form stands copied as itself. Shared and cyclic
+    container parts stand preserved through the memo, as a
+    plain deep copy preserves them."""
+    if _memo is None:
+        _memo = {}
+    if isinstance(value, dict):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = {}
+        _memo[id(value)] = copied
+        for key, item in dict.items(value):
+            copied[_freeze(key, _memo)] = _freeze(item, _memo)
+        return copied
+    if isinstance(value, list):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = []
+        _memo[id(value)] = copied
+        copied.extend(
+            _freeze(item, _memo) for item in list.__iter__(value))
+        return copied
+    if isinstance(value, tuple):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = tuple(
+            _freeze(item, _memo) for item in tuple.__iter__(value))
+        _memo[id(value)] = copied
+        return copied
+    if isinstance(value, frozenset):
+        return frozenset(
+            _freeze(item, _memo) for item in frozenset.__iter__(value))
+    if isinstance(value, set):
+        return set(
+            _freeze(item, _memo) for item in set.__iter__(value))
+    return value
 
 
 REPLICATION_STATEMENT_SENTENCES = (

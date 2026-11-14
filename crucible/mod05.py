@@ -916,6 +916,7 @@ _HOMOGLYPH_MAP = {
     "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
     "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
     "\u1d22": "z",
+    "\u1d31": "e", "\u1d38": "l", "\u1d3c": "o", "\u1d40": "t",
     "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
     "\u0452": "s", "\u0493": "h",
     "\u13d2": "r", "\uaba2": "r", "\u13ac": "e", "\uab7c": "e",
@@ -965,6 +966,44 @@ _LEET_L_MAP = {
 }
 
 
+_LETTER_MAPS = (
+    _HOMOGLYPH_MAP, _TRANSLITERATION_MAP,
+    _HOMOGLYPH_MAP_VO, _TRANSLITERATION_MAP_VO,
+)
+
+COMBINED_TEXT_BOUND = 4096
+
+
+def _decomposed_characters(key):
+    """The characters the fold reads, on the counting basis the
+    combined text bound stands on: the key lowercased, put
+    through compatibility decomposition, lowercased again so a
+    capital form a decomposition yields stands in its lower case
+    form, with combining marks dropped. The modifier small
+    capital letters reduce under this decomposition to the
+    capital letters they stand for, and so stand read through
+    the readings the letter maps record for them."""
+    decomposed = unicodedata.normalize(
+        "NFKD", str(key).lower()).lower()
+    return [
+        character for character in decomposed
+        if not unicodedata.category(character).startswith("M")
+    ]
+
+
+def _character_options(character):
+    """The distinct readings one decomposed character carries:
+    the reading each letter map of the fold records for it, with
+    the character itself standing as its reading under a map
+    that records none for it. The combined text count of a key
+    is the size of the running set of distinct combined texts
+    built position by position over these option sets."""
+    return {
+        letter_map.get(character, character)
+        for letter_map in _LETTER_MAPS
+    }
+
+
 def _folded_readings(key):
     """The folded readings of one key, in the same canonicalised
     form the barred surfaces read: compatibility decomposition
@@ -979,7 +1018,14 @@ def _folded_readings(key):
     a key needing the transliteration reading at one position and
     the homoglyph reading at another position of the same word
     stands read as the word it spells, as the MOD-10 fold reads
-    it."""
+    it. The combination limb enumerates the combined texts while
+    their running distinct count stands at or under the stated
+    bound of 4096 combined texts, counted on the basis
+    _character_options states; past that bound the enumeration
+    stands set aside and the barred reading of the key stands
+    judged by _combined_key_barred, which reads the same
+    combination limb position by position and so abandons no
+    combined reading."""
     readings = []
 
     def add(transformed):
@@ -989,16 +1035,11 @@ def _folded_readings(key):
         if plain and plain not in readings:
             readings.append(plain)
 
-    letter_maps = (
-        _HOMOGLYPH_MAP, _TRANSLITERATION_MAP,
-        _HOMOGLYPH_MAP_VO, _TRANSLITERATION_MAP_VO,
-    )
-    for letter_map in letter_maps:
-        decomposed = unicodedata.normalize("NFKD", str(key).lower())
+    characters = _decomposed_characters(key)
+    for letter_map in _LETTER_MAPS:
         base = "".join(
             letter_map.get(character, character)
-            for character in decomposed
-            if not unicodedata.category(character).startswith("M")
+            for character in characters
         )
         add(base)
         add("".join(_LEET_MAP.get(character, character)
@@ -1007,23 +1048,15 @@ def _folded_readings(key):
                     for character in base))
         add("".join(character for character in base
                     if not character.isdigit()))
-    characters = [
-        character
-        for character in unicodedata.normalize("NFKD", str(key).lower())
-        if not unicodedata.category(character).startswith("M")
-    ]
     expanded = {""}
     for character in characters:
-        options = {
-            letter_map.get(character, character)
-            for letter_map in letter_maps
-        }
+        options = _character_options(character)
         combined = {
             prefix + option
             for prefix in expanded
             for option in options
         }
-        if len(combined) > 4096:
+        if len(combined) > COMBINED_TEXT_BOUND:
             expanded = None
             break
         expanded = combined
@@ -1037,6 +1070,93 @@ def _folded_readings(key):
             add("".join(character for character in base
                         if not character.isdigit()))
     return tuple(readings)
+
+
+def _character_variants(character):
+    """Every folded form one decomposed character can contribute
+    to a combined reading: each of its readings under the letter
+    maps, taken plain, under each digit substitution reading,
+    and with digits dropped, each form holding only its letter
+    and digit characters, as the add limb of _folded_readings
+    holds a whole combined text."""
+    variants = set()
+    for base in _character_options(character):
+        for transformed in (
+            base,
+            "".join(_LEET_MAP.get(part, part) for part in base),
+            "".join(_LEET_L_MAP.get(part, part) for part in base),
+            "".join(part for part in base if not part.isdigit()),
+        ):
+            variants.add("".join(
+                part for part in transformed if part.isalnum()))
+    return variants
+
+
+def _combined_matches_exact(variant_sets, target):
+    states = {0}
+    for variants in variant_sets:
+        following = set()
+        for state in states:
+            for variant in variants:
+                if not variant:
+                    following.add(state)
+                elif target.startswith(variant, state):
+                    following.add(state + len(variant))
+        states = following
+        if not states:
+            return False
+    return len(target) in states
+
+
+def _combined_contains(variant_sets, target):
+    states = set()
+    for variants in variant_sets:
+        current = states | {0}
+        following = set()
+        for state in current:
+            for variant in variants:
+                if not variant:
+                    following.add(state)
+                    continue
+                if target.startswith(variant, state):
+                    following.add(state + len(variant))
+                if state and target[state:] and variant.startswith(
+                        target[state:]):
+                    return True
+                if state == 0:
+                    for start in range(1, len(variant)):
+                        suffix = variant[start:]
+                        if suffix.startswith(target):
+                            return True
+                        if target.startswith(suffix):
+                            following.add(len(suffix))
+        if len(target) in following:
+            return True
+        states = following
+    return False
+
+
+def _combined_key_barred(key):
+    """Whether any combined reading of the key stands barred,
+    judged position by position over the per character variants
+    without enumerating the combined texts, so the judgement
+    stands the same inside the combined text bound and past it.
+    The forms judged are the forms _panel_key_barred judges on
+    an enumerated reading: a reading standing in the folded
+    exact set of the panel barred keys, a reading carrying the
+    membership part, and a reading carrying the groundtruth
+    part."""
+    variant_sets = [
+        _character_variants(character)
+        for character in _decomposed_characters(key)
+    ]
+    for target in _PANEL_BARRED_FOLDED_EXACT:
+        if _combined_matches_exact(variant_sets, target):
+            return True
+    for target in ("membership", "groundtruth"):
+        if _combined_contains(variant_sets, target):
+            return True
+    return False
 
 
 _PANEL_BARRED_FOLDED_EXACT = frozenset(
@@ -1057,7 +1177,7 @@ def _panel_key_barred(key):
             return True
         if "membership" in reading:
             return True
-    return False
+    return _combined_key_barred(key)
 
 
 PANEL_TRAVERSAL_DEPTH_BOUND = 100

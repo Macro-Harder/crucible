@@ -27,7 +27,9 @@ import itertools
 import json
 import math
 import os
+import re
 import unicodedata
+from decimal import Decimal
 
 from crucible import mod01
 
@@ -93,13 +95,17 @@ class LookupFailure(KeyError):
 # letter as the Latin letter it stands rendered as. A non Latin
 # digit stands read as its digit value. The folded readings of a
 # name are the set of its alphanumeric reductions under both
-# mappings, each taken twice over: once with digits read through
-# the recorded leet substitutions, and once with digits dropped,
-# so a digit standing inside a marker word either as a letter
-# substitute or as an inserted character holds the marker apart
-# in neither reading. One recorded spelling correction stands in
-# both readings: the transliterated spelling of the money marker
-# in its phonetic form reads as the marker itself.
+# mappings, each taken in three ways: once with digits read through
+# the recorded leet substitutions, once with digits dropped, and
+# once under a combined reading in which each digit position on
+# its own reads as its leet letter or drops out, so a digit
+# standing inside a marker word either as a letter substitute or
+# as an inserted character holds the marker apart in no reading,
+# and a name needing the leet reading at one digit position and
+# the drop reading at another still reads as the marker. One
+# recorded spelling correction stands in all readings: the
+# transliterated spelling of the money marker in its phonetic
+# form reads as the marker itself.
 
 _TRANSLITERATION_MAP = {
     "\u0430": "a", "\u0431": "b", "\u0432": "v", "\u0433": "g",
@@ -150,6 +156,7 @@ _HOMOGLYPH_MAP.update({
     "\u0442": "t",
     "\u03c5": "y",
     "\u0452": "s", "\u0493": "h", "\u0456": "i", "\u03c1": "p",
+    "\u03c7": "x",
 })
 
 _LEET_DIGITS = {
@@ -234,6 +241,24 @@ def _add_fold_forms(variants, text):
     dropped = "".join(
         character for character in text if character.isalpha())
     variants.add(dropped.replace("realmani", "realmoney"))
+    choices = []
+    for character in text:
+        if character == "1":
+            choices.append(("l", "i", ""))
+        elif character in _LEET_DIGITS:
+            choices.append((_LEET_DIGITS[character], ""))
+        elif character in _SYMBOL_LEET_READINGS:
+            choices.append((_SYMBOL_LEET_READINGS[character], ""))
+        elif character.isalnum():
+            choices.append((character,))
+        else:
+            choices.append(("",))
+    for index, combination in enumerate(
+            itertools.product(*choices)):
+        if index >= 4096:
+            break
+        variants.add(
+            "".join(combination).replace("realmani", "realmoney"))
 
 
 def _expanded_texts(key):
@@ -292,20 +317,29 @@ def _guard_retention_shape(value):
     dict, list, tuple, set, and frozenset parts, read through
     base class operations, so a deep shape stands refused in this
     form and never as a bare RecursionError."""
-    stack = [(value, 0, frozenset())]
+    done = set()
+    path = set()
+    stack = [(value, 0, False)]
     while stack:
-        node, depth, path = stack.pop()
+        node, depth, exiting = stack.pop()
+        if exiting:
+            path.discard(id(node))
+            done.add(id(node))
+            continue
         if not isinstance(node, (dict, list, tuple, set, frozenset)):
             continue
         if depth > 100 or id(node) in path:
             raise ValueError(_DEEP_REFUSAL)
-        path = path | {id(node)}
+        if id(node) in done:
+            continue
+        path.add(id(node))
+        stack.append((node, depth, True))
         if isinstance(node, dict):
             children = list(dict.keys(node)) + list(dict.values(node))
         else:
             children = list(_base_iter(node))
         for child in children:
-            stack.append((child, depth + 1, path))
+            stack.append((child, depth + 1, False))
 
 
 def _safe_copy(value, _memo=None):
@@ -337,8 +371,11 @@ def _safe_copy(value, _memo=None):
         return tuple(
             _safe_copy(item, _memo) for item in tuple.__iter__(value))
     if isinstance(value, (set, frozenset)):
-        return type(value)(
-            _safe_copy(item, _memo) for item in _base_iter(value))
+        items = [
+            _safe_copy(item, _memo) for item in _base_iter(value)]
+        if isinstance(value, frozenset):
+            return frozenset(items)
+        return set(items)
     return value
 
 
@@ -559,12 +596,28 @@ def reset_stores():
     _REJECTED_CHECKPOINT_WRITES.clear()
 
 
+def _canonical_store_kind(store_kind):
+    """The stated store kind a handed kind names, judged through
+    base class comparison as _store_kind_stands judges it: a kind
+    whose stored text stands outside the closed store kind set
+    stands refused in the named unknown store kind form, and a
+    kind whose stored text stands inside it stands read as that
+    stated kind, never through a reading the handed kind
+    supplies."""
+    if not _store_kind_stands(store_kind):
+        raise ValueError("unknown store kind: " + str(store_kind))
+    for kind in STORE_KINDS:
+        if str.__eq__(store_kind, kind):
+            return kind
+    raise ValueError("unknown store kind: " + str(store_kind))
+
+
 def retain_run_record(record, store_kind="sweep"):
-    return _STORES[store_kind].retain_run_record(record)
+    return _STORES[_canonical_store_kind(store_kind)].retain_run_record(record)
 
 
 def read_run_record(run_id, store_kind="sweep"):
-    return _STORES[store_kind].read_run_record(run_id)
+    return _STORES[_canonical_store_kind(store_kind)].read_run_record(run_id)
 
 
 def run_records_for_run(run_id="run-under-test"):
@@ -984,12 +1037,19 @@ def _whole_day(value):
     return value
 
 
+_NUMERIC_DAY_PATTERN = re.compile(
+    r"^[+-]?(\d(_?\d)*)?(\.(\d(_?\d)*)?)?([eE][+-]?\d(_?\d)*)?$")
+
+
 def _timing_day(value):
     """Read one day through the one stated timing day form: a
     whole day in integer or digit string form stands as the
     integer it states through the whole day reading, a float
-    stands as itself, and a decimal string stands as the
-    number it states, so each of those forms stands judged
+    stands as itself, a Decimal value stands as the number it
+    states, and a numeric string stands as the number it
+    states, in plain decimal form, in exponent form, and with
+    underscores standing between its digits, beside the stated
+    non finite spellings, so each of those forms stands judged
     before the timing comparison. Any other form stands as
     itself and stands judged by no comparison."""
     whole = _whole_day(value)
@@ -997,16 +1057,32 @@ def _timing_day(value):
         return whole
     if isinstance(value, float):
         return value
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            return float(value)
+        if value == value.to_integral_value():
+            return int(value)
+        return float(value)
     if isinstance(value, str):
         text = value.strip()
+        lowered = text.lower()
+        if lowered in ("inf", "+inf", "infinity", "+infinity"):
+            return math.inf
+        if lowered in ("-inf", "-infinity"):
+            return -math.inf
+        if lowered in ("nan", "+nan", "-nan"):
+            return math.nan
         unsigned = text[1:] if text[:1] in ("+", "-") else text
-        if unsigned.count(".") == 1:
+        if unsigned.count(".") == 1 and "e" not in lowered:
             whole_part, _, fraction_part = unsigned.partition(".")
             if (whole_part.isdigit() or not whole_part) and (
                     fraction_part.isdigit() or not fraction_part) and (
                     whole_part or fraction_part):
                 stated = float(text)
                 return stated if math.isfinite(stated) else value
+        if _NUMERIC_DAY_PATTERN.match(text) and any(
+                character.isdigit() for character in text):
+            return float(text)
     return value
 
 
@@ -1557,24 +1633,34 @@ def _actor_segments_into_vocabulary(word, vocabulary):
 def _resolve_actor_word(word):
     """Read one actor word as the actor word it dresses, where
     it dresses one, against the actor vocabulary of person and
-    program, in the shell form the MOD-14 resolver states: the
+    program, in the shell form the MOD-14 resolver states as it
+    stands on the merged tree at the start of fix wave 5: the
     word itself where it stands plain, a word with one, two,
-    three, or four added letters struck, a word with one
+    three, four, or five added letters struck, a word with one
     letter dropped from a vocabulary word, a word with one
     letter replaced, a word with two adjacent letters
     transposed, and the compounded forms, one letter dropped
     together with one letter replaced, one transposition
     together with one letter dropped, two letters replaced,
-    two letters dropped from a vocabulary word, and one
-    transposition together with one letter replaced. The
-    dropped, replaced, and transposed limbs run on words of
-    two letters as well, so a drop from a three letter word
-    still resolves. Any other word stands as itself."""
+    two letters dropped from a vocabulary word, one
+    transposition together with one letter replaced, three
+    letters replaced, three letters dropped from a vocabulary
+    word, two transpositions, and one transposition together
+    with two letters replaced. One level past that form, a
+    word with six added letters struck, four letters replaced,
+    four letters dropped from a vocabulary word, and three
+    transpositions also resolve, and one transposition
+    together with three letters replaced resolves beside them.
+    The dropped, replaced, and transposed limbs run on words
+    of two letters as well, so a drop from a three letter word
+    still resolves. A word of one letter stands read through
+    the drop limbs only where exactly one vocabulary word
+    drops to it. Any other word stands as itself."""
     if word in _ACTOR_VOCABULARY:
         return word
     if _actor_segments_into_vocabulary(word, _ACTOR_VOCABULARY):
         return word
-    for added in (1, 2, 3, 4):
+    for added in (1, 2, 3, 4, 5, 6):
         if len(word) > added:
             for cuts in itertools.combinations(
                     range(len(word)), added):
@@ -1583,6 +1669,22 @@ def _resolve_actor_word(word):
                     if index not in cuts)
                 if reduced in _ACTOR_VOCABULARY:
                     return reduced
+    if len(word) < 2:
+        matches = []
+        for drops in (1, 2, 3):
+            for candidate in _ACTOR_VOCABULARY_ORDERED:
+                if len(candidate) != len(word) + drops:
+                    continue
+                for cuts in itertools.combinations(
+                        range(len(candidate)), drops):
+                    reduced = "".join(
+                        char for index, char in enumerate(candidate)
+                        if index not in cuts)
+                    if reduced == word and candidate not in matches:
+                        matches.append(candidate)
+        if len(matches) == 1:
+            return matches[0]
+        return word
     if len(word) >= 2:
         for candidate in _ACTOR_VOCABULARY_ORDERED:
             if len(candidate) == len(word) + 1:
@@ -1598,15 +1700,16 @@ def _resolve_actor_word(word):
                     + candidate[cut] + candidate[cut + 2:])
                 if swapped == word:
                     return candidate
-        for candidate in _ACTOR_VOCABULARY_ORDERED:
-            if len(candidate) == len(word) + 2:
-                for cuts in itertools.combinations(
-                        range(len(candidate)), 2):
-                    reduced = "".join(
-                        char for index, char in enumerate(candidate)
-                        if index not in cuts)
-                    if reduced == word:
-                        return candidate
+        for drops in (2, 3, 4):
+            for candidate in _ACTOR_VOCABULARY_ORDERED:
+                if len(candidate) == len(word) + drops:
+                    for cuts in itertools.combinations(
+                            range(len(candidate)), drops):
+                        reduced = "".join(
+                            char for index, char in enumerate(candidate)
+                            if index not in cuts)
+                        if reduced == word:
+                            return candidate
         for candidate in _ACTOR_VOCABULARY_ORDERED:
             if len(candidate) != len(word):
                 continue
@@ -1634,6 +1737,33 @@ def _resolve_actor_word(word):
         for candidate in _ACTOR_VOCABULARY_ORDERED:
             if len(candidate) != len(word):
                 continue
+            if sorted(candidate) != sorted(word):
+                continue
+            for first in range(len(candidate) - 1):
+                if candidate[first] == candidate[first + 1]:
+                    continue
+                once = (
+                    candidate[:first] + candidate[first + 1]
+                    + candidate[first] + candidate[first + 2:])
+                for second in range(len(once) - 1):
+                    if once[second] == once[second + 1]:
+                        continue
+                    twice = (
+                        once[:second] + once[second + 1]
+                        + once[second] + once[second + 2:])
+                    if twice == word:
+                        return candidate
+                    for third in range(len(twice) - 1):
+                        if twice[third] == twice[third + 1]:
+                            continue
+                        thrice = (
+                            twice[:third] + twice[third + 1]
+                            + twice[third] + twice[third + 2:])
+                        if thrice == word:
+                            return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
             differences = sum(
                 1 for left, right in zip(candidate, word)
                 if left != right)
@@ -1652,6 +1782,55 @@ def _resolve_actor_word(word):
                     1 for left, right in zip(swapped, word)
                     if left != right)
                 if differences == 1:
+                    return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            differences = sum(
+                1 for left, right in zip(candidate, word)
+                if left != right)
+            if differences == 3:
+                return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            base_differences = sum(
+                1 for left, right in zip(candidate, word)
+                if left != right)
+            if base_differences < 1 or base_differences > 4:
+                continue
+            for swap in range(len(candidate) - 1):
+                if candidate[swap] == candidate[swap + 1]:
+                    continue
+                swapped = (
+                    candidate[:swap] + candidate[swap + 1]
+                    + candidate[swap] + candidate[swap + 2:])
+                differences = sum(
+                    1 for left, right in zip(swapped, word)
+                    if left != right)
+                if differences == 2:
+                    return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            differences = sum(
+                1 for left, right in zip(candidate, word)
+                if left != right)
+            if differences == 4:
+                return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            for swap in range(len(candidate) - 1):
+                if candidate[swap] == candidate[swap + 1]:
+                    continue
+                swapped = (
+                    candidate[:swap] + candidate[swap + 1]
+                    + candidate[swap] + candidate[swap + 2:])
+                differences = sum(
+                    1 for left, right in zip(swapped, word)
+                    if left != right)
+                if differences == 3:
                     return candidate
     return word
 
@@ -1734,7 +1913,8 @@ def _has_stated_condition(fired):
         if isinstance(entry, str):
             readable = "".join(
                 char for char in entry
-                if char not in _ZERO_WIDTH_CHARS)
+                if char not in _ZERO_WIDTH_CHARS
+                and unicodedata.category(char) != "Cf")
             if readable.strip():
                 return True
         elif entry is not None:
@@ -2474,6 +2654,17 @@ def run_view_leak_check(view_record):
     first_seen = view_record.get("first_seen_day_per_record") or {}
     for item, seen_day in first_seen.items():
         seen_day = _timing_day(seen_day)
+        if (isinstance(seen_day, (int, float))
+                and not isinstance(seen_day, bool)
+                and isinstance(day, (int, float))
+                and not isinstance(day, bool)
+                and not (math.isfinite(seen_day)
+                         and math.isfinite(day))):
+            raise ValueError(
+                "view leak check failure: form timing, view "
+                + view_name + ", field first_seen_day_per_record: "
+                "record " + str(item) + " states a day in a non "
+                "finite form the timing comparison cannot order")
         if (isinstance(seen_day, (int, float))
                 and not isinstance(seen_day, bool)
                 and isinstance(day, (int, float))

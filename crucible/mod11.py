@@ -180,7 +180,8 @@ _DEPTH_BOUND = 100
 
 
 def _envelope_part_stands(value, _seen=None, _depth=0):
-    if _depth > _DEPTH_BOUND:
+    if _depth > _DEPTH_BOUND and isinstance(
+            value, (dict, list, tuple, set, frozenset)):
         return False
     if value is None:
         return False
@@ -272,7 +273,8 @@ def _part_text(value, _depth=0):
     """Return the text a unit part carries, read through base
     class readings only, so a string form stands beside a block
     form of the same part."""
-    if _depth > _DEPTH_BOUND:
+    if _depth > _DEPTH_BOUND and isinstance(
+            value, (dict, list, tuple, set, frozenset)):
         return ""
     if isinstance(value, str):
         return str.__str__(value)
@@ -574,6 +576,14 @@ because although despite hence median variance question
 readable children child beautiful country banana elephant
 zebra quilt oxygen voyage purple orange silver cohort
 quantile estimand whilst among sometimes moreover meanwhile
+sensitivity development triangle decomposition contiguity
+endpoint misuse indices replication independent verification
+confidence equivalence distribution threshold proportion
+deviation correlation regression parameter statistic hypothesis
+alternative exposure baseline duration percentage actually
+always amongst around barely been doing door ever possibly
+rarely something them took went were throughout mountain
+doctor autumn
 """.split())
 
 
@@ -699,7 +709,8 @@ def _seam_ground_stated(other):
     reaches, or a slash, stated as slash, slashes, or a slashed
     amount. The vouch head word and the release or lien word
     count as one stated ground where they stand together in
-    one statement of the unit, in either order."""
+    the unit, in either order, whether they stand in one
+    statement or across a statement boundary."""
     tokens = _ground_tokens(other)
     if any(token in ("slash", "slashes", "slashed", "slashing")
            for token in tokens):
@@ -707,12 +718,9 @@ def _seam_ground_stated(other):
     head_words = ("vouch", "vouches", "vouched", "vouching")
     tail_words = ("release", "releases", "released", "releasing",
                   "lien", "liens")
-    for statement in re.split(r"[.!?;]", other):
-        statement_tokens = _ground_tokens(statement)
-        if any(token in head_words for token in statement_tokens) \
-                and any(token in tail_words
-                        for token in statement_tokens):
-            return True
+    if any(token in head_words for token in tokens) \
+            and any(token in tail_words for token in tokens):
+        return True
     return False
 
 
@@ -720,14 +728,23 @@ def _anchor_ground_stated(other):
     """Return True where the other fields state an anchor ground
     in any of its wordings: an anchor scenario or anchor
     scenarios, anchors scenarios with the plural head word,
-    hyphenated or not, or the anchor test wording the
-    sources prove beside it."""
+    hyphenated or not, the verb wording anchored in a named
+    scenario, the joined wording anchorscenario, the reversed
+    wordings that name the scenario before its anchor, or the
+    anchor test and anchor testing wordings the sources prove
+    beside it."""
     tokens = _ground_tokens(other)
+    if any(token in ("anchorscenario", "anchorscenarios",
+                     "anchortest", "anchortests", "anchortesting")
+           for token in tokens):
+        return True
     for index, token in enumerate(tokens):
-        if token not in ("anchor", "anchors"):
+        if token not in ("anchor", "anchors", "anchored",
+                         "anchoring"):
             continue
-        window = tokens[max(0, index - 3):index + 4]
-        if any(word in ("scenario", "scenarios", "test", "tests")
+        window = tokens[max(0, index - 6):index + 7]
+        if any(word in ("scenario", "scenarios", "test", "tests",
+                        "testing")
                for word in window):
             return True
     return False
@@ -748,9 +765,45 @@ def _parley_grounds_stated(other):
     question 1 with the number digit or spelled out as a word,
     Parley questions two and five with the plural head word,
     and the reversed wording that names the question before
-    Parley."""
+    Parley. The ordinal wording that numbers the question in
+    ordinal words beside the Parley name, the question number
+    wording that states the word number before the number
+    word, and the reversed wording that names the questions
+    and their numbers before the Parley name stand read
+    beside those forms."""
     tokens = _ground_tokens(other)
     grounds = set()
+    ordinal_numbers = {
+        "first": "1", "second": "2", "fifth": "5",
+        "1st": "1", "2nd": "2", "5th": "5",
+    }
+    for index, token in enumerate(tokens):
+        if token in ordinal_numbers:
+            window = tokens[max(0, index - 3):index + 4]
+            if "parley" in window and any(
+                    word in ("question", "questions")
+                    for word in window):
+                grounds.add(ordinal_numbers[token])
+        if token in ("question", "questions"):
+            following = tokens[index + 1:index + 7]
+            if "parley" in following:
+                for item in following:
+                    if item == "parley":
+                        break
+                    if item in _PARLEY_GROUND_NUMBERS:
+                        grounds.add(
+                            _PARLEY_GROUND_NUMBERS[item])
+                    if item in ordinal_numbers:
+                        grounds.add(ordinal_numbers[item])
+                    if item in ("q1", "q2", "q5"):
+                        grounds.add(item[1])
+            if index + 2 < len(tokens) \
+                    and tokens[index + 1] == "number" \
+                    and tokens[index + 2] in _PARLEY_GROUND_NUMBERS:
+                window = tokens[max(0, index - 4):index + 5]
+                if "parley" in window:
+                    grounds.add(_PARLEY_GROUND_NUMBERS[
+                        tokens[index + 2]])
     for token in tokens:
         joined = re.fullmatch(
             r"parleyq([125])", token)
@@ -925,11 +978,13 @@ def _quoted_copy(value, _memo=None, _depth=0):
             _quoted_copy(item, _memo, _depth + 1)
             for item in tuple.__iter__(value))
     if isinstance(value, (set, frozenset)):
-        base_iter = set.__iter__ if isinstance(value, set) \
-            else frozenset.__iter__
-        return type(value)(
+        if isinstance(value, set):
+            return set(
+                _quoted_copy(item, _memo, _depth + 1)
+                for item in set.__iter__(value))
+        return frozenset(
             _quoted_copy(item, _memo, _depth + 1)
-            for item in base_iter(value))
+            for item in frozenset.__iter__(value))
     if isinstance(value, (str, bytes, bytearray, int, float, complex,
                           bool)) or value is None:
         return value

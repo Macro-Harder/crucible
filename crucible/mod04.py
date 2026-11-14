@@ -390,6 +390,10 @@ def _folded_readings(key):
             letter_map.get(character, character)
             for character in characters
         ))
+        _add_readings("".join(
+            letter_map.get(character, character)
+            for character in str(key).lower()
+        ))
     # Position by position combination of the two maps, in the
     # form the MOD-10 fold states: each character contributes the
     # readings both maps record for it, so a word needing the
@@ -398,13 +402,32 @@ def _folded_readings(key):
     # the combination count would grow past the stated cap, the
     # combined readings stand abandoned and the two whole map
     # readings above stand as the readings of the key.
+    # The combination and its count stand built over the original
+    # characters of the key, before decomposition. Each original
+    # character contributes every distinct reading recorded for
+    # it: the reading of its decomposed base under each map, the
+    # reading each map records for the character itself where one
+    # stands recorded, and, for Cyrillic short i, both of its
+    # recorded readings, y and i, since decomposition alone would
+    # reduce that letter to its i reading and lose the y reading
+    # its transliteration records. The bound counts the distinct
+    # combined texts built on that per character option basis.
     texts = {""}
     combined = True
-    for character in characters:
-        options = {
-            letter_map.get(character, character)
-            for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP)
-        }
+    for character in str(key).lower():
+        base_characters = [
+            part for part in unicodedata.normalize("NFKD", character)
+            if not unicodedata.category(part).startswith("M")
+        ]
+        options = set()
+        for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+            options.add("".join(
+                letter_map.get(part, part) for part in base_characters
+            ))
+            if character in letter_map:
+                options.add(letter_map[character])
+        if character == "\u0439":
+            options.update(("y", "i"))
         expanded = {
             prefix + option
             for prefix in texts
@@ -510,7 +533,7 @@ def _clean_feature_values(raw):
             if _is_barred_key(key):
                 continue
             cleaned[_clean_value(key, 1, None, "/" + str(key))] = (
-                _clean_value(value))
+                _clean_value(value, 1, None, "/" + str(key)))
     return cleaned
 
 
@@ -994,7 +1017,8 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
     view_day = as_of_day
     delay_days = delay
     selected = []
-    for record in retained_records or ():
+    handed = retained_records or ()
+    for index, record in _base_entries(handed):
         if not isinstance(record, dict):
             continue
         viewer = dict.get(record, "viewer_id")
