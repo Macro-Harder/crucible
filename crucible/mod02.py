@@ -163,97 +163,255 @@ def _plain_number(value):
     return None
 
 
+def _new_eq_frame(left, right):
+    return {"left": left, "right": right, "stage": "start",
+            "awaiting": None, "pair": None, "mode": None}
+
+
 def _base_value_eq(left, right):
     """Return whether two handed values agree on their stored
     contents, judged through base class operations at every
     level, never through an equality, get, keys, or iteration
-    reading a handed value supplies."""
-    if left is None or right is None:
-        return left is right
-    if isinstance(left, str) or isinstance(right, str):
-        if not isinstance(left, str) or not isinstance(right, str):
-            return False
-        return str.__eq__(
-            str.__str__(left), str.__str__(right)) is True
-    if isinstance(left, dict) or isinstance(right, dict):
-        if not isinstance(left, dict) or not isinstance(right, dict):
-            return False
-        if dict.__len__(left) != dict.__len__(right):
-            return False
-        for key in dict.__iter__(left):
-            matched = None
-            found = False
-            for other_key in dict.__iter__(right):
-                if _base_value_eq(key, other_key):
-                    matched = other_key
-                    found = True
-                    break
-            if not found:
-                return False
-            if not _base_value_eq(
-                    dict.__getitem__(left, key),
-                    dict.__getitem__(right, matched)):
-                return False
-        return True
-    if isinstance(left, (list, tuple)) or isinstance(
-            right, (list, tuple)):
-        if not isinstance(left, (list, tuple)) or not isinstance(
-                right, (list, tuple)):
-            return False
-        if isinstance(left, list) != isinstance(right, list):
-            return False
-        if isinstance(left, list):
-            left_items = list(list.__iter__(left))
-            right_items = list(list.__iter__(right))
-        else:
-            left_items = list(tuple.__iter__(left))
-            right_items = list(tuple.__iter__(right))
-        if len(left_items) != len(right_items):
-            return False
-        return all(
-            _base_value_eq(a, b)
-            for a, b in zip(left_items, right_items))
-    if isinstance(left, (set, frozenset)) or isinstance(
-            right, (set, frozenset)):
-        if not isinstance(left, (set, frozenset)) or not isinstance(
-                right, (set, frozenset)):
-            return False
-        return _base_set_eq(left, right)
-    left_number = _plain_number(left)
-    right_number = _plain_number(right)
-    if left_number is not None or right_number is not None:
-        if left_number is None or right_number is None:
-            return False
-        return left_number == right_number
-    if isinstance(left, bytes) and isinstance(right, bytes):
-        return bytes.__eq__(left, right) is True
-    return left is right
+    reading a handed value supplies. The comparison runs on
+    an explicit stack, in the style this module states for
+    its deep walks, so a deep acyclic state answers on its
+    stored contents instead of raising a bare RecursionError
+    from the interpreter frame limit. A pair of containers
+    that stands again on its own comparison path stands in
+    a cycle, and the act raises RecursionError for that pair,
+    as the recursive form did."""
+    stack = [_new_eq_frame(left, right)]
+    active = set()
+    pending = [None, False]
+
+    def close(value):
+        done = stack.pop()
+        if done["pair"] is not None:
+            active.discard(done["pair"])
+        if not stack:
+            return True
+        pending[0] = value
+        pending[1] = True
+        return False
+
+    while stack:
+        frame = stack[-1]
+        if pending[1]:
+            outcome = pending[0]
+            pending[1] = False
+            awaiting = frame["awaiting"]
+            frame["awaiting"] = None
+            if awaiting == "dict_key":
+                if outcome:
+                    frame["matched"] = frame["right_keys"][
+                        frame["candidate"]]
+                    frame["phase"] = "value"
+                else:
+                    frame["candidate"] += 1
+            elif awaiting == "dict_value":
+                if not outcome:
+                    if close(False):
+                        return False
+                    continue
+                frame["key_index"] += 1
+                frame["candidate"] = 0
+                frame["phase"] = "key"
+            elif awaiting == "seq_item":
+                if not outcome:
+                    if close(False):
+                        return False
+                    continue
+                frame["index"] += 1
+            elif awaiting == "set_candidate":
+                if outcome:
+                    frame["remaining"].pop(frame["candidate"])
+                    frame["item_index"] += 1
+                    frame["candidate"] = 0
+                else:
+                    frame["candidate"] += 1
+        if frame["stage"] == "start":
+            frame["stage"] = "work"
+            held = frame["left"]
+            other = frame["right"]
+            if held is None or other is None:
+                value = held is other
+                if close(value):
+                    return value
+                continue
+            if isinstance(held, str) or isinstance(other, str):
+                if not isinstance(held, str) or not isinstance(
+                        other, str):
+                    if close(False):
+                        return False
+                    continue
+                value = str.__eq__(
+                    str.__str__(held), str.__str__(other)) is True
+                if close(value):
+                    return value
+                continue
+            if isinstance(held, dict) or isinstance(other, dict):
+                if not isinstance(held, dict) or not isinstance(
+                        other, dict):
+                    if close(False):
+                        return False
+                    continue
+                if dict.__len__(held) != dict.__len__(other):
+                    if close(False):
+                        return False
+                    continue
+                pair = (id(held), id(other))
+                if pair in active:
+                    raise RecursionError(
+                        "maximum recursion depth exceeded "
+                        "in comparison")
+                active.add(pair)
+                frame["pair"] = pair
+                frame["mode"] = "dict"
+                frame["left_keys"] = list(dict.__iter__(held))
+                frame["right_keys"] = list(dict.__iter__(other))
+                frame["key_index"] = 0
+                frame["candidate"] = 0
+                frame["phase"] = "key"
+                frame["matched"] = None
+                continue
+            if isinstance(held, (list, tuple)) or isinstance(
+                    other, (list, tuple)):
+                if not isinstance(held, (list, tuple)) or not (
+                        isinstance(other, (list, tuple))):
+                    if close(False):
+                        return False
+                    continue
+                if isinstance(held, list) != isinstance(other, list):
+                    if close(False):
+                        return False
+                    continue
+                if isinstance(held, list):
+                    left_items = list(list.__iter__(held))
+                    right_items = list(list.__iter__(other))
+                else:
+                    left_items = list(tuple.__iter__(held))
+                    right_items = list(tuple.__iter__(other))
+                if len(left_items) != len(right_items):
+                    if close(False):
+                        return False
+                    continue
+                pair = (id(held), id(other))
+                if pair in active:
+                    raise RecursionError(
+                        "maximum recursion depth exceeded "
+                        "in comparison")
+                active.add(pair)
+                frame["pair"] = pair
+                frame["mode"] = "seq"
+                frame["left_items"] = left_items
+                frame["right_items"] = right_items
+                frame["index"] = 0
+                continue
+            if isinstance(held, (set, frozenset)) or isinstance(
+                    other, (set, frozenset)):
+                if not isinstance(held, (set, frozenset)) or not (
+                        isinstance(other, (set, frozenset))):
+                    if close(False):
+                        return False
+                    continue
+                left_items = []
+                for item in (set.__iter__(held) if isinstance(
+                        held, set) else frozenset.__iter__(held)):
+                    left_items.append(item)
+                right_items = []
+                for item in (set.__iter__(other) if isinstance(
+                        other, set) else frozenset.__iter__(other)):
+                    right_items.append(item)
+                if len(left_items) != len(right_items):
+                    if close(False):
+                        return False
+                    continue
+                pair = (id(held), id(other))
+                if pair in active:
+                    raise RecursionError(
+                        "maximum recursion depth exceeded "
+                        "in comparison")
+                active.add(pair)
+                frame["pair"] = pair
+                frame["mode"] = "set"
+                frame["left_items"] = left_items
+                frame["remaining"] = list(right_items)
+                frame["item_index"] = 0
+                frame["candidate"] = 0
+                continue
+            left_number = _plain_number(held)
+            right_number = _plain_number(other)
+            if left_number is not None or right_number is not None:
+                if left_number is None or right_number is None:
+                    if close(False):
+                        return False
+                    continue
+                value = left_number == right_number
+                if close(value):
+                    return value
+                continue
+            if isinstance(held, bytes) and isinstance(other, bytes):
+                value = bytes.__eq__(held, other) is True
+                if close(value):
+                    return value
+                continue
+            value = held is other
+            if close(value):
+                return value
+            continue
+        mode = frame["mode"]
+        if mode == "dict":
+            if frame["key_index"] >= len(frame["left_keys"]):
+                if close(True):
+                    return True
+                continue
+            if frame["phase"] == "key":
+                if frame["candidate"] >= len(frame["right_keys"]):
+                    if close(False):
+                        return False
+                    continue
+                frame["awaiting"] = "dict_key"
+                stack.append(_new_eq_frame(
+                    frame["left_keys"][frame["key_index"]],
+                    frame["right_keys"][frame["candidate"]]))
+                continue
+            frame["awaiting"] = "dict_value"
+            left_key = frame["left_keys"][frame["key_index"]]
+            stack.append(_new_eq_frame(
+                dict.__getitem__(frame["left"], left_key),
+                dict.__getitem__(frame["right"], frame["matched"])))
+            continue
+        if mode == "seq":
+            if frame["index"] >= len(frame["left_items"]):
+                if close(True):
+                    return True
+                continue
+            frame["awaiting"] = "seq_item"
+            stack.append(_new_eq_frame(
+                frame["left_items"][frame["index"]],
+                frame["right_items"][frame["index"]]))
+            continue
+        if mode == "set":
+            if frame["item_index"] >= len(frame["left_items"]):
+                if close(True):
+                    return True
+                continue
+            if frame["candidate"] >= len(frame["remaining"]):
+                if close(False):
+                    return False
+                continue
+            frame["awaiting"] = "set_candidate"
+            stack.append(_new_eq_frame(
+                frame["left_items"][frame["item_index"]],
+                frame["remaining"][frame["candidate"]]))
+            continue
+    return pending[0]
 
 
 def _base_set_eq(left, right):
     """Return whether two handed sets hold matching stored
     elements, matched through base value equality."""
-    left_items = []
-    for item in (set.__iter__(left) if isinstance(left, set)
-                 else frozenset.__iter__(left)):
-        left_items.append(item)
-    right_items = []
-    for item in (set.__iter__(right) if isinstance(right, set)
-                 else frozenset.__iter__(right)):
-        right_items.append(item)
-    if len(left_items) != len(right_items):
-        return False
-    remaining = list(right_items)
-    for item in left_items:
-        matched = None
-        for index, candidate in enumerate(remaining):
-            if _base_value_eq(item, candidate):
-                matched = index
-                break
-        if matched is None:
-            return False
-        remaining.pop(matched)
-    return True
+    return _base_value_eq(left, right)
 
 
 def _base_dict_get(mapping, key, default=None):
@@ -469,15 +627,20 @@ def validate_family_derivation(version=None, adoption_record=None,
     """
     if family_record is not None and isinstance(family_record, dict):
         if version is None:
-            version = family_record.get("derivation_version")
+            version = _base_dict_get(
+                family_record, "derivation_version")
         if adoption_record is None:
-            adoption_record = family_record.get("adoption_record")
+            adoption_record = _base_dict_get(
+                family_record, "adoption_record")
     if adoption_record is None:
         return False
     if not validate_adoption_record(adoption_record):
         return False
-    return version is not None and version == adoption_record.get(
-        "derivation_version")
+    if version is None:
+        return False
+    return _base_value_eq(
+        version, _base_dict_get(
+            adoption_record, "derivation_version"))
 
 
 def validate_adoption_record(record):
@@ -485,7 +648,7 @@ def validate_adoption_record(record):
     if not isinstance(record, dict):
         return False
     for key in ("derivation_version", "stream_inventory", "generator"):
-        if not record.get(key):
+        if not _base_dict_get(record, key):
             return False
     return True
 
@@ -580,20 +743,21 @@ def validate_derivation_input(value):
     """Return True only for a complete Shape 5 input value."""
     if not isinstance(value, dict):
         return False
+    missing = object()
     for field in _DERIVATION_INPUT_FIELDS:
-        if field not in value:
+        if _base_dict_get(value, field, missing) is missing:
             return False
-    if not validate_domain(value.get("domain")):
+    if not validate_domain(_base_dict_get(value, "domain")):
         return False
-    if not isinstance(value.get("derivation_version"), str):
+    if not isinstance(_base_dict_get(value, "derivation_version"), str):
         return False
-    if not value.get("derivation_version"):
+    if not _base_dict_get(value, "derivation_version"):
         return False
-    params = value.get("parameter_values")
+    params = _base_dict_get(value, "parameter_values")
     if not isinstance(params, dict):
         return False
-    for item in params.values():
-        if not isinstance(item, str):
+    for stored_key in dict.__iter__(params):
+        if not isinstance(dict.__getitem__(params, stored_key), str):
             return False
     return True
 
@@ -874,31 +1038,51 @@ def determinism_statement_permitted(battery_state=None,
 
 def _position_value(value):
     if isinstance(value, dict):
-        return int(value.get("position", 0))
+        return int(_base_dict_get(value, "position", 0))
     return int(value)
+
+
+def _held_sort_key(item):
+    if isinstance(item, str):
+        return str.__str__(item)
+    return str(item)
 
 
 def _state_from_held(held_state):
     if not isinstance(held_state, dict):
         return None
-    if "stream_states" in held_state:
+    missing = object()
+    stored_streams = _base_dict_get(
+        held_state, "stream_states", missing)
+    if stored_streams is not missing:
         streams = {}
-        for name in sorted(held_state.get("stream_states") or {},
-                           key=lambda item: str(item)):
+        stream_map = stored_streams or {}
+        if isinstance(stream_map, dict):
+            stream_names = list(dict.__iter__(stream_map))
+            stream_values = {
+                name: dict.__getitem__(stream_map, name)
+                for name in stream_names}
+        else:
+            stream_names = []
+            stream_values = {}
+        for name in sorted(stream_names, key=_held_sort_key):
             streams[name] = {
-                "position": _position_value(
-                    held_state["stream_states"][name])}
+                "position": _position_value(stream_values[name])}
         return {
-            "run_id": held_state.get("run_id"),
+            "run_id": _base_dict_get(held_state, "run_id"),
             "stream_states": streams,
-            "stream_inventory_standing": held_state.get(
-                "stream_inventory_standing", _CARDINALITY_BASIS),
-            "carriage": held_state.get(
-                "carriage", "generator state for checkpoints"),
+            "stream_inventory_standing": _base_dict_get(
+                held_state, "stream_inventory_standing",
+                _CARDINALITY_BASIS),
+            "carriage": _base_dict_get(
+                held_state, "carriage",
+                "generator state for checkpoints"),
         }
     streams = {}
-    for name in sorted(held_state, key=lambda item: str(item)):
-        streams[name] = {"position": _position_value(held_state[name])}
+    held_names = list(dict.__iter__(held_state))
+    for name in sorted(held_names, key=_held_sort_key):
+        streams[name] = {"position": _position_value(
+            dict.__getitem__(held_state, name))}
     return {
         "run_id": None,
         "stream_states": streams,

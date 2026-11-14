@@ -1066,20 +1066,23 @@ def _history_base_children(value):
     return list(set.__iter__(value))
 
 
-def _shape_exceeds_bound(value):
-    """True where a value stands deeper than the stated bound
-    of COMPARISON_DEPTH_BOUND or carries a cycle on one of its
-    paths, on the containers only basis the comparison reading
-    states: a chain of 101 nested containers over a scalar leaf
-    stands within the bound, and a chain of 102 stands past it.
-    Every container stands read through base class operations
-    only, and the walk runs on explicit stacks over the graph
-    of distinct containers, reading the longest container path
-    from the root, so a hostile shape stands reported in this
-    form and never as a bare RecursionError, and a container
-    shared by two siblings costs one walk, not one per path."""
+def _bound_grounds(value):
+    """Return the pair (past the bound, carries a cycle) for a
+    value, each ground judged on its own, on the containers only
+    basis the comparison reading states: a chain of 101 nested
+    containers over a scalar leaf stands within the bound, and a
+    chain of 102 stands past it. Every container stands read
+    through base class operations only, and the walk runs on
+    explicit stacks over the graph of distinct containers,
+    reading the longest container path from the root, so a
+    hostile shape stands reported in this form and never as a
+    bare RecursionError, and a container shared by two siblings
+    costs one walk, not one per path. A cycle edge closes no
+    height: the height of a node counts only the child paths
+    that end, so a shallow cycle reads as a cycle and not as
+    depth."""
     if not isinstance(value, _HISTORY_CONTAINER_TYPES):
-        return False
+        return (False, False)
     children_by_id = {}
     pending = [value]
     while pending:
@@ -1096,6 +1099,7 @@ def _shape_exceeds_bound(value):
                 pending.append(child)
     root_id = id(value)
     heights = {}
+    cyclic = False
     on_path = {root_id}
     stack = [(root_id, iter(children_by_id[root_id]))]
     while stack:
@@ -1103,7 +1107,8 @@ def _shape_exceeds_bound(value):
         advanced = False
         for child_id in child_iter:
             if child_id in on_path:
-                return True
+                cyclic = True
+                continue
             if child_id in heights:
                 continue
             on_path.add(child_id)
@@ -1113,13 +1118,29 @@ def _shape_exceeds_bound(value):
         if not advanced:
             stack.pop()
             on_path.discard(node_id)
-            child_ids = children_by_id[node_id]
-            if child_ids:
-                heights[node_id] = 1 + max(
-                    heights[child_id] for child_id in child_ids)
-            else:
-                heights[node_id] = 0
-    return heights[root_id] > COMPARISON_DEPTH_BOUND
+            ended = [
+                heights[child_id] for child_id in children_by_id[node_id]
+                if child_id in heights]
+            heights[node_id] = 1 + max(ended) if ended else 0
+    return (heights[root_id] > COMPARISON_DEPTH_BOUND, cyclic)
+
+
+def _shape_exceeds_bound(value):
+    """True where a value stands deeper than the stated bound
+    of COMPARISON_DEPTH_BOUND or carries a cycle on one of its
+    paths, as _bound_grounds judges the two grounds apart."""
+    past, cyclic = _bound_grounds(value)
+    return past or cyclic
+
+
+def _history_base_items(history):
+    """Read the stored items of a handed history through the
+    base class iteration of its form, never through an
+    iteration the handed history itself supplies, so what the
+    bound guard walks is what the copy limb copies."""
+    if isinstance(history, tuple):
+        return list(tuple.__iter__(history))
+    return list(list.__iter__(history))
 
 
 def extend_history(history, segment):
@@ -1134,19 +1155,32 @@ def extend_history(history, segment):
     COMPARISON_DEPTH_BOUND before any copy stands made: a shape
     past the bound or carrying a cycle stands refused in
     NamedReplicationFailure form, never as a bare
-    RecursionError."""
+    RecursionError, and the refusal states the true ground for
+    each input, past the bound or a cycle, and names the input
+    that carries it. The copy of the handed history reads the
+    history through the same base class reading the guard
+    walks, so what is guarded is what is copied."""
     if not isinstance(history, (list, tuple)) or not history:
         raise NamedReplicationFailure("a history extension extends an existing segment")
     if not isinstance(segment, dict):
         raise NamedReplicationFailure(
             "a history extension appends a segment record: the appended value stands in no record form"
         )
-    if _shape_exceeds_bound(history) or _shape_exceeds_bound(segment):
+    grounds = []
+    for label, handed in (
+            ("the handed history", history),
+            ("the appended segment", segment)):
+        past, cyclic = _bound_grounds(handed)
+        if past:
+            grounds.append(
+                label + " stands past the bound of "
+                + str(COMPARISON_DEPTH_BOUND))
+        if cyclic:
+            grounds.append(label + " carries a cycle")
+    if grounds:
         raise NamedReplicationFailure(
-            "a history extension stands deeper than the stated bound of "
-            + str(COMPARISON_DEPTH_BOUND)
-            + " or carries a cycle: the handed history or the appended segment stands past the bound")
-    segments = [_freeze(item) for item in history]
+            "a history extension stands refused: " + "; ".join(grounds))
+    segments = [_freeze(item) for item in _history_base_items(history)]
     first = segments[0]
     if not isinstance(first, dict) or not first.get("rule_set_version"):
         raise NamedReplicationFailure(
@@ -1171,6 +1205,204 @@ def extend_history(history, segment):
     appended["segment_order"] = len(segments) + 1
     appended["rule_set_version"] = first.get("rule_set_version")
     return segments + [appended]
+
+
+def _base_container_items(value):
+    """Read the stored items of a handed container through its
+    base class iteration, never through an iteration the handed
+    part itself supplies."""
+    if isinstance(value, dict):
+        return list(dict.values(value))
+    if isinstance(value, tuple):
+        return list(tuple.__iter__(value))
+    if isinstance(value, frozenset):
+        return list(frozenset.__iter__(value))
+    if isinstance(value, set):
+        return list(set.__iter__(value))
+    return list(list.__iter__(value))
+
+
+def _run_log_records(run_log):
+    """Read a handed run log as its run records. The run log of
+    the registry comparison is the set of RunRecords retained
+    for the family, so a part that stands in no record form
+    stands as no run log entry. A mapping carrying its records
+    under a runs, run records, or records field reads through
+    that field, and a single record handed whole reads as a
+    one record log."""
+    if run_log is None:
+        return None
+    if isinstance(run_log, dict):
+        if _base_get(run_log, "run_identifier") is not None or (
+                _base_get(run_log, "run_id") is not None
+                and _base_get(run_log, "run_class") is not None):
+            return [run_log]
+        for key in ("runs", "run_records", "records", "run_log"):
+            inner = dict.get(run_log, key)
+            if inner is not None:
+                return _run_log_records(inner) or []
+        return []
+    if isinstance(run_log, (list, tuple, set, frozenset)):
+        return [
+            item for item in _base_container_items(run_log)
+            if isinstance(item, dict)]
+    return []
+
+
+def _first_base_value(record, fields):
+    for field in fields:
+        value = _base_get(record, field)
+        if value is not None:
+            return value
+    return None
+
+
+def _record_is_pilot(record):
+    """True where a record stands as a pilot artefact. Pilot
+    artefacts are stored apart from sweep results and a pilot
+    record is never a run log entry for this check."""
+    for field in ("run_class", "store_kind", "kind", "record_kind"):
+        if _base_str_eq(_base_get(record, field), "pilot"):
+            return True
+    return False
+
+
+def _record_bears_on_entry(record, entry):
+    """True where a run record bears on the claim an entry
+    carries. A record of another family, or of another claim,
+    where both sides state the identifier, bears on no claim of
+    this entry. A failed run bears as any other run bears: its
+    status stands read as failed and it stands in the log."""
+    family = _first_base_value(
+        record, ("sweep_family_identifier", "family_identifier",
+                 "family_id"))
+    entry_family = _first_base_value(
+        entry, ("sweep_family_identifier", "family_identifier",
+                "family_id"))
+    if family is not None and entry_family is not None and not (
+            _base_str_eq(family, entry_family)):
+        return False
+    claim = _first_base_value(record, ("claim_identifier", "claim_id"))
+    entry_claim = _first_base_value(
+        entry, ("claim_identifier", "claim_id"))
+    if claim is not None and entry_claim is not None and not (
+            _base_str_eq(claim, entry_claim)):
+        return False
+    return True
+
+
+def _entry_run_identifiers(entry):
+    """The run identifiers a registry entry carries, read
+    through base class readings from its screening and held out
+    confirmation identifier fields."""
+    identifiers = []
+    for field in ("screening_run_identifiers",
+                  "held_out_confirmation_run_identifiers",
+                  "confirmation_run_identifiers",
+                  "run_identifiers"):
+        value = _base_get(entry, field)
+        if isinstance(value, (list, tuple, set, frozenset)):
+            identifiers.extend(_base_container_items(value))
+        elif isinstance(value, str):
+            identifiers.append(value)
+    return identifiers
+
+
+def compare_registry_against_run_log(entry, run_log=None,
+                                     retained_records=None):
+    """Compare one SweepFamilyRegistry entry against the run
+    log, in the form the brief at section 2.4 and the plan at
+    Form 22 item 4 and section 6.1 item 13 state. The act stands
+    in this module, the Replication Checker, which did not
+    compile the registry: the compiling module is MOD-11, and no
+    part of this act reads a MOD-11 surface. The comparison
+    stands before any headline claim is reported.
+
+    The run log the comparison reads is the set of RunRecords
+    retained by MOD-10 for the family, handed in as the run log
+    argument or as the retained records argument, or carried on
+    the entry itself under a run log field. Its membership is:
+    every run of the family whose RunRecord stands retained, of
+    every run class, screening, confirmation, headline, and
+    validation; failed runs stand in it, by their RunRecords
+    with the status field read as failed; pilot runs do not
+    stand in it. Every bearing run must appear in the claim
+    entry, among its screening run identifiers or its held out
+    confirmation run identifiers, read by base string equality.
+
+    The result states whether a comparison was performed, and
+    whether it passed. With no run log among the inputs, no
+    comparison stands performed and none stands passed. Where
+    an expected run count stands stated, on the entry or as
+    the expected count field of the run log mapping, a shortfall
+    of retained records against that count fails the comparison
+    under the name EXPECTED-RUN-SHORTFALL, as Form 22 item 5
+    states."""
+    if not isinstance(entry, dict):
+        return {
+            "performed": False,
+            "passed": False,
+            "checker_module": "MOD-13",
+            "compared_against_run_log": False,
+            "bearing_run_identifiers": [],
+            "missing_run_identifiers": [],
+            "excluded_pilot_run_identifiers": [],
+            "entry_run_identifiers": [],
+        }
+    source = retained_records if retained_records is not None else run_log
+    if source is None:
+        source = _base_get(entry, "run_log")
+    records = _run_log_records(source)
+    if records is None:
+        return {
+            "performed": False,
+            "passed": False,
+            "checker_module": "MOD-13",
+            "compared_against_run_log": False,
+            "bearing_run_identifiers": [],
+            "missing_run_identifiers": [],
+            "excluded_pilot_run_identifiers": [],
+            "entry_run_identifiers": _entry_run_identifiers(entry),
+        }
+    entry_ids = _entry_run_identifiers(entry)
+    bearing = []
+    excluded_pilot = []
+    for record in records:
+        run_id = _first_base_value(record, ("run_identifier", "run_id"))
+        if _record_is_pilot(record):
+            excluded_pilot.append(run_id)
+            continue
+        if not _record_bears_on_entry(record, entry):
+            continue
+        bearing.append(run_id)
+    missing = [
+        run_id for run_id in bearing
+        if run_id is None or not any(
+            _base_str_eq(run_id, entry_id) for entry_id in entry_ids)]
+    result = {
+        "performed": True,
+        "passed": not missing,
+        "checker_module": "MOD-13",
+        "compared_against_run_log": True,
+        "bearing_run_identifiers": bearing,
+        "missing_run_identifiers": missing,
+        "excluded_pilot_run_identifiers": excluded_pilot,
+        "entry_run_identifiers": entry_ids,
+    }
+    expected = _first_base_value(
+        entry, ("expected_run_count", "expected_runs"))
+    if expected is None and isinstance(source, dict):
+        expected = _first_base_value(
+            source, ("expected_run_count", "expected_runs"))
+    if isinstance(expected, int) and not isinstance(expected, bool):
+        retained_count = len(records) - len(excluded_pilot)
+        result["expected_run_count"] = expected
+        result["retained_run_count"] = retained_count
+        if retained_count < expected:
+            result["passed"] = False
+            result["shortfall_name"] = "EXPECTED-RUN-SHORTFALL"
+            result["shortfall"] = expected - retained_count
+    return result
 
 
 def daily_aggregate_form():
@@ -1222,6 +1454,7 @@ __all__ = [
     "witness_rerun",
     "validate_rerun_reading",
     "extend_history",
+    "compare_registry_against_run_log",
     "daily_aggregate_form",
     "validate_aggregate_form",
 ]

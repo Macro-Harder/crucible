@@ -1029,10 +1029,19 @@ COMBINED_TEXT_BOUND = 4096
 def _stored_text(value):
     """The text a value stores, read through the base class
     string form, never through a string reading the value
-    itself supplies."""
+    itself supplies. A value that is not a text form stores
+    no text, so no name stands judged from a string reading
+    a non text value itself supplies, and its stored text
+    stands as the empty text, in the cured MOD-01 form. A
+    bytes value stands judged on its stored bytes, decoded
+    as UTF-8 with undecodable bytes dropped, never through
+    a string reading a bytes subclass itself supplies, so a
+    bytes form keeps the standing its stored name carries."""
     if isinstance(value, str):
         return str.__str__(value)
-    return str(value)
+    if isinstance(value, bytes):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
+    return ""
 
 
 def _decomposed_characters(key):
@@ -1231,6 +1240,22 @@ _PANEL_BARRED_FOLDED_EXACT = frozenset(
 
 
 def _panel_key_barred(key):
+    if isinstance(key, (dict, list, tuple, set, frozenset)):
+        stack = [key]
+        seen = set()
+        while stack:
+            part = stack.pop()
+            if isinstance(part, (dict, list, tuple, set, frozenset)):
+                if id(part) in seen:
+                    continue
+                seen.add(id(part))
+                if isinstance(part, dict):
+                    stack.extend(dict.keys(part))
+                else:
+                    stack.extend(_base_iter(part))
+            elif _panel_key_barred(part):
+                return True
+        return False
     lowered = _stored_text(key).lower()
     if "ground_truth" in lowered or lowered in _PANEL_BARRED_KEYS:
         return True

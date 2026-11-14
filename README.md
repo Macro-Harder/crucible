@@ -1,6 +1,6 @@
 # Crucible
 
-Crucible is a Monte Carlo agent society simulator. It simulates hundreds of agents trading, vouching, and defecting over simulated years, with trust rules, escrow, and detection running inside the simulation, to measure the conditions under which bad actors start winning.
+Crucible is a Monte Carlo agent society simulator. It simulates hundreds of agents trading, vouching, and defecting across extended runs, with trust rules, escrow, and detection running inside the simulation, to measure the conditions under which bad actors start winning.
 
 Status: in development. There is no release yet and nothing to install.
 

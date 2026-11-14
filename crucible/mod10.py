@@ -30,6 +30,7 @@ import os
 import re
 import unicodedata
 from decimal import Decimal
+from fractions import Fraction
 
 from crucible import mod01
 
@@ -230,6 +231,118 @@ def _stored_text(value):
     if isinstance(value, str):
         return str.__str__(value)
     return ""
+
+
+def _plain_number(value):
+    """Return a plain number holding the value a handed number
+    stores, built through base class operations, or None where
+    the value stands in no number form this module reads."""
+    if isinstance(value, bool):
+        return int.__new__(int, int.__int__(value))
+    if isinstance(value, int):
+        return int.__new__(int, int.__int__(value))
+    if isinstance(value, float):
+        return float.__new__(float, float.__float__(value))
+    if isinstance(value, Decimal):
+        return Decimal.__new__(Decimal, value)
+    if isinstance(value, Fraction):
+        return Fraction.__new__(Fraction, value)
+    if isinstance(value, complex):
+        return complex.__new__(complex, value)
+    return None
+
+
+def _base_value_eq(left, right):
+    """Return whether two handed values agree on their stored
+    contents, judged through base class operations at every
+    level, never through an equality, get, keys, or iteration
+    reading a handed value supplies."""
+    if left is None or right is None:
+        return left is right
+    if isinstance(left, str) or isinstance(right, str):
+        if not isinstance(left, str) or not isinstance(right, str):
+            return False
+        return str.__eq__(
+            str.__str__(left), str.__str__(right)) is True
+    if isinstance(left, dict) or isinstance(right, dict):
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            return False
+        if dict.__len__(left) != dict.__len__(right):
+            return False
+        for key in dict.__iter__(left):
+            matched = None
+            found = False
+            for other_key in dict.__iter__(right):
+                if _base_value_eq(key, other_key):
+                    matched = other_key
+                    found = True
+                    break
+            if not found:
+                return False
+            if not _base_value_eq(
+                    dict.__getitem__(left, key),
+                    dict.__getitem__(right, matched)):
+                return False
+        return True
+    if isinstance(left, (list, tuple)) or isinstance(
+            right, (list, tuple)):
+        if not isinstance(left, (list, tuple)) or not isinstance(
+                right, (list, tuple)):
+            return False
+        if isinstance(left, list) != isinstance(right, list):
+            return False
+        if isinstance(left, list):
+            left_items = list(list.__iter__(left))
+            right_items = list(list.__iter__(right))
+        else:
+            left_items = list(tuple.__iter__(left))
+            right_items = list(tuple.__iter__(right))
+        if len(left_items) != len(right_items):
+            return False
+        return all(
+            _base_value_eq(a, b)
+            for a, b in zip(left_items, right_items))
+    if isinstance(left, (set, frozenset)) or isinstance(
+            right, (set, frozenset)):
+        if not isinstance(left, (set, frozenset)) or not isinstance(
+                right, (set, frozenset)):
+            return False
+        return _base_set_eq(left, right)
+    left_number = _plain_number(left)
+    right_number = _plain_number(right)
+    if left_number is not None or right_number is not None:
+        if left_number is None or right_number is None:
+            return False
+        return left_number == right_number
+    if isinstance(left, bytes) and isinstance(right, bytes):
+        return bytes.__eq__(left, right) is True
+    return left is right
+
+
+def _base_set_eq(left, right):
+    """Return whether two handed sets hold matching stored
+    elements, matched through base value equality."""
+    left_items = []
+    for item in (set.__iter__(left) if isinstance(left, set)
+                 else frozenset.__iter__(left)):
+        left_items.append(item)
+    right_items = []
+    for item in (set.__iter__(right) if isinstance(right, set)
+                 else frozenset.__iter__(right)):
+        right_items.append(item)
+    if len(left_items) != len(right_items):
+        return False
+    remaining = list(right_items)
+    for item in left_items:
+        matched = None
+        for index, candidate in enumerate(remaining):
+            if _base_value_eq(item, candidate):
+                matched = index
+                break
+        if matched is None:
+            return False
+        remaining.pop(matched)
+    return True
 
 
 def _canonical_text(value, letter_map):
@@ -902,15 +1015,43 @@ def _delivery_complete(delivery):
 
 
 def _day_sort_key(item):
+    """The sort key for one retained delivery, by its day and its
+    viewer, each read by its stored characters through
+    _stored_text, never through a reading the handed day or
+    viewer supplies.
+
+    The ordering, in plain terms. Numbered days first, in number
+    order: an integer day counts as itself, and a day in digit
+    text counts as the number its stored digits state. Records
+    on the same numbered day stand ordered by the stored text
+    of the viewer. Every other day stands after all numbered
+    days. Among those later records, the order runs by the
+    stored text of the day, character by character, and then by
+    the stored text of the viewer, with the day and the viewer
+    kept as separate parts of the key, so two records whose day
+    and viewer texts differ never take one key from a joining of
+    the two texts. A day that carries no stored text, such as
+    None or a decimal number, stands at the head of the later
+    group, and records that still share one key keep the order
+    in which their deliveries were retained. So the text minus
+    1, whose first character is not a digit, stands in the later
+    group after day 100, while the integer minus 1 stands first
+    among the numbered days; the text plus 2 stands in the later
+    group on the same ground; and a circled digit, whose stored
+    text states a digit the number conversion cannot read,
+    stands in the later group ordered by its character, after
+    the plain letter and digit texts."""
     day, viewer = item
+    viewer_text = _stored_text(viewer)
     if isinstance(day, int) and not isinstance(day, bool):
-        return (0, day, str(viewer))
-    if isinstance(day, str) and day.isdigit():
+        return (0, int.__int__(day), viewer_text)
+    day_text = _stored_text(day)
+    if day_text.isdigit():
         try:
-            return (0, int(day), str(viewer))
+            return (0, int(day_text), viewer_text)
         except ValueError:
-            return (1, 0, str(day) + ":" + str(viewer))
-    return (1, 0, str(day) + ":" + str(viewer))
+            return (1, 0, day_text, viewer_text)
+    return (1, 0, day_text, viewer_text)
 
 
 def _aggregates_from_deliveries(run_id):
@@ -974,7 +1115,10 @@ def _aggregates_from_deliveries(run_id):
 def aggregate_manifest_for_run(run_id):
     """Return the aggregate manifest of one run: for each aggregate
     record the aggregation act writes, its identity, its writer, and
-    its amendment standing, in the ruling Entry 12 form. Where no
+    its amendment standing, in the ruling Entry 12 form. The entries
+    stand in the day order stated at _day_sort_key: numbered days
+    first in number order, then every other day by its stored day
+    text and then its stored viewer text. Where no
     aggregate stands written for the run, one form only entry stands
     returned."""
     computed = _aggregates_from_deliveries(run_id)
@@ -994,8 +1138,11 @@ def aggregate_manifest_for_run(run_id):
 def daily_aggregates_for_run(run_id="run-under-test", deliveries=None):
     """Return the daily aggregates of one run. Where deliveries
     stand handed in or retained, the aggregates stand computed from
-    them. Where none stand, one form record stands returned with a
-    form only marker inside the record itself."""
+    them, in the day order stated at _day_sort_key: numbered days
+    first in number order, then every other day by its stored day
+    text and then its stored viewer text. Where none stand, one
+    form record stands returned with a form only marker inside the
+    record itself."""
     if deliveries is not None:
         retain_daily_aggregate_deliveries(run_id, deliveries)
     computed = _aggregates_from_deliveries(run_id)
@@ -1959,6 +2106,34 @@ def _anywhere_transposition_resolves(word, candidate):
     return False
 
 
+def _two_pairs_beside_one_replacement(word, candidate):
+    """Whether a word reads as a candidate word under two
+    disjoint transposed pairs beside one replaced letter, a
+    change total of three. Such a composition stands as itself
+    under the stated composition form, which resolves composed
+    transpositions only where the total stands past three, so
+    the word does not fall through to a reading of another
+    candidate."""
+    if len(word) != len(candidate):
+        return False
+    differing = _differing_positions(word, candidate)
+    if len(differing) != 5:
+        return False
+    pair_options = [
+        (first, second)
+        for first, second in itertools.combinations(differing, 2)
+        if word[first] == candidate[second]
+        and word[second] == candidate[first]]
+    for chosen in itertools.combinations(pair_options, 2):
+        used = [index for pair in chosen for index in pair]
+        if len(set(used)) != len(used):
+            continue
+        rest = [index for index in differing if index not in used]
+        if len(rest) == 1:
+            return True
+    return False
+
+
 def _resolve_actor_word(word):
     """Read one actor word as the actor word it dresses, where
     it dresses one, against the actor vocabulary of person and
@@ -1986,7 +2161,7 @@ def _resolve_actor_word(word):
     transposed pair, in the form the shell resolver states
     after fix wave 6.
     Transpositions composed with letters replaced also
-    resolve in the shell form, where one or two
+    resolve in the shell form, where one, two, or three
     transpositions stand with one to three remaining letters
     replaced and the total number of changes stands past
     three, so totals of four and of five changes resolve and
@@ -2001,7 +2176,7 @@ def _resolve_actor_word(word):
     of two letters as well, so a drop from a three letter word
     still resolves. A word of one letter stands read through
     the drop limbs only where exactly one vocabulary word
-    drops to it. Past those forms the resolver also reads added letters composed with replacements or with one transposition, where the differing positions left after the added letters stand struck number at most five and the total of the added count and the remaining changes stands at most seven, a transposed pair among the differing positions counting as one change in place of the two positions it stands on. The resolver also reads one transposed pair standing at any two positions of the word, including the two edge positions, composed with three further replaced letters. Any other word stands as itself."""
+    drops to it. Past those forms the resolver also reads added letters composed with replacements or with one transposition, where the differing positions left after the added letters stand struck number at most five and the total of the added count and the remaining changes stands at most seven, a transposed pair among the differing positions counting as one change in place of the two positions it stands on. The resolver also reads one transposed pair standing at any two positions of the word, including the two edge positions, composed with three further replaced letters. Three transpositions beside one replaced letter also resolve, in the same composed form, the total standing past three. A word that stands as itself under the composition forms, in particular a word built from a candidate by two disjoint transposed pairs beside one replaced letter, does not fall through to the mixed added reading of a shorter candidate. Any other word stands as itself."""
     if word in _ACTOR_VOCABULARY:
         return word
     if _actor_segments_into_vocabulary(word, _ACTOR_VOCABULARY):
@@ -2197,7 +2372,7 @@ def _resolve_actor_word(word):
                 for first, second in itertools.combinations(differing, 2)
                 if word[first] == candidate[second]
                 and word[second] == candidate[first]]
-            for swap_count in (1, 2):
+            for swap_count in (1, 2, 3):
                 for chosen in itertools.combinations(
                         pair_options, swap_count):
                     used = [
@@ -2266,7 +2441,11 @@ def _resolve_actor_word(word):
                 return candidate
     for candidate in _ACTOR_VOCABULARY_ORDERED:
         if _mixed_added_resolves(word, candidate):
-            return candidate
+            if not any(
+                    other != candidate
+                    and _two_pairs_beside_one_replacement(word, other)
+                    for other in _ACTOR_VOCABULARY_ORDERED):
+                return candidate
         if _anywhere_transposition_resolves(word, candidate):
             return candidate
     return word
@@ -2328,6 +2507,22 @@ _BLANK_GLYPHS = frozenset(("\u2800", "\u115f"))
 _HANGUL_FILLER_CHARS = frozenset(("\u1160", "\u3164", "\uffa0"))
 
 
+def _text_states_condition(text):
+    """Whether a text carries readable text past the blank
+    classes the flag condition reading states: zero width and
+    invisible format characters, blank glyphs, Hangul filler
+    characters, and characters of the stated blank categories
+    carry no readable text, and spacing alone carries none."""
+    readable = "".join(
+        char for char in text
+        if char not in _ZERO_WIDTH_CHARS
+        and char not in _BLANK_GLYPHS
+        and char not in _HANGUL_FILLER_CHARS
+        and unicodedata.category(char)
+        not in ("Cf", "Mn", "Cc", "Mc", "Me", "Cs", "Cn", "Co"))
+    return bool(readable.strip())
+
+
 def _has_stated_condition(fired):
     """Whether a fired condition list states at least one
     condition: an entry states a condition where it stands as a
@@ -2349,7 +2544,16 @@ def _has_stated_condition(fired):
     unassigned code point, and a private use character carry
     no readable text in the same manner, so an entry holding
     only characters of those kinds states no condition
-    either."""
+    either. A text entry stands read by its stored characters,
+    through the stored text reading, never through an iteration
+    reading the entry itself supplies. A bytes, bytearray, or
+    memoryview entry stands judged on its decoded stored text
+    in the same manner: where its stored bytes decode as UTF-8
+    text, that decoded text stands judged as a string entry,
+    so a blank bytes form states no condition, and where its
+    stored bytes do not decode, the entry states a condition
+    where it carries any byte past spacing, as MOD-07 judges
+    those forms."""
     if isinstance(fired, str):
         entries = [fired]
     elif isinstance(fired, (list, tuple, set, frozenset)):
@@ -2360,14 +2564,17 @@ def _has_stated_condition(fired):
         entries = [fired]
     for entry in entries:
         if isinstance(entry, str):
-            readable = "".join(
-                char for char in entry
-                if char not in _ZERO_WIDTH_CHARS
-                and char not in _BLANK_GLYPHS
-                and char not in _HANGUL_FILLER_CHARS
-                and unicodedata.category(char)
-                not in ("Cf", "Mn", "Cc", "Mc", "Me", "Cs", "Cn", "Co"))
-            if readable.strip():
+            if _text_states_condition(_stored_text(entry)):
+                return True
+        elif isinstance(entry, (bytes, bytearray, memoryview)):
+            raw = bytes(entry)
+            if not bytes.strip(raw):
+                continue
+            try:
+                decoded = bytes.decode(raw, "utf-8")
+            except UnicodeDecodeError:
+                return True
+            if _text_states_condition(decoded):
                 return True
         elif entry is not None:
             return True
@@ -2651,7 +2858,11 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
     operations, so its run identifier, its store kind, its day,
     and the form compared against the retained checkpoint all
     stand taken from its stored contents, never through a get
-    or items reading the handed checkpoint supplies."""
+    or items reading the handed checkpoint supplies. The final
+    comparison stands judged through _base_value_eq, the base
+    reading equality on stored contents, at every level of the
+    compared forms, never through plain dict equality running
+    equality readings the handed values supply."""
     if not isinstance(checkpoint, dict):
         raise ValueError(
             "identity less checkpoint: a resume stands on a checkpoint "
@@ -2701,7 +2912,8 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
             key: value for key, value in dict.items(retained)
             if key not in ("journal_event_count_at_checkpoint", "store_kind")
         }
-        if _comparison_form(retained_form) == handed_compared:
+        if _base_value_eq(
+                _comparison_form(retained_form), handed_compared):
             return copy.deepcopy(checkpoint)
     raise ValueError(
         "checkpoint integrity refusal: the handed "

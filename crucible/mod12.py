@@ -170,26 +170,43 @@ def seal_family_record(record):
     cycle guard as the sister record acts of this module,
     checked before the copy: a shape past the bound or carrying
     a cycle stands refused in the named form, never as a bare
-    RecursionError."""
-    missing = [
-        item for item in FAMILY_COMPLETENESS_ITEMS
-        if not isinstance(record, dict) or not record.get(item)
-    ]
-    if missing:
-        raise NamedControllerFailure(
-            "family record cannot seal, completeness items missing: "
-            + ", ".join(missing))
+    RecursionError. The bound guard runs before any reading of
+    the handed record's contents takes effect, and the
+    completeness, version, and hash readings run through base
+    dict operations on the stored contents, never through a
+    reading the handed record itself supplies, so a hostile
+    record meets the named refusal form and no bare exception
+    escapes. The version and hash values stand bound checked
+    and copied under the guard before sealing, so nothing the
+    handed record reports seals unguarded or by identity."""
     if _shape_exceeds_bounds(record):
         raise NamedControllerFailure(
             "family record cannot seal: the record stands "
             "deeper than the stated bound of "
             + str(_MAX_BARRED_READ_DEPTH)
             + " or carries a cycle")
+    missing = [
+        item for item in FAMILY_COMPLETENESS_ITEMS
+        if not isinstance(record, dict) or not dict.get(record, item)
+    ]
+    if missing:
+        raise NamedControllerFailure(
+            "family record cannot seal, completeness items missing: "
+            + ", ".join(missing))
+    version_value = dict.get(record, "family_version")
+    hash_value = dict.get(record, "family_manifest_hash")
+    for seal_value in (version_value, hash_value):
+        if _shape_exceeds_bounds(seal_value):
+            raise NamedControllerFailure(
+                "family record cannot seal: the version or hash "
+                "value stands deeper than the stated bound of "
+                + str(_MAX_BARRED_READ_DEPTH)
+                + " or carries a cycle")
     sealed = _freeze(record)
     sealed["sealed"] = True
     sealed["seal"] = {
-        "version": record.get("family_version") or "version 1",
-        "hash": record.get("family_manifest_hash") or (
+        "version": _freeze(version_value) or "version 1",
+        "hash": _freeze(hash_value) or (
             "manifest hash supplied as a record value, not computed"),
     }
     sealed["seal_version"] = sealed["seal"]["version"]
@@ -351,7 +368,18 @@ def validate_family_record(record):
 def admit_claim(family, claim=None):
     """Admit one claim to a family. A claim entering after results
     are seen is barred from the family and supports no headline
-    publication from it."""
+    publication from it. The claim stands under the same depth
+    bound and cycle guard as the sister record acts of this
+    module, checked ahead of the copy: a claim past the bound
+    or carrying a cycle stands refused in the named form, never
+    copied whole, preserved in its cycle, or raised as a bare
+    RecursionError."""
+    if _shape_exceeds_bounds(claim):
+        raise NamedControllerFailure(
+            "claim cannot be admitted: the claim stands "
+            "deeper than the stated bound of "
+            + str(_MAX_BARRED_READ_DEPTH)
+            + " or carries a cycle")
     if isinstance(family, dict) and family.get("results_seen"):
         raise NamedControllerFailure(
             "claim entering after results are seen is barred from the family"

@@ -274,10 +274,19 @@ _SHORT_I_PLACEHOLDER = "\ue000"
 def _stored_text(value):
     """The text a value stores, read through the base class
     string form, never through a string reading the value
-    itself supplies."""
+    itself supplies. A value that is not a text form stores
+    no text, so no name stands judged from a string reading
+    a non text value itself supplies, and its stored text
+    stands as the empty text, in the cured MOD-01 form. A
+    bytes value stands judged on its stored bytes, decoded
+    as UTF-8 with undecodable bytes dropped, never through
+    a string reading a bytes subclass itself supplies, so a
+    bytes form keeps the standing its stored name carries."""
     if isinstance(value, str):
         return str.__str__(value)
-    return str(value)
+    if isinstance(value, bytes):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
+    return ""
 
 
 def _decomposed_characters(key):
@@ -627,6 +636,40 @@ def _undirected_copy(value, _memo=None):
     return value
 
 
+def _key_and_parts(key):
+    """One key beside every part standing inside it, where the
+    key stands in a container form: a container key stands
+    judged by every part it carries, at any nesting, through
+    base class readings, never through a string reading of
+    the container itself. The walk stands iterative, so a
+    key chain at any depth stands read on the same terms as
+    the payload walk that carries it, and a container part
+    already visited stands visited once."""
+    forms = []
+    seen = set()
+    stack = [key]
+    while stack:
+        part = stack.pop()
+        if isinstance(part, (dict, list, tuple, set, frozenset)):
+            if id(part) in seen:
+                continue
+            seen.add(id(part))
+            forms.append(part)
+            if isinstance(part, dict):
+                stack.extend(dict.keys(part))
+            elif isinstance(part, list):
+                stack.extend(list.__iter__(part))
+            elif isinstance(part, tuple):
+                stack.extend(tuple.__iter__(part))
+            elif isinstance(part, frozenset):
+                stack.extend(frozenset.__iter__(part))
+            else:
+                stack.extend(set.__iter__(part))
+        else:
+            forms.append(part)
+    return forms
+
+
 def _payload_carries_barred(value, _depth=0, _seen=None, _walked=None):
     """Screen a payload at any depth for the barred money and
     anchor forms: a real money value, an amount and currency pair,
@@ -686,30 +729,34 @@ def _payload_walk_barred(value, _depth=0, _seen=None, _walked=None):
         if id(value) in seen:
             return True
         seen.add(id(value))
-        keys = {_stored_text(key).lower() for key in dict.keys(value)}
+        all_keys = []
+        for key in dict.keys(value):
+            all_keys.extend(_key_and_parts(key))
+        keys = {_stored_text(key).lower() for key in all_keys}
         if "amount" in keys and "currency" in keys:
             return True
         if (
-            any(_key_reads_as(key, "amount") for key in dict.keys(value))
-            and any(_key_reads_as(key, "currency") for key in dict.keys(value))
+            any(_key_reads_as(key, "amount") for key in all_keys)
+            and any(_key_reads_as(key, "currency") for key in all_keys)
         ):
             return True
         for key, item in dict.items(value):
-            lowered = _stored_text(key).lower()
-            if "anchor_set" in lowered or (
-                "real_money" in lowered and item is not None
-            ):
-                return True
-            for reading in _folded_readings(key):
-                if "anchorset" in reading or (
-                    "realmoney" in reading and item is not None
+            for key_form in _key_and_parts(key):
+                lowered = _stored_text(key_form).lower()
+                if "anchor_set" in lowered or (
+                    "real_money" in lowered and item is not None
                 ):
                     return True
-            if _key_carries_multi_reading(key, "anchorset") or (
-                _key_carries_multi_reading(key, "realmoney")
-                and item is not None
-            ):
-                return True
+                for reading in _folded_readings(key_form):
+                    if "anchorset" in reading or (
+                        "realmoney" in reading and item is not None
+                    ):
+                        return True
+                if _key_carries_multi_reading(key_form, "anchorset") or (
+                    _key_carries_multi_reading(key_form, "realmoney")
+                    and item is not None
+                ):
+                    return True
             if _payload_carries_barred(key, _depth + 1, seen, _walked):
                 return True
             if _payload_carries_barred(item, _depth + 1, seen, _walked):

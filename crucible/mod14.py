@@ -629,11 +629,24 @@ def _has_stated_condition(fired):
     """Return whether a fired condition list states a condition:
     at least one entry stands stated, where an entry that is
     empty text, blank text, or no value states no condition.
-    A list holding only such entries states no condition."""
+    A list holding only such entries states no condition.
+    The container stands read through the base iteration
+    reading of its form, never through an iteration reading
+    the container itself supplies. An entry in bytes,
+    bytearray, or memoryview form stands judged on its
+    stored bytes in the same manner as a passage field at
+    MOD-07: bytes holding only spacing, or holding only
+    text that states nothing, state no condition."""
     if isinstance(fired, str):
         entries = (fired,)
-    elif isinstance(fired, (list, tuple, set, frozenset)):
-        entries = tuple(fired)
+    elif isinstance(fired, list):
+        entries = tuple(list.__iter__(fired))
+    elif isinstance(fired, tuple):
+        entries = tuple(tuple.__iter__(fired))
+    elif isinstance(fired, frozenset):
+        entries = tuple(frozenset.__iter__(fired))
+    elif isinstance(fired, set):
+        entries = tuple(set.__iter__(fired))
     elif fired is None:
         entries = ()
     else:
@@ -643,6 +656,16 @@ def _has_stated_condition(fired):
             continue
         if isinstance(entry, str) and not _stated_text(entry):
             continue
+        if isinstance(entry, (bytes, bytearray, memoryview)):
+            raw = bytes(entry)
+            if not bytes.strip(raw):
+                continue
+            try:
+                decoded = bytes.decode(raw, "utf-8")
+            except UnicodeDecodeError:
+                return True
+            if not _stated_text(decoded):
+                continue
         return True
     return False
 
@@ -670,9 +693,12 @@ def _stated_text(entry):
     nothing readable either, so characters of categories Cs,
     Cn, and Co stand removed in the same manner. An entry
     carrying only such characters, or only spacing, carries
-    no readable text and states no condition."""
+    no readable text and states no condition. The entry
+    stands read through its stored characters, through the
+    base class string form, never through an iteration
+    reading the entry itself supplies."""
     cleaned = "".join(
-        char for char in entry
+        char for char in str.__str__(entry)
         if char not in _ZERO_WIDTH_CHARS
         and char not in _BLANK_GLYPH_CHARS
         and char not in _HANGUL_FILLER_CHARS
@@ -1089,6 +1115,101 @@ def _two_pairs_composed_resolves(word, candidate, differing):
     return False
 
 
+def _composed_transpositions_resolve(word, candidate, differing):
+    """Whether the differing positions of a word stand as
+    one or two transposed pairs standing at any positions
+    of the word, composed with one to three remaining
+    differing positions standing as replaced letters, in
+    the MOD-10 form: the composition resolves only where
+    the total number of changes, the pairs plus the
+    remaining positions, stands past three, and the
+    remaining positions stand as replacements only where
+    no two of them stand as a transposed pair of their
+    own."""
+    if len(differing) < 4 or len(differing) > 7:
+        return False
+    pair_options = [
+        (first, second)
+        for first, second in itertools.combinations(differing, 2)
+        if word[first] == candidate[second]
+        and word[second] == candidate[first]]
+    for swap_count in (1, 2):
+        for chosen in itertools.combinations(pair_options, swap_count):
+            used = [index for pair in chosen for index in pair]
+            if len(set(used)) != len(used):
+                continue
+            rest = [
+                index for index in differing if index not in used]
+            if not 1 <= len(rest) <= 3:
+                continue
+            if swap_count + len(rest) <= 3:
+                continue
+            if _carries_transposed_pair(word, candidate, rest):
+                continue
+            return True
+    return False
+
+
+def _three_pairs_composed_resolves(word, candidate, differing):
+    """Whether the differing positions of a word stand as
+    three disjoint transposed pairs standing at any
+    positions of the word, adjacent or not, composed with
+    one to three remaining differing positions standing
+    as replaced letters. The remaining positions stand as
+    replacements only where no two of them stand as a
+    transposed pair of their own, in the form the anywhere
+    transposition reading states."""
+    if len(differing) not in (7, 8, 9):
+        return False
+    pairs = [
+        (first, second)
+        for first, second in itertools.combinations(differing, 2)
+        if word[first] == candidate[second]
+        and word[second] == candidate[first]]
+    for chosen in itertools.combinations(pairs, 3):
+        used = [index for pair in chosen for index in pair]
+        if len(set(used)) != len(used):
+            continue
+        remaining = [
+            index for index in differing if index not in used]
+        if not 1 <= len(remaining) <= 3:
+            continue
+        if not _carries_transposed_pair(
+                word, candidate, remaining):
+            return True
+    return False
+
+
+def _total_three_transposition_dress(word, candidate, minimum_pairs):
+    """Whether a word stands as a dress of a candidate of
+    its own length built from transposed pairs and
+    replaced letters at a change total of three or below,
+    with at least the stated number of transposed pairs.
+    Such a dress stands as itself under the stated
+    composition form, which resolves transpositions
+    composed with replacements only past a total of
+    three, so no later limb re-reads it as another word."""
+    if len(word) != len(candidate):
+        return False
+    differing = _differing_positions(word, candidate)
+    if len(differing) not in (3, 4, 5):
+        return False
+    pairs = [
+        (first, second)
+        for first, second in itertools.combinations(differing, 2)
+        if word[first] == candidate[second]
+        and word[second] == candidate[first]]
+    for pair_count in range(minimum_pairs, 3):
+        for chosen in itertools.combinations(pairs, pair_count):
+            used = [index for pair in chosen for index in pair]
+            if len(set(used)) != len(used):
+                continue
+            remaining = len(differing) - 2 * pair_count
+            if remaining >= 0 and pair_count + remaining <= 3:
+                return True
+    return False
+
+
 def _resolve_against(word, ordered, vocabulary):
     """Read one word as the vocabulary word it dresses, where
     it dresses one: the word itself where it stands plain, a
@@ -1121,7 +1242,7 @@ def _resolve_against(word, ordered, vocabulary):
     still resolves. A word of one letter stands read through
     the drop limbs only where exactly one vocabulary word
     drops to it, so a one letter word that several words
-    drop to stands as itself. Past those forms the resolver also reads added letters composed with replacements or with one transposition, where the differing positions left after the added letters stand struck number at most five and the total of the added count and the remaining changes stands at most seven, a transposed pair among the differing positions counting as one change in place of the two positions it stands on. The resolver also reads one transposed pair standing at any two positions of the word, including the two edge positions, composed with three further replaced letters. Any other word stands as
+    drop to stands as itself. Past those forms the resolver also reads added letters composed with replacements or with one transposition, where the differing positions left after the added letters stand struck number at most five and the total of the added count and the remaining changes stands at most seven, a transposed pair among the differing positions counting as one change in place of the two positions it stands on. The resolver also reads one transposed pair standing at any two positions of the word, including the two edge positions, composed with three further replaced letters. That anywhere composition stands in the main body, in the MOD-10 form of one or two transposed pairs at any positions beside one to three replacements resolving only past a change total of three with no transposed pair among the remaining positions, ahead of the five replacement and mixed added readings, and three disjoint transposed pairs at any positions, adjacent or not, composed with one to three replaced letters also resolve in the main body. A word built from a vocabulary word by transposed pairs and replacements at a change total of three or below stands as itself: the five replacement reading and the mixed added reading do not re-read such a word as another word. Any other word stands as
     itself."""
     if word in vocabulary:
         return word
@@ -1326,6 +1447,24 @@ def _resolve_against(word, ordered, vocabulary):
             differing = [
                 index for index in range(len(word))
                 if candidate[index] != word[index]]
+            if _composed_transpositions_resolve(
+                    word, candidate, differing):
+                return candidate
+        for candidate in ordered:
+            if len(candidate) != len(word):
+                continue
+            differing = [
+                index for index in range(len(word))
+                if candidate[index] != word[index]]
+            if _three_pairs_composed_resolves(
+                    word, candidate, differing):
+                return candidate
+        for candidate in ordered:
+            if len(candidate) != len(word):
+                continue
+            differing = [
+                index for index in range(len(word))
+                if candidate[index] != word[index]]
             if _two_pairs_composed_resolves(word, candidate, differing):
                 return candidate
         for candidate in ordered:
@@ -1363,6 +1502,9 @@ def _resolve_against(word, ordered, vocabulary):
             if differences == 4:
                 return candidate
         for candidate in ordered:
+            if _total_three_transposition_dress(word, candidate, 2):
+                return word
+        for candidate in ordered:
             if len(candidate) != len(word):
                 continue
             differing = [
@@ -1394,8 +1536,12 @@ def _resolve_against(word, ordered, vocabulary):
                     if left != right)
                 if differences == 2:
                     return candidate
+    stands_as_itself = any(
+        _total_three_transposition_dress(word, candidate, 1)
+        for candidate in ordered)
     for candidate in ordered:
-        if _mixed_added_resolves(word, candidate):
+        if not stands_as_itself and _mixed_added_resolves(
+                word, candidate):
             return candidate
         if _anywhere_transposition_resolves(word, candidate):
             return candidate

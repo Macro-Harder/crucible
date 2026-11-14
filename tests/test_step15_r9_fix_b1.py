@@ -87,8 +87,12 @@ class TestR8006ClosedFormStoredNames(unittest.TestCase):
     def test_r8_006_control_lie_key_storing_allowed_name(self):
         lie = HashEqLieKey(
             "claim_sentence",
-            "headline_unit_identifier_and_issue_date")
-        instance = {lie: "x", **mod01.minimal_valid_instance("16")}
+            "claim_sentence")
+        minimal = mod01.minimal_valid_instance("16")
+        rest = {
+            key: value for key, value in minimal.items()
+            if key != "claim_sentence"}
+        instance = {lie: minimal["claim_sentence"], **rest}
         self.assertTrue(mod01.validate_record("16", instance))
 
 

@@ -239,7 +239,7 @@ class TestR8025DaySortKey(unittest.TestCase):
         for char in ("\u2075", "\u00b2", "\u00b3", "\u2460"):
             with self.subTest(code=hex(ord(char))):
                 key = mod10._day_sort_key((char, "viewer1"))
-                self.assertEqual(key, (1, 0, char + ":" + "viewer1"))
+                self.assertEqual(key, (1, 0, char, "viewer1"))
 
     def test_defect_aggregate_acts_no_bare_value_error(self):
         delivery = {
@@ -269,7 +269,7 @@ class TestR8025DaySortKey(unittest.TestCase):
 
     def test_control_nondigit_text_fallback(self):
         self.assertEqual(
-            mod10._day_sort_key(("later", "viewer1")), (1, 0, "later:viewer1"))
+            mod10._day_sort_key(("later", "viewer1")), (1, 0, "later", "viewer1"))
 
     def test_control_plain_digit_day_aggregates(self):
         delivery = {

@@ -19,6 +19,7 @@ import re
 
 from crucible import mod01
 from crucible import mod10
+from crucible import mod13
 
 HEADLINE_UNIT_FIELDS = mod01.form_fields("16")
 REGISTRY_FIELDS = mod01.form_fields("22")
@@ -126,32 +127,44 @@ def judge_registry_entry(entry, compiler, checker, run_log=None):
     Reporter acting as family registrar: the before runs fields
     for lateness, the after runs fields for completeness, the
     entry compared against the run log by a checker who did not
-    compile the registry. The comparison stands stated only
-    where a run log stands among the inputs of the act: handed
-    in as the run log argument, or carried on the entry itself.
-    With no run log among the inputs, no comparison stands
-    stated, because none took place."""
+    compile the registry. The comparison itself stands in
+    MOD-13, the checker that did not compile the registry, at
+    mod13.compare_registry_against_run_log, and this act reads
+    its result: the comparison stands stated only where that act
+    performed one, on a run log handed in as the run log
+    argument or carried on the entry itself. With no run log
+    among the inputs, no comparison stands performed, because
+    none took place. An entry stands valid only where the
+    comparison stands performed and passed beside both phase
+    judgements and a checker who did not compile the entry."""
     same_person = compiler == checker
     phases = (entry or {}).get("phase_judgements") or {}
     judged = {
         "before_runs": phases.get("before_runs") == "judged",
         "after_runs": phases.get("after_runs") == "judged",
     }
-    run_log_stands = run_log is not None or (
-        isinstance(entry, dict) and entry.get("run_log") is not None)
+    comparison = None
+    if not same_person:
+        comparison = mod13.compare_registry_against_run_log(
+            entry if isinstance(entry, dict) else {}, run_log=run_log)
+    performed = bool(comparison and comparison["performed"])
+    passed = bool(comparison and comparison["passed"])
     return {
         "before_runs_judged_for": "lateness",
         "after_runs_judged_for": "completeness",
         "phases_judged": judged,
-        "compared_against_run_log": run_log_stands and not same_person,
+        "compared_against_run_log": performed,
+        "registry_comparison": comparison,
         "checker_did_not_compile": not same_person,
-        "valid": (not same_person) and all(judged.values()),
+        "valid": (not same_person) and all(judged.values())
+        and performed and passed,
     }
 
 
 def validate_registry_entry(entry, compiler, checker, run_log=None):
     """Return True only where an entry stands judged in both
-    phases by a checker who did not compile it."""
+    phases by a checker who did not compile it, and the MOD-13
+    registry comparison stands performed and passed for it."""
     return judge_registry_entry(
         entry, compiler, checker, run_log=run_log)["valid"]
 
@@ -630,8 +643,21 @@ def _readable_stem(word):
     """Yield the plain stems a regular inflection of a lexicon
     word can stand on, so a plural, a past form, or an adverb
     formed in the regular way from a word of the language counts
-    with the word it is formed from."""
+    with the word it is formed from. The ing and ed limbs carry
+    the doubled consonant undoing, so the form that doubles a
+    short vowel word final consonant counts with its base. The
+    est limb stands beside the er limb, so a superlative formed
+    in the regular way counts with its base, and the y limb
+    stands as a derivation limb, so an adjective formed with y
+    from a noun of the lexicon counts with that noun."""
     stems = []
+
+    def undoubled(stem):
+        if len(stem) > 2 and stem[-1] == stem[-2] \
+                and stem[-1] not in _READABLE_VOWELS:
+            return stem[:-1]
+        return None
+
     if word.endswith("ies") and len(word) > 4:
         stems.append(word[:-3] + "y")
     if word.endswith("es") and len(word) > 3:
@@ -641,13 +667,28 @@ def _readable_stem(word):
     if word.endswith("ed") and len(word) > 4:
         stems.append(word[:-2])
         stems.append(word[:-1])
+        plain = undoubled(word[:-2])
+        if plain is not None:
+            stems.append(plain)
     if word.endswith("ing") and len(word) > 5:
         stems.append(word[:-3])
         stems.append(word[:-3] + "e")
+        plain = undoubled(word[:-3])
+        if plain is not None:
+            stems.append(plain)
     if word.endswith("ly") and len(word) > 4:
         stems.append(word[:-2])
     if word.endswith("er") and len(word) > 4:
         stems.append(word[:-2])
+    if word.endswith("est") and len(word) > 5:
+        stems.append(word[:-3])
+        stems.append(word[:-2])
+        plain = undoubled(word[:-3])
+        if plain is not None:
+            stems.append(plain)
+    if word.endswith("y") and len(word) > 4:
+        stems.append(word[:-1])
+        stems.append(word[:-1] + "e")
     return stems
 
 
@@ -664,13 +705,22 @@ def _is_readable_word(word):
     charge behind this reading stands in the Round 2 register
     rows R2-035 and R2-055, that a plain word counts only where
     the letter string stands as a readable word, and in the
-    plain sentence duty of the design brief at Shape 15."""
+    plain sentence duty of the design brief at Shape 15. A
+    closed compound counts where it divides into parts that
+    each stand in the lexicon in plain form; a compound with
+    a part outside the lexicon counts as no word."""
     if len(word) < 3:
         return False
     if word in _READABLE_LEXICON:
         return True
-    return any(stem in _READABLE_LEXICON
-               for stem in _readable_stem(word))
+    if any(stem in _READABLE_LEXICON
+           for stem in _readable_stem(word)):
+        return True
+    for split in range(3, len(word) - 2):
+        if word[:split] in _READABLE_LEXICON \
+                and word[split:] in _READABLE_LEXICON:
+            return True
+    return False
 
 
 def _plain_word_count(text):
@@ -823,7 +873,15 @@ def _parley_grounds_stated(other):
     the Parley name and from the question word. The wording
     that states the number word before the question word, or
     before the Parley name where the question word follows
-    the name, stands read beside those forms."""
+    the name, stands read beside those forms. The reversed
+    joined forms, with the question limb or the number limb
+    standing before the Parley name in one joined word, and
+    the forms with the number limb standing after the Parley
+    name in one joined word, stand read beside the forward
+    joined forms. A ground number standing before the q
+    token, spaced, joined to the q, or standing after the
+    Parley name beside a following q, stands read beside
+    the forms that state the number after the q."""
     tokens = _ground_tokens(other)
     grounds = set()
     ordinal_numbers = {
@@ -875,6 +933,62 @@ def _parley_grounds_stated(other):
         if joined_question_word is not None:
             grounds.add(
                 _PARLEY_GROUND_NUMBERS[joined_question_word.group(1)])
+        reversed_joined = re.fullmatch(
+            r"(?:questions?|q)([125])parley", token)
+        if reversed_joined is not None:
+            grounds.add(reversed_joined.group(1))
+        reversed_joined_word = re.fullmatch(
+            r"(?:questions?|q)(one|two|five)parley", token)
+        if reversed_joined_word is not None:
+            grounds.add(
+                _PARLEY_GROUND_NUMBERS[reversed_joined_word.group(1)])
+        number_first_joined = re.fullmatch(
+            r"([125]|one|two|five)(?:questions?|q)parley", token)
+        if number_first_joined is not None:
+            grounds.add(_PARLEY_GROUND_NUMBERS[
+                number_first_joined.group(1)])
+        parley_number_q = re.fullmatch(
+            r"parley([125]|one|two|five)q", token)
+        if parley_number_q is not None:
+            grounds.add(
+                _PARLEY_GROUND_NUMBERS[parley_number_q.group(1)])
+        parley_number_questions = re.fullmatch(
+            r"parley([125]|one|two|five)questions?", token)
+        if parley_number_questions is not None:
+            grounds.add(_PARLEY_GROUND_NUMBERS[
+                parley_number_questions.group(1)])
+        number_parley_questions = re.fullmatch(
+            r"([125]|one|two|five)parleyquestions?", token)
+        if number_parley_questions is not None:
+            grounds.add(_PARLEY_GROUND_NUMBERS[
+                number_parley_questions.group(1)])
+        if "parley" in tokens:
+            question_number_token = re.fullmatch(
+                r"questions?([125]|one|two|five)", token)
+            if question_number_token is not None:
+                grounds.add(_PARLEY_GROUND_NUMBERS[
+                    question_number_token.group(1)])
+            number_question_token = re.fullmatch(
+                r"([125]|one|two|five)questions?", token)
+            if number_question_token is not None:
+                grounds.add(_PARLEY_GROUND_NUMBERS[
+                    number_question_token.group(1)])
+            number_q_token = re.fullmatch(
+                r"([125]|one|two|five)q", token)
+            if number_q_token is not None:
+                grounds.add(_PARLEY_GROUND_NUMBERS[
+                    number_q_token.group(1)])
+            q_number_token = re.fullmatch(
+                r"q([125]|one|two|five)", token)
+            if q_number_token is not None:
+                grounds.add(_PARLEY_GROUND_NUMBERS[
+                    q_number_token.group(1)])
+    if "parley" in tokens:
+        for index, token in enumerate(tokens):
+            if token in _PARLEY_GROUND_NUMBERS \
+                    and index + 1 < len(tokens) \
+                    and tokens[index + 1] == "q":
+                grounds.add(_PARLEY_GROUND_NUMBERS[token])
     for index, token in enumerate(tokens):
         if token != "parley":
             continue

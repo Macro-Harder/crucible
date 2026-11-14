@@ -212,6 +212,7 @@ class DeliveryPoint:
         self.form = "interface"
 
     def record_interface_delivery(self, payload_description):
+        _view_copy_guard(payload_description)
         entry = {
             "delivery_point": self.name,
             "destination": self.destination,
@@ -410,11 +411,14 @@ def _base_entries(value):
 def _stored_text(value):
     """The text a value stores, read through the base class
     string form, never through a string reading the value
-    itself supplies. A value that is not a text form stands
-    read through the plain string call, as before."""
+    itself supplies. A value that is not a text form stores
+    no text, so no name stands judged from a string reading
+    a non text value itself supplies, and its stored text
+    stands as the empty text, in the cured no name form the
+    sister modules state."""
     if isinstance(value, str):
         return str.__str__(value)
-    return str(value)
+    return ""
 
 
 def _folded_readings(key):
@@ -646,7 +650,29 @@ def _combined_key_barred(key):
     return False
 
 
-def _is_barred_key(key):
+def _is_barred_key(key, _seen=None):
+    if isinstance(key, (tuple, list, set, frozenset)):
+        # A container key stores no text name of its own. It
+        # stands barred only where a part it stores stands
+        # barred, judged on the stored parts through their base
+        # readings, or where the stored text parts joined in
+        # order spell a barred name, never from a string reading
+        # the container itself supplies.
+        if _seen is None:
+            _seen = set()
+        if id(key) in _seen:
+            return False
+        _seen.add(id(key))
+        try:
+            items = [item for index, item in _base_entries(key)]
+            if any(_is_barred_key(item, _seen) for item in items):
+                return True
+            joined = "".join(
+                str.__str__(item) for item in items
+                if isinstance(item, str))
+            return bool(joined) and _is_barred_key(joined, _seen)
+        finally:
+            _seen.discard(id(key))
     lowered = _stored_text(key).lower()
     if (
         lowered in BARRED_PROJECTION_KEYS
@@ -889,6 +915,7 @@ class TickEngine:
                 "direct state write from a second component is rejected: "
                 "the write path requires the engine instance itself, not a name"
             )
+        _view_copy_guard(change)
         self.state_writes.append(_freeze(change))
         return True
 
@@ -1009,8 +1036,9 @@ def run_record_with_order(run_record, order_identifier):
     """Return a copy of a run record carrying the scheduling order
     identifier the run used, as every run record must."""
     _view_copy_guard(run_record)
+    _view_copy_guard(order_identifier)
     record = _freeze(run_record)
-    record["scheduling_order_identifier"] = order_identifier
+    record["scheduling_order_identifier"] = _freeze(order_identifier)
     return record
 
 
@@ -1070,10 +1098,14 @@ def apply_event_to_state(state, event, engine=None):
         raise NamedFailure(
             "applying an event to simulation state requires the TickEngine instance that owns the write"
         )
+    _view_copy_guard(event)
+    if isinstance(state, dict):
+        _view_copy_guard(state)
     engine.write_simulation_state(engine, {"event": _freeze(event)})
     updated = _freeze(state) if isinstance(state, dict) else {}
     updates = event.get("feature_updates") if isinstance(event, dict) else None
     if isinstance(updates, dict):
+        _view_copy_guard(updates)
         features = dict(updated.get("feature_values") or {})
         features.update(_freeze(updates))
         updated["feature_values"] = features
@@ -1089,9 +1121,12 @@ def process_day_events(state, events):
     each projection carries the state after its own event and
     before any later event."""
     engine = TickEngine()
+    if isinstance(state, dict):
+        _view_copy_guard(state)
     current = _freeze(state) if isinstance(state, dict) else {}
     projections = []
     for event in events:
+        _view_copy_guard(event)
         current = apply_event_to_state(current, event, engine=engine)
         engine.rule_core_delivery.record_interface_delivery(
             {"kind": "event", "form": "interface", "event": _freeze(event)}
@@ -1469,6 +1504,12 @@ def write_checkpoint(manifest, agent_states=None,
     beside the manifest."""
     from crucible import mod01, mod10
 
+    _view_copy_guard(manifest)
+    _view_copy_guard(agent_states)
+    _view_copy_guard(escrow_contract_states)
+    _view_copy_guard(detection_state)
+    _view_copy_guard(stream_positions_and_generator_states)
+    _view_copy_guard(simulation_clock_value)
     if not isinstance(manifest, dict):
         raise NamedFailure(
             "checkpoint writing in named form: a checkpoint stands "

@@ -20,6 +20,7 @@ for seed derivation inputs at Shape 5), and the bar under which a field
 with no plan stated canonical form enters no hash equality claim.
 """
 
+import collections
 import copy
 import itertools
 import unicodedata
@@ -1311,8 +1312,50 @@ def validate_store_kind(kind):
 
 def store_index(kind):
     """The namespace token of a store kind. The three kinds are
-    distinct namespaces with no shared index."""
-    return "store namespace: " + str(kind)
+    distinct namespaces with no shared index. The token stands
+    built from the text the kind stores, as validate_store_kind
+    judges it, read through the base class string form, never
+    through a string reading the kind itself supplies. A kind
+    storing no text names no stored kind in its token."""
+    stored = _stored_text(kind)
+    if stored is None:
+        return "store namespace: no stored kind"
+    return "store namespace: " + stored
+
+
+def _outside_named_kinds(addressing):
+    """The stored contents of a container form outside dict, list,
+    tuple, set, and frozenset, read through the base class
+    operations of its kind, or None where no base class reading
+    of its stored contents stands."""
+    if isinstance(addressing, collections.deque):
+        return list(collections.deque.__iter__(addressing))
+    if isinstance(addressing, collections.UserList):
+        return list(collections.UserList.__iter__(addressing))
+    if isinstance(addressing, collections.UserDict):
+        stored = object.__getattribute__(addressing, "data")
+        if isinstance(stored, dict):
+            return list(dict.keys(stored))
+        return None
+    if isinstance(addressing, collections.ChainMap):
+        kinds = []
+        for part in list.__iter__(
+                object.__getattribute__(addressing, "maps")):
+            if isinstance(part, dict):
+                kinds.extend(dict.keys(part))
+        return kinds
+    if isinstance(addressing, bytearray):
+        return list(bytearray.__iter__(addressing))
+    if isinstance(addressing, bytes):
+        return list(bytes.__iter__(addressing))
+    for base in type(addressing).__mro__[1:]:
+        reading = base.__dict__.get("__iter__")
+        if reading is not None:
+            try:
+                return list(reading(addressing))
+            except (TypeError, AttributeError):
+                return None
+    return None
 
 
 def validate_store_addressing(addressing):
@@ -1326,7 +1369,9 @@ def validate_store_addressing(addressing):
     elif isinstance(addressing, (list, tuple, set, frozenset)):
         kinds = list(_base_iter(addressing))
     else:
-        kinds = tuple(addressing)
+        kinds = _outside_named_kinds(addressing)
+        if kinds is None:
+            return False
     if len(kinds) != 1:
         return False
     kind = kinds[0]
@@ -1395,9 +1440,20 @@ def _validate_record_inner(form_id, instance):
         return False
     if fid == "36":
         return _validate_eventlog(instance)
+    # The required field presence act reads the stored keys of
+    # the record through base dict operations: the pairs the
+    # record stores stand iterated directly, and a field stands
+    # present only where a stored text key carries its name
+    # under a base class comparison, never through a hash or
+    # equality reading a handed key supplies.
+    stored_pairs = list(dict.items(instance))
     for field in required_fields(fid):
-        if not dict.__contains__(instance, field) or (
-                dict.__getitem__(instance, field) is None):
+        matched = [
+            item for key, item in stored_pairs
+            if isinstance(key, str)
+            and str.__eq__(str.__str__(key), field)
+        ]
+        if not matched or matched[0] is None:
             return False
     for condition in _conditions_for(fid):
         if dict.__contains__(instance, condition["discriminator"]):
@@ -1437,12 +1493,11 @@ def _validate_record_inner(form_id, instance):
         # through a hash or equality reading the key supplies.
         allowed = form_fields(fid)
         for key in dict.keys(instance):
-            if isinstance(key, str):
-                stored = str.__str__(key)
-                if not any(
-                        str.__eq__(stored, field) for field in allowed):
-                    return False
-            elif key not in allowed:
+            stored = _stored_text(key)
+            if stored is None:
+                return False
+            if not any(
+                    str.__eq__(stored, field) for field in allowed):
                 return False
     if fid == "1":
         for slug in _COMPLETENESS_SLUGS:

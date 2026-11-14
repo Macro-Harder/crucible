@@ -343,6 +343,16 @@ _PASSAGE_BLANK_GLYPHS = frozenset(("\u2800", "\u115f"))
 _PASSAGE_HANGUL_FILLER_CHARS = frozenset(("\u1160", "\u3164", "\uffa0"))
 
 
+def _stored_text(value):
+    """The text a value stores, read through the base class
+    string form, never through a string reading the value
+    itself supplies. A value that is not a text form stores
+    no text, so its stored text stands as the empty text."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return ""
+
+
 def _passage_text_states_something(text):
     """Return True only where a text carries readable text, in
     the form of row R6-032: characters of Unicode category Cf,
@@ -352,14 +362,19 @@ def _passage_text_states_something(text):
     same form here: characters of Unicode category Cc, lone
     combining marks of Unicode categories Mc and Me, and the
     Hangul filler characters also carry no readable text.
-    The text stands read from its stored characters, never
-    through a strip reading the handed value supplies."""
+    A lone surrogate, an unassigned code point, and a private
+    use character carry no readable text in the same manner,
+    so characters of Unicode categories Cs, Cn, and Co also
+    carry none. The text stands read from its stored
+    characters, through the stored text reading, never
+    through an iteration reading or a strip reading the
+    handed value supplies."""
     cleaned = "".join(
-        char for char in text
+        char for char in _stored_text(text)
         if char not in _PASSAGE_BLANK_GLYPHS
         and char not in _PASSAGE_HANGUL_FILLER_CHARS
         and unicodedata.category(char)
-        not in ("Cf", "Mn", "Cc", "Mc", "Me"))
+        not in ("Cf", "Mn", "Cc", "Mc", "Me", "Cs", "Cn", "Co"))
     return bool(str.strip(cleaned))
 
 
@@ -373,7 +388,7 @@ def _passage_field_is_blank(field_value):
     the bytes stand judged on their whitespace reading."""
     if isinstance(field_value, str):
         return not _passage_text_states_something(
-            str.__str__(field_value))
+            _stored_text(field_value))
     if isinstance(field_value, (bytes, bytearray, memoryview)):
         raw = bytes(field_value)
         if not bytes.strip(raw):
