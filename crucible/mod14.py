@@ -130,15 +130,23 @@ def _freeze(value, _depth=0, _memo=None):
         copied = tuple(
             _freeze(item, _depth + 1, memo)
             for item in tuple.__iter__(value))
+        if id(value) in memo:
+            return memo[id(value)]
         memo[id(value)] = copied
         return copied
     if isinstance(value, (set, frozenset)):
+        if id(value) in memo:
+            return memo[id(value)]
         if isinstance(value, frozenset):
             base_iter = frozenset.__iter__
             plain_constructor = frozenset
         else:
             base_iter = set.__iter__
             plain_constructor = set
+        placeholder = None
+        if isinstance(value, set):
+            placeholder = set()
+            memo[id(value)] = placeholder
         copied_items = []
         for item in base_iter(value):
             frozen_item = _freeze(item, _depth + 1, memo)
@@ -156,10 +164,21 @@ def _freeze(value, _depth=0, _memo=None):
                         break
                     counter += 1
             copied_items.append(frozen_item)
+        if placeholder is not None:
+            try:
+                for frozen_item in copied_items:
+                    placeholder.add(frozen_item)
+            except TypeError:
+                memo[id(value)] = copied_items
+                return copied_items
+            return placeholder
         try:
             copied = plain_constructor(copied_items)
         except TypeError:
             copied = copied_items
+        if id(value) in memo:
+            return memo[id(value)]
+        memo[id(value)] = copied
         return copied
     return value
 
@@ -370,9 +389,19 @@ def run_command(command, payload=None, run_id=None):
 _PILOT_BARRED_KEY_MARKERS = ("money", "anchor_" + "set")
 
 
+def _stored_text(value):
+    """The text a value stores, read through the base class
+    string form, never through a string reading the value
+    itself supplies."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return str(value)
+
+
 def _pilot_key_form(key):
     return "".join(
-        char for char in str(key).lower() if char.isalnum())
+        char for char in _stored_text(key).lower()
+        if char.isalnum())
 
 
 _PILOT_BARRED_KEY_FORMS = tuple(
@@ -623,6 +652,8 @@ _ZERO_WIDTH_CHARS = (
 
 _BLANK_GLYPH_CHARS = ("\u2800", "\u115f")
 
+_HANGUL_FILLER_CHARS = ("\u1160", "\u3164", "\uffa0")
+
 
 def _stated_text(entry):
     """Return the readable text an entry carries, with zero
@@ -639,7 +670,9 @@ def _stated_text(entry):
         char for char in entry
         if char not in _ZERO_WIDTH_CHARS
         and char not in _BLANK_GLYPH_CHARS
-        and unicodedata.category(char) not in ("Cf", "Mn"))
+        and char not in _HANGUL_FILLER_CHARS
+        and unicodedata.category(char)
+        not in ("Cf", "Mn", "Cc", "Mc", "Me"))
     return cleaned.strip()
 
 
@@ -916,6 +949,102 @@ def _segments_into_vocabulary(word, vocabulary):
     return any(count >= 2 for count in counts[len(word)])
 
 
+def _differing_positions(left, right):
+    return [
+        index for index in range(len(left)) if left[index] != right[index]]
+
+
+def _carries_transposed_pair(reduced, candidate, differing):
+    """Whether two of the differing positions stand as one
+    transposed pair: the reduced letters at those positions
+    stand as the candidate letters at each other position."""
+    for first, second in itertools.combinations(differing, 2):
+        if (reduced[first] == candidate[second]
+                and reduced[second] == candidate[first]):
+            return True
+    return False
+
+
+def _mixed_added_resolves(word, candidate):
+    """Whether a word reads as a candidate word under added
+    letters composed with replacements or with one
+    transposition. The added count stands between one and
+    seven. The differing positions left after the added
+    letters stand struck number at most five, and the total
+    of the added count and the remaining changes stands at
+    most seven, where one transposed pair among the differing
+    positions counts as one change in place of the two
+    differing positions it stands on. A word whose differing
+    count or total stands past those bounds does not resolve
+    under this reading."""
+    added = len(word) - len(candidate)
+    if added < 1 or added > 7 or not candidate:
+        return False
+
+    def fewest_differing(variant, forced):
+        unreachable = len(word) + 1
+        row = [0] + [unreachable] * len(variant)
+        for char in word:
+            new_row = [0] * (len(variant) + 1)
+            for spot in range(1, len(variant) + 1):
+                if spot - 1 in forced:
+                    cost = 0 if char == variant[spot - 1] else unreachable
+                else:
+                    cost = 0 if char == variant[spot - 1] else 1
+                new_row[spot] = min(row[spot], row[spot - 1] + cost)
+            row = new_row
+        return row[len(variant)]
+
+    fewest = fewest_differing(candidate, frozenset())
+    if fewest < 1 or fewest > 5:
+        return False
+    if added + fewest <= 7:
+        return True
+    if added + 1 > 7:
+        return False
+    for first in range(len(candidate)):
+        for second in range(first + 1, len(candidate)):
+            if candidate[first] == candidate[second]:
+                continue
+            variant = list(candidate)
+            variant[first], variant[second] = (
+                variant[second], variant[first])
+            remaining = fewest_differing(
+                "".join(variant), frozenset((first, second)))
+            if remaining <= 3 and added + 1 + remaining <= 7:
+                return True
+    return False
+
+
+def _anywhere_transposition_resolves(word, candidate):
+    """Whether a word reads as a candidate word under one
+    transposed pair standing at any two positions of the word,
+    including the two edge positions, composed with three
+    further replaced letters. The differing positions number
+    five: the two positions of the pair and the three replaced
+    positions. The three remaining positions stand as
+    replacements only where no two of them stand as a
+    transposed pair of their own: a word whose remaining
+    positions carry such a pair stands built from two
+    transposed pairs and one replaced letter, a change total
+    of three, and does not resolve under this reading."""
+    if len(word) != len(candidate):
+        return False
+    differing = _differing_positions(word, candidate)
+    if len(differing) != 5:
+        return False
+    for first, second in itertools.combinations(differing, 2):
+        if not (word[first] == candidate[second]
+                and word[second] == candidate[first]):
+            continue
+        remaining = [
+            index for index in differing
+            if index not in (first, second)]
+        if not _carries_transposed_pair(word, candidate, remaining):
+            return True
+    return False
+
+
 def _resolve_against(word, ordered, vocabulary):
     """Read one word as the vocabulary word it dresses, where
     it dresses one: the word itself where it stands plain, a
@@ -948,7 +1077,7 @@ def _resolve_against(word, ordered, vocabulary):
     still resolves. A word of one letter stands read through
     the drop limbs only where exactly one vocabulary word
     drops to it, so a one letter word that several words
-    drop to stands as itself. Any other word stands as
+    drop to stands as itself. Past those forms the resolver also reads added letters composed with replacements or with one transposition, where the differing positions left after the added letters stand struck number at most five and the total of the added count and the remaining changes stands at most seven, a transposed pair among the differing positions counting as one change in place of the two positions it stands on. The resolver also reads one transposed pair standing at any two positions of the word, including the two edge positions, composed with three further replaced letters. Any other word stands as
     itself."""
     if word in vocabulary:
         return word
@@ -1209,6 +1338,11 @@ def _resolve_against(word, ordered, vocabulary):
                     if left != right)
                 if differences == 2:
                     return candidate
+    for candidate in ordered:
+        if _mixed_added_resolves(word, candidate):
+            return candidate
+        if _anywhere_transposition_resolves(word, candidate):
+            return candidate
     return word
 
 

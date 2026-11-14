@@ -179,7 +179,9 @@ _HIDDEN_PART_VALUES = ("redacted", "see elsewhere", "none", "x", "")
 _DEPTH_BOUND = 100
 
 
-def _envelope_part_stands(value, _seen=None, _depth=0):
+def _envelope_part_stands(value, _seen=None, _depth=0, _walked=None):
+    if _walked is None:
+        _walked = {}
     if _depth > _DEPTH_BOUND and isinstance(
             value, (dict, list, tuple, set, frozenset)):
         return False
@@ -197,13 +199,18 @@ def _envelope_part_stands(value, _seen=None, _depth=0):
         seen = _seen if _seen is not None else set()
         if id(value) in seen:
             return False
+        walked_key = (id(value), _depth)
+        if walked_key in _walked:
+            return _walked[walked_key]
         seen.add(id(value))
         try:
-            return any(
-                _envelope_part_stands(item, seen, _depth + 1)
+            result = any(
+                _envelope_part_stands(item, seen, _depth + 1, _walked)
                 for item in dict.values(value))
         finally:
             seen.discard(id(value))
+        _walked[walked_key] = result
+        return result
     if isinstance(value, (bytes, bytearray)):
         return any(byte != 0 for byte in bytes(value))
     if isinstance(value, memoryview):
@@ -214,6 +221,9 @@ def _envelope_part_stands(value, _seen=None, _depth=0):
         seen = _seen if _seen is not None else set()
         if id(value) in seen:
             return False
+        walked_key = (id(value), _depth)
+        if walked_key in _walked:
+            return _walked[walked_key]
         seen.add(id(value))
         try:
             iter_by_base = {list: list.__iter__, tuple: tuple.__iter__,
@@ -221,11 +231,13 @@ def _envelope_part_stands(value, _seen=None, _depth=0):
             base = next(cls for cls in type(value).__mro__
                         if cls in iter_by_base)
             base_iter = iter_by_base[base]
-            return any(
-                _envelope_part_stands(item, seen, _depth + 1)
+            result = any(
+                _envelope_part_stands(item, seen, _depth + 1, _walked)
                 for item in base_iter(value))
         finally:
             seen.discard(id(value))
+        _walked[walked_key] = result
+        return result
     if isinstance(value, bool):
         return value
     if isinstance(value, int):
@@ -594,6 +606,16 @@ animal golden angry hungry brave gentle polite quick bright
 dark clean dirty narrow empty healthy awake asleep alive
 proud lonely wonderful busy slow cool indian birds knew told
 heard black vowel hundred numeral english
+dog cat sat sun man dance ball fire bread coffee sky city
+chair desert harbor meadow sunset sunrise thunder lightning
+rainbow breeze shadow mirror candle button wallet basket
+kettle blanket pillow curtain carpet ladder hammer needle
+thread copper marble velvet cotton wooden gold zinc east
+joyfully actor boundary canary carriage closure defect
+ledger mechanism partition probability reputation settlement
+anxiously eagerly nervously furthermore nevertheless
+nonetheless consequently accordingly precision reliability
+validity boy girl eye
 """.split())
 
 
@@ -740,7 +762,8 @@ def _anchor_ground_stated(other):
     scenarios, anchors scenarios with the plural head word,
     hyphenated or not, the verb wording anchored in a named
     scenario, the joined wording anchorscenario, the reversed
-    joined wording scenarioanchor, the reversed wordings that
+    joined wording scenarioanchor, the reversed joined test
+    wording testanchor, the reversed wordings that
     name the scenario before its anchor, or the anchor test
     and anchor testing wordings the sources prove beside it.
     The scenario or test word counts wherever in the statement
@@ -749,7 +772,8 @@ def _anchor_ground_stated(other):
     tokens = _ground_tokens(other)
     if any(token in ("anchorscenario", "anchorscenarios",
                      "anchortest", "anchortests", "anchortesting",
-                     "scenarioanchor", "scenariosanchor")
+                     "scenarioanchor", "scenariosanchor",
+                     "testanchor", "testanchors")
            for token in tokens):
         return True
     if any(token in ("anchor", "anchors", "anchored", "anchoring")
@@ -786,7 +810,10 @@ def _parley_grounds_stated(other):
     states the numbers after the Parley name, and the ordinal
     wording wherever the ordinal word, the question word, and
     the Parley name stand together in the statement stand
-    read beside those forms."""
+    read beside those forms. The spaced Q form, the question
+    number form, and the numbered form stand read wherever
+    in the statement they stand, at any token distance from
+    the Parley name and from the question word."""
     tokens = _ground_tokens(other)
     grounds = set()
     ordinal_numbers = {
@@ -873,6 +900,29 @@ def _parley_grounds_stated(other):
                     grounds.add(_PARLEY_GROUND_NUMBERS[later])
                 if later in ordinal_numbers:
                     grounds.add(ordinal_numbers[later])
+    if "parley" in tokens:
+        for index, token in enumerate(tokens):
+            if token in ("q1", "q2", "q5"):
+                grounds.add(token[1])
+            if token == "q" and index + 1 < len(tokens) \
+                    and tokens[index + 1] in _PARLEY_GROUND_NUMBERS:
+                grounds.add(
+                    _PARLEY_GROUND_NUMBERS[tokens[index + 1]])
+    if "parley" in tokens and any(
+            word in ("question", "questions") for word in tokens):
+        for index, token in enumerate(tokens):
+            if token in ("question", "questions"):
+                for later in tokens[index + 1:]:
+                    if later in _PARLEY_GROUND_NUMBERS:
+                        grounds.add(
+                            _PARLEY_GROUND_NUMBERS[later])
+                    if later in ordinal_numbers:
+                        grounds.add(ordinal_numbers[later])
+            if token == "numbered":
+                for later in tokens[index + 1:]:
+                    if later in _PARLEY_GROUND_NUMBERS:
+                        grounds.add(
+                            _PARLEY_GROUND_NUMBERS[later])
     return grounds
 
 
@@ -1011,17 +1061,31 @@ def _quoted_copy(value, _memo=None, _depth=0):
             for item in list.__iter__(value))
         return copied
     if isinstance(value, tuple):
-        return tuple(
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = tuple(
             _quoted_copy(item, _memo, _depth + 1)
             for item in tuple.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
     if isinstance(value, (set, frozenset)):
+        if id(value) in _memo:
+            return _memo[id(value)]
         if isinstance(value, set):
-            return set(
-                _quoted_copy(item, _memo, _depth + 1)
-                for item in set.__iter__(value))
-        return frozenset(
+            copied = set()
+            _memo[id(value)] = copied
+            for item in set.__iter__(value):
+                copied.add(_quoted_copy(item, _memo, _depth + 1))
+            return copied
+        copied = frozenset(
             _quoted_copy(item, _memo, _depth + 1)
             for item in frozenset.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
     if isinstance(value, (str, bytes, bytearray, int, float, complex,
                           bool)) or value is None:
         return value

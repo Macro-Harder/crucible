@@ -110,14 +110,17 @@ def domain_vocabulary():
 
 def validate_domain(domain):
     """Return True only for a stated domain value."""
-    return domain in _DOMAINS
+    if not isinstance(domain, str):
+        return False
+    stored = str.__str__(domain)
+    return any(str.__eq__(stored, stated) for stated in _DOMAINS)
 
 
 def validate_derivation_domain_use(purpose=None, seed_domain=None):
     """Return True only where a seed is used inside its own domain."""
     if not validate_domain(purpose) or not validate_domain(seed_domain):
         return False
-    return purpose == seed_domain
+    return str.__eq__(str.__str__(purpose), str.__str__(seed_domain))
 
 
 def _base_iter(value):
@@ -276,10 +279,12 @@ def validate_stream_cardinality(counts=None, stream_set=None,
             if count is not True:
                 return False
         elif isinstance(count, int):
-            if not int.__eq__(int.__new__(int, count), 1):
+            if not int.__eq__(
+                    int.__new__(int, int.__int__(count)), 1):
                 return False
         elif isinstance(count, float):
-            if not float.__eq__(float.__new__(float, count), 1):
+            if not float.__eq__(
+                    float.__new__(float, float.__float__(count)), 1):
                 return False
         elif isinstance(count, Decimal):
             if not Decimal.__eq__(

@@ -212,7 +212,7 @@ _HOMOGLYPH_MAP = {
     "\u043c": "m", "\u043d": "h", "\u0442": "t", "\u0432": "b",
     "\u03b1": "a", "\u03b2": "b", "\u03b5": "e", "\u03b9": "i",
     "\u03ba": "k", "\u03bc": "m", "\u03bf": "o", "\u03c1": "p",
-    "\u03c4": "t", "\u03c7": "x", "\u03c5": "u", "\u03bd": "n",
+    "\u03c4": "t", "\u03c7": "x", "\u03c5": "y", "\u03bd": "n",
     "\u03b3": "g", "\u03b4": "d", "\u03bb": "l", "\u03c3": "s",
     "\u03c9": "w", "\u03b6": "z", "\u03b8": "t", "\u03c6": "f",
     "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
@@ -621,17 +621,33 @@ def _undirected_copy(value, _memo=None, _depth=0):
             for item in list.__iter__(value))
         return copied
     if isinstance(value, tuple):
-        return tuple(
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = tuple(
             _undirected_copy(item, _memo, _depth + 1)
             for item in tuple.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
     if isinstance(value, (set, frozenset)):
+        if id(value) in _memo:
+            return _memo[id(value)]
         base_iter = set.__iter__ if isinstance(value, set) \
             else frozenset.__iter__
-        plain_constructor = set if isinstance(value, set) \
-            else frozenset
-        return plain_constructor(
+        if isinstance(value, set):
+            copied = set()
+            _memo[id(value)] = copied
+            for item in base_iter(value):
+                copied.add(_undirected_copy(item, _memo, _depth + 1))
+            return copied
+        copied = frozenset(
             _undirected_copy(item, _memo, _depth + 1)
             for item in base_iter(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
     if isinstance(value, (str, bytes, bytearray, int, float,
                           complex, bool)) or value is None:
         return value

@@ -828,7 +828,12 @@ def _normalised_characters(text):
     # The characters stand taken from the text the value stores,
     # read through the base class string form, never through a
     # string reading the value itself supplies.
-    stored = str.__str__(text) if isinstance(text, str) else str(text)
+    # A value that is not a text form stores no text name, so the
+    # fold takes no characters from it and judges no name from a
+    # string reading the value itself supplies.
+    if not isinstance(text, str):
+        return []
+    stored = str.__str__(text)
     source = stored.replace(
         "\u0419", _SHORT_I_PLACEHOLDER).replace(
         "\u0439", _SHORT_I_PLACEHOLDER)
@@ -1216,23 +1221,78 @@ def _carries_real_money_value(value, _depth=0, _seen=None, _walked=None):
     return False
 
 
+def _stored_text(value):
+    """The text a handed value stores, read through the base class
+    string form, or None where the value stores no text at all."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return None
+
+
+def _stored_text_equals(value, expected):
+    """Whether the text a handed value stores stands equal to an
+    expected text, judged through base class operations only."""
+    stored = _stored_text(value)
+    return stored is not None and str.__eq__(stored, expected)
+
+
+def _stored_text_in(value, options):
+    """Whether the text a handed value stores stands among a set
+    of expected texts, judged through base class operations only."""
+    stored = _stored_text(value)
+    if stored is None:
+        return False
+    return any(str.__eq__(stored, option) for option in options)
+
+
+def _stored_plain(value):
+    """The plain stored form of a handed value of a scalar kind,
+    read through the base class operations of its kind. A value
+    of any other kind stands as itself."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bool):
+        return value is True
+    if isinstance(value, int):
+        return int.__int__(value)
+    if isinstance(value, float):
+        return float.__float__(value)
+    return value
+
+
+def _base_value_equals(left, right):
+    """Whether two handed values stand equal in what they store,
+    judged through base class operations. A text value stands
+    equal only to a text value whose stored text matches."""
+    plain_left = _stored_plain(left)
+    plain_right = _stored_plain(right)
+    if isinstance(plain_left, str) or isinstance(plain_right, str):
+        return (
+            isinstance(plain_left, str)
+            and isinstance(plain_right, str)
+            and str.__eq__(plain_left, plain_right)
+        )
+    return plain_left == plain_right
+
+
 def validate_lien_state(value, cross_seam=False):
     """The lien state bar at Shape 9: exactly four values, and while
     NQ-45 stands open no cross seam effect carries settled or released."""
-    if value not in LIEN_STATES:
+    if not _stored_text_in(value, LIEN_STATES):
         return False
-    if cross_seam and value in ("settled in the chosen escrow", "released"):
+    if cross_seam and _stored_text_in(
+            value, ("settled in the chosen escrow", "released")):
         return False
     return True
 
 
 def validate_calibration_field(value):
     """The sole permitted value of the calibration claim field."""
-    return value == CALIBRATION_FIELD_VALUE
+    return _stored_text_equals(value, CALIBRATION_FIELD_VALUE)
 
 
 def validate_store_kind(kind):
-    return kind in STORE_KINDS
+    return _stored_text_in(kind, STORE_KINDS)
 
 
 def store_index(kind):
@@ -1245,7 +1305,13 @@ def validate_store_addressing(addressing):
     """A record addressed to exactly one store kind validates in that
     namespace. A record addressed across two stores fails."""
     kinds = tuple(addressing)
-    return len(kinds) == 1 and kinds[0] in STORE_KINDS
+    if len(kinds) != 1:
+        return False
+    kind = kinds[0]
+    if not isinstance(kind, str):
+        return False
+    stored = str.__str__(kind)
+    return any(str.__eq__(stored, stated) for stated in STORE_KINDS)
 
 
 def reserved_matter_values():
@@ -1259,13 +1325,14 @@ def validate_family_seal_match(manifest, record):
     named fields of Forms 23 and 4."""
     if not isinstance(manifest, dict) or not isinstance(record, dict):
         return False
-    version = manifest.get("family_version")
-    digest = manifest.get("sealed_family_record_hash")
+    version = dict.get(manifest, "family_version")
+    digest = dict.get(manifest, "sealed_family_record_hash")
     if version is None or digest is None:
         return False
     return (
-        record.get("family_version") == version
-        and record.get("family_manifest_hash") == digest
+        _base_value_equals(dict.get(record, "family_version"), version)
+        and _base_value_equals(
+            dict.get(record, "family_manifest_hash"), digest)
     )
 
 
@@ -1274,13 +1341,22 @@ def family_supports_reportable_run(record):
     each OP-13 value carried as an open marker and never as a number."""
     if not isinstance(record, dict):
         return False
+    stored_pairs = [
+        (str.__str__(key), item)
+        for key, item in dict.items(record)
+        if isinstance(key, str)
+    ]
     for field in COMPLETENESS_FIELDS:
-        if field not in record:
+        found = [
+            item for key, item in stored_pairs if str.__eq__(key, field)
+        ]
+        if not found:
             return False
-        value = record[field]
+        value = found[0]
         if not isinstance(value, str):
             return False
-        if not value.startswith(OPEN_MARKER_PREFIX) or "OP-13" not in value:
+        if not str.startswith(value, OPEN_MARKER_PREFIX) or not (
+                str.__contains__(value, "OP-13")):
             return False
     return True
 
@@ -1341,7 +1417,8 @@ def _validate_record_inner(form_id, instance):
         for slug in _COMPLETENESS_SLUGS:
             value = dict.get(instance, slug)
             if value is not None and not (
-                isinstance(value, str) and value.startswith(OPEN_MARKER_PREFIX)
+                isinstance(value, str)
+                and str.startswith(value, OPEN_MARKER_PREFIX)
             ):
                 return False
     if _carries_reserved_matter(instance):
@@ -1440,7 +1517,8 @@ def run_is_reportable(form_id, instance):
     fid = _fid(form_id)
     if not validate_record(fid, instance):
         return False
-    if isinstance(instance, dict) and instance.get("run_status") == "failed":
+    if isinstance(instance, dict) and _stored_text_equals(
+            dict.get(instance, "run_status"), "failed"):
         return False
     if fid == "1" and not family_supports_reportable_run(instance):
         return False
@@ -1466,20 +1544,22 @@ def partial_record_is_marked(run_status=None, partial=None, record=None):
     failed run carries its marking, so it can never be presented as
     complete."""
     if isinstance(record, dict):
-        return bool(record.get("partial")) and bool(record.get("marked_partial", False))
+        return _stored_value_present(
+            dict.get(record, "partial")) and _stored_value_present(
+            dict.get(record, "marked_partial", False))
     return bool(partial)
 
 
 def validate_run_status(record_status=None, presented_as=None, record=None):
     """A failed run record does not validate as a completed run."""
     if isinstance(record, dict):
-        record_status = record.get("run_status", record_status)
-        presented_as = record.get("presented_as", presented_as)
-    if record_status not in ("completed", "failed"):
+        record_status = dict.get(record, "run_status", record_status)
+        presented_as = dict.get(record, "presented_as", presented_as)
+    if not _stored_text_in(record_status, ("completed", "failed")):
         return False
     if presented_as is None:
         return True
-    return record_status == presented_as
+    return _base_value_equals(record_status, presented_as)
 
 
 # ---------------------------------------------------------------------------
@@ -1550,10 +1630,11 @@ def validate_version_stamp(stamp, sealed_family_hash=None):
     if not isinstance(values, dict):
         return False
     for field in VersionStamp.FIELDS:
-        if not values.get(field):
+        if not _stored_value_present(dict.get(values, field)):
             return False
     if sealed_family_hash is not None:
-        return values.get("family_manifest_hash") == sealed_family_hash
+        return _base_value_equals(
+            dict.get(values, "family_manifest_hash"), sealed_family_hash)
     return True
 
 

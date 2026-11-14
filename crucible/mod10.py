@@ -220,9 +220,18 @@ def _base_iter(value):
     return set.__iter__(value)
 
 
+def _stored_text(value):
+    """The text a value stores, read through the base class
+    string form, never through a string reading the value
+    itself supplies."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return str(value)
+
+
 def _canonical_text(value, letter_map):
     pieces = []
-    for character in str(value).casefold():
+    for character in _stored_text(value).casefold():
         if character in letter_map:
             pieces.append(letter_map[character])
             continue
@@ -280,7 +289,7 @@ def _expanded_texts(key):
     one position and the other reading at another position stands
     read as the word it spells."""
     texts = {""}
-    for character in str(key).casefold():
+    for character in _stored_text(key).casefold():
         options = set()
         if character in _AMBIGUOUS_READINGS:
             options.update(_AMBIGUOUS_READINGS[character])
@@ -314,41 +323,73 @@ def _money_prefix_state(pattern, state, character):
     return 0
 
 
+def _character_segments(character, decomposed_part=False):
+    """The folded segments one character can contribute. The
+    readings stand as the two letter maps and the ambiguous
+    reading table record them, each taken with every digit
+    position reading as its leet letter or dropping out on its
+    own, as the combined reading of _add_fold_forms states. A
+    character standing as one decomposed part of a wider
+    character also stands as itself among its readings, so a
+    symbol part folds to its leet letter or to nothing, as a
+    dropped separator, in the form the sister fold judges a
+    symbol character."""
+    readings = set()
+    if character in _AMBIGUOUS_READINGS:
+        readings.update(_AMBIGUOUS_READINGS[character])
+    for letter_map in (_TRANSLITERATION_MAP, _HOMOGLYPH_MAP):
+        readings.add(_canonical_text(character, letter_map))
+    if decomposed_part and not character.isalnum():
+        readings.add(character)
+    segments = set()
+    for reading in readings:
+        choices = []
+        for part in reading:
+            if part == "1":
+                choices.append(("l", "i", ""))
+            elif part in _LEET_DIGITS:
+                choices.append((_LEET_DIGITS[part], ""))
+            elif part in _SYMBOL_LEET_READINGS:
+                choices.append((_SYMBOL_LEET_READINGS[part], ""))
+            elif part.isalnum():
+                choices.append((part,))
+            else:
+                choices.append(("",))
+        for combination in itertools.product(*choices):
+            segments.add("".join(combination))
+    return segments
+
+
 def _money_segments_by_character(key):
     """The folded segments one key can contribute, character by
     character, with no enumeration of their combinations. Each
     character of the key contributes the segments its readings
-    fold to: the readings the two letter maps and the ambiguous
-    reading table record for it, each taken with every digit
-    position reading as its leet letter or dropping out on its
-    own, as the combined reading of _add_fold_forms states, so a
-    name needing the leet reading at one position and the drop
-    reading at another stands read in full however many digit
-    positions it carries."""
+    fold to, so a name needing the leet reading at one position
+    and the drop reading at another stands read in full however
+    many digit positions it carries. A character that
+    decomposes to more than one character stands judged as its
+    decomposed characters, position by position, so the two
+    letters of a decomposed pair stand judged one at a time and
+    one letter of the pair can drop where the other stands. A
+    character carrying its own recorded readings in the letter
+    maps or the ambiguous reading table stands judged as
+    itself, undecomposed."""
     segments_by_character = []
-    for character in str(key).casefold():
-        readings = set()
-        if character in _AMBIGUOUS_READINGS:
-            readings.update(_AMBIGUOUS_READINGS[character])
-        for letter_map in (_TRANSLITERATION_MAP, _HOMOGLYPH_MAP):
-            readings.add(_canonical_text(character, letter_map))
-        segments = set()
-        for reading in readings:
-            choices = []
-            for part in reading:
-                if part == "1":
-                    choices.append(("l", "i", ""))
-                elif part in _LEET_DIGITS:
-                    choices.append((_LEET_DIGITS[part], ""))
-                elif part in _SYMBOL_LEET_READINGS:
-                    choices.append((_SYMBOL_LEET_READINGS[part], ""))
-                elif part.isalnum():
-                    choices.append((part,))
-                else:
-                    choices.append(("",))
-            for combination in itertools.product(*choices):
-                segments.add("".join(combination))
-        segments_by_character.append(segments)
+    for character in _stored_text(key).casefold():
+        parts = []
+        if character not in _AMBIGUOUS_READINGS \
+                and character not in _TRANSLITERATION_MAP \
+                and character not in _HOMOGLYPH_MAP:
+            decomposed = unicodedata.normalize("NFKD", character)
+            if len(decomposed) > 1:
+                parts = list(decomposed)
+        if not parts:
+            segments_by_character.append(
+                _character_segments(character))
+        else:
+            for part in parts:
+                segments_by_character.append(
+                    _character_segments(part, decomposed_part=True))
     return segments_by_character
 
 
@@ -489,14 +530,29 @@ def _safe_copy(value, _memo=None):
             _safe_copy(item, _memo) for item in list.__iter__(value))
         return copied
     if isinstance(value, tuple):
-        return tuple(
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = tuple(
             _safe_copy(item, _memo) for item in tuple.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
     if isinstance(value, (set, frozenset)):
-        items = [
-            _safe_copy(item, _memo) for item in _base_iter(value)]
-        if isinstance(value, frozenset):
-            return frozenset(items)
-        return set(items)
+        if id(value) in _memo:
+            return _memo[id(value)]
+        if isinstance(value, set):
+            copied = set()
+            _memo[id(value)] = copied
+            for item in _base_iter(value):
+                copied.add(_safe_copy(item, _memo))
+            return copied
+        copied = frozenset(
+            _safe_copy(item, _memo) for item in _base_iter(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
     return value
 
 
@@ -1164,7 +1220,9 @@ def _whole_day(value):
     """Read a checkpoint day through one stated whole day form: an
     integer stands as itself, and a string stating whole digits
     stands as the integer it states, so the string 1 beside the
-    integer 1 is one day. Any other form stands as itself."""
+    integer 1 is one day. A digit form the integer conversion
+    cannot parse stands as itself, as any other form stands as
+    itself, and no bare conversion error escapes this reading."""
     if isinstance(value, bool):
         return value
     if isinstance(value, int):
@@ -1172,9 +1230,15 @@ def _whole_day(value):
     if isinstance(value, str):
         text = value.strip()
         if text.isdigit():
-            return int(text)
+            try:
+                return int(text)
+            except ValueError:
+                return value
         if text.startswith("+") and text[1:].isdigit():
-            return int(text)
+            try:
+                return int(text)
+            except ValueError:
+                return value
     return value
 
 
@@ -1231,7 +1295,10 @@ def _timing_day(value):
             if (whole_part.isdigit() or not whole_part) and (
                     fraction_part.isdigit() or not fraction_part) and (
                     whole_part or fraction_part):
-                stated = float(text)
+                try:
+                    stated = float(text)
+                except ValueError:
+                    return value
                 return stated if math.isfinite(stated) else value
         if _NUMERIC_DAY_PATTERN.match(text) and any(
                 character.isdigit() for character in text):
@@ -1790,6 +1857,102 @@ def _actor_segments_into_vocabulary(word, vocabulary):
     return any(count >= 2 for count in counts[len(word)])
 
 
+def _differing_positions(left, right):
+    return [
+        index for index in range(len(left)) if left[index] != right[index]]
+
+
+def _carries_transposed_pair(reduced, candidate, differing):
+    """Whether two of the differing positions stand as one
+    transposed pair: the reduced letters at those positions
+    stand as the candidate letters at each other position."""
+    for first, second in itertools.combinations(differing, 2):
+        if (reduced[first] == candidate[second]
+                and reduced[second] == candidate[first]):
+            return True
+    return False
+
+
+def _mixed_added_resolves(word, candidate):
+    """Whether a word reads as a candidate word under added
+    letters composed with replacements or with one
+    transposition. The added count stands between one and
+    seven. The differing positions left after the added
+    letters stand struck number at most five, and the total
+    of the added count and the remaining changes stands at
+    most seven, where one transposed pair among the differing
+    positions counts as one change in place of the two
+    differing positions it stands on. A word whose differing
+    count or total stands past those bounds does not resolve
+    under this reading."""
+    added = len(word) - len(candidate)
+    if added < 1 or added > 7 or not candidate:
+        return False
+
+    def fewest_differing(variant, forced):
+        unreachable = len(word) + 1
+        row = [0] + [unreachable] * len(variant)
+        for char in word:
+            new_row = [0] * (len(variant) + 1)
+            for spot in range(1, len(variant) + 1):
+                if spot - 1 in forced:
+                    cost = 0 if char == variant[spot - 1] else unreachable
+                else:
+                    cost = 0 if char == variant[spot - 1] else 1
+                new_row[spot] = min(row[spot], row[spot - 1] + cost)
+            row = new_row
+        return row[len(variant)]
+
+    fewest = fewest_differing(candidate, frozenset())
+    if fewest < 1 or fewest > 5:
+        return False
+    if added + fewest <= 7:
+        return True
+    if added + 1 > 7:
+        return False
+    for first in range(len(candidate)):
+        for second in range(first + 1, len(candidate)):
+            if candidate[first] == candidate[second]:
+                continue
+            variant = list(candidate)
+            variant[first], variant[second] = (
+                variant[second], variant[first])
+            remaining = fewest_differing(
+                "".join(variant), frozenset((first, second)))
+            if remaining <= 3 and added + 1 + remaining <= 7:
+                return True
+    return False
+
+
+def _anywhere_transposition_resolves(word, candidate):
+    """Whether a word reads as a candidate word under one
+    transposed pair standing at any two positions of the word,
+    including the two edge positions, composed with three
+    further replaced letters. The differing positions number
+    five: the two positions of the pair and the three replaced
+    positions. The three remaining positions stand as
+    replacements only where no two of them stand as a
+    transposed pair of their own: a word whose remaining
+    positions carry such a pair stands built from two
+    transposed pairs and one replaced letter, a change total
+    of three, and does not resolve under this reading."""
+    if len(word) != len(candidate):
+        return False
+    differing = _differing_positions(word, candidate)
+    if len(differing) != 5:
+        return False
+    for first, second in itertools.combinations(differing, 2):
+        if not (word[first] == candidate[second]
+                and word[second] == candidate[first]):
+            continue
+        remaining = [
+            index for index in differing
+            if index not in (first, second)]
+        if not _carries_transposed_pair(word, candidate, remaining):
+            return True
+    return False
+
+
 def _resolve_actor_word(word):
     """Read one actor word as the actor word it dresses, where
     it dresses one, against the actor vocabulary of person and
@@ -1826,7 +1989,7 @@ def _resolve_actor_word(word):
     of two letters as well, so a drop from a three letter word
     still resolves. A word of one letter stands read through
     the drop limbs only where exactly one vocabulary word
-    drops to it. Any other word stands as itself."""
+    drops to it. Past those forms the resolver also reads added letters composed with replacements or with one transposition, where the differing positions left after the added letters stand struck number at most five and the total of the added count and the remaining changes stands at most seven, a transposed pair among the differing positions counting as one change in place of the two positions it stands on. The resolver also reads one transposed pair standing at any two positions of the word, including the two edge positions, composed with three further replaced letters. Any other word stands as itself."""
     if word in _ACTOR_VOCABULARY:
         return word
     if _actor_segments_into_vocabulary(word, _ACTOR_VOCABULARY):
@@ -2028,6 +2191,11 @@ def _resolve_actor_word(word):
                 for left, right in itertools.combinations(differing, 2))
             if not paired:
                 return candidate
+    for candidate in _ACTOR_VOCABULARY_ORDERED:
+        if _mixed_added_resolves(word, candidate):
+            return candidate
+        if _anywhere_transposition_resolves(word, candidate):
+            return candidate
     return word
 
 
@@ -2084,6 +2252,8 @@ _ZERO_WIDTH_CHARS = frozenset((
 
 _BLANK_GLYPHS = frozenset(("\u2800", "\u115f"))
 
+_HANGUL_FILLER_CHARS = frozenset(("\u1160", "\u3164", "\uffa0"))
+
 
 def _has_stated_condition(fired):
     """Whether a fired condition list states at least one
@@ -2117,7 +2287,9 @@ def _has_stated_condition(fired):
                 char for char in entry
                 if char not in _ZERO_WIDTH_CHARS
                 and char not in _BLANK_GLYPHS
-                and unicodedata.category(char) not in ("Cf", "Mn"))
+                and char not in _HANGUL_FILLER_CHARS
+                and unicodedata.category(char)
+                not in ("Cf", "Mn", "Cc", "Mc", "Me"))
             if readable.strip():
                 return True
         elif entry is not None:
@@ -2394,7 +2566,10 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
     stands read through the one stated whole day form at the
     final comparison, as the candidate selection already reads
     it, so a day stated in string whole day form beside the
-    same day stated as an integer names the one day."""
+    same day stated as an integer names the one day. A handed
+    store kind stands judged through the canonical kind, by its
+    stored text, at the kind test and at the bucket filter, and
+    never through a reading the handed kind supplies."""
     if not isinstance(checkpoint, dict):
         raise ValueError(
             "identity less checkpoint: a resume stands on a checkpoint "
@@ -2405,8 +2580,8 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
             "identity less checkpoint: no run identifier stands on the "
             "checkpoint, and no resume stands performed")
     kind = store_kind or checkpoint.get("store_kind")
-    if kind is not None and kind not in STORE_KINDS:
-        raise ValueError("unknown store kind: " + str(kind))
+    if kind is not None:
+        kind = _canonical_store_kind(kind)
     handed_form = {
         key: value for key, value in checkpoint.items()
         if key not in ("journal_event_count_at_checkpoint", "store_kind")

@@ -584,18 +584,34 @@ def _undirected_copy(value, _memo=None):
             for item in list.__iter__(value))
         return copied
     if isinstance(value, tuple):
-        return tuple(
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = tuple(
             _undirected_copy(item, _memo)
             for item in tuple.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
     if isinstance(value, (set, frozenset)):
+        if id(value) in _memo:
+            return _memo[id(value)]
         base_iter = (
             set.__iter__ if isinstance(value, set)
             else frozenset.__iter__)
-        plain_constructor = (
-            set if isinstance(value, set) else frozenset)
-        return plain_constructor(
+        if isinstance(value, set):
+            copied = set()
+            _memo[id(value)] = copied
+            for item in base_iter(value):
+                copied.add(_undirected_copy(item, _memo))
+            return copied
+        copied = frozenset(
             _undirected_copy(item, _memo)
             for item in base_iter(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
     return value
 
 

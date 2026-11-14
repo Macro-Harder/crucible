@@ -174,12 +174,12 @@ class TestR5013CountingBasis(B2Base):
     def test_plain_membership_barred_control(self):
         self.assertTrue(mod10._is_barred_view_key("membership"))
 
-    def test_chi_filler_past_bound_like_the_sisters(self):
-        self.assertFalse(
+    def test_chi_filler_past_bound_barred_like_the_sisters(self):
+        self.assertTrue(
             mod10._is_barred_view_key(_CORE + "\u03c7" * 13))
 
-    def test_short_i_filler_past_bound_control(self):
-        self.assertFalse(
+    def test_short_i_filler_past_bound_barred_control(self):
+        self.assertTrue(
             mod10._is_barred_view_key(_CORE + "\u0439" * 13))
 
     def test_clean_key_with_filler_not_barred_control(self):

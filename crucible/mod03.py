@@ -79,7 +79,7 @@ _HOMOGLYPH_MAP = {
     "γ": "g", "δ": "d", "λ": "l", "σ": "s",
     "ω": "w", "ζ": "z", "θ": "t", "φ": "f",
     "η": "e",
-    "э": "e", "л": "l", "ψ": "ps",
+    "э": "e", "л": "l", "ф": "f", "ш": "sh", "ψ": "ps",
     "æ": "ae", "œ": "oe", "ø": "o", "đ": "d",
     "ł": "l", "ß": "ss", "þ": "th", "ð": "d",
     "ħ": "h", "ŋ": "n", "ƒ": "f", "ı": "i",
@@ -157,7 +157,7 @@ _TRANSLITERATION_OVERRIDES = {
     "р": "r", "х": "h", "в": "v", "с": "s",
     "н": "n", "у": "u", "й": "y",
     "η": "e", "π": "p", "χ": "h", "ρ": "r",
-    "ω": "o",
+    "ω": "o", "υ": "y",
     "θ": "th", "ы": "y", "ю": "yu", "я": "ya",
 }
 _ALT_LETTER_MAP = dict(_WIDE_LETTER_MAP)
@@ -785,15 +785,25 @@ def generate_society(point, archetype_records, stream_state=None,
 
 def _stored_member_key(name):
     """Return the key a farm membership judgement stands on for
-    one name: for a text name, the stored text of the name, read
-    character by character through the base string reading, so
-    a hash or equality reading the name supplies directs
-    nothing; for any other name, the name itself."""
+    one name. For a text name, the key stands as the stored text
+    of the name, read character by character through the base
+    string reading, so a hash or equality reading the name
+    supplies directs nothing. For a plain scalar name of an
+    exact base kind, whose readings stand as the base class
+    readings and cannot be supplied by the name, the key stands
+    as the name itself. For every other name, the key stands as
+    an identity pair built from a fixed marker and the identity
+    of the name object, read through the base identity reading,
+    so the name stands judged as the member it is in itself and
+    never by a hash or equality reading it supplies against a
+    text name or against any other name."""
     if isinstance(name, str):
         return "".join(
             str.__getitem__(name, index)
             for index in range(str.__len__(name)))
-    return name
+    if type(name) in (bool, int, float, complex, bytes):
+        return name
+    return ("non text name", id(name))
 
 
 def construct_farm(member_ids, farm_size=None, edges=None):
@@ -968,13 +978,15 @@ def generator_holds_rule_state():
 
 
 def _base_iter(value):
-    """Iterate a list, tuple, set, or frozenset part through its
-    base class iteration, never through a reading the part
-    itself supplies, so a part whose own iteration yields
-    nothing still stands read by the contents in its base
-    class storage."""
+    """Iterate a list, tuple, set, frozenset, or dict part
+    through its base class iteration, never through a reading
+    the part itself supplies, so a part whose own iteration
+    yields nothing still stands read by the contents in its
+    base class storage, a dict part standing read by the keys
+    it holds in base dict storage."""
     iter_by_base = {list: list.__iter__, tuple: tuple.__iter__,
-                    set: set.__iter__, frozenset: frozenset.__iter__}
+                    set: set.__iter__, frozenset: frozenset.__iter__,
+                    dict: dict.__iter__}
     for base, base_iter in iter_by_base.items():
         if isinstance(value, base):
             return base_iter(value)

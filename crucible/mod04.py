@@ -109,14 +109,31 @@ def _guarded_copy(value, _memo=None):
             _guarded_copy(item, _memo) for item in list.__iter__(value))
         return copied
     if isinstance(value, tuple):
-        return tuple(
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = tuple(
             _guarded_copy(item, _memo) for item in tuple.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
     if isinstance(value, frozenset):
-        return frozenset(
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = frozenset(
             _guarded_copy(item, _memo) for item in frozenset.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
     if isinstance(value, set):
-        return set(
-            _guarded_copy(item, _memo) for item in set.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = set()
+        _memo[id(value)] = copied
+        for item in set.__iter__(value):
+            copied.add(_guarded_copy(item, _memo))
+        return copied
     return value
 
 
@@ -242,7 +259,7 @@ _HOMOGLYPH_MAP = {
     "м": "m", "н": "h", "т": "t", "в": "b",
     "α": "a", "β": "b", "ε": "e", "ι": "i",
     "κ": "k", "μ": "m", "ο": "o", "ρ": "p",
-    "τ": "t", "χ": "x", "υ": "u", "ν": "n",
+    "τ": "t", "χ": "x", "υ": "y", "ν": "n",
     "γ": "g", "δ": "d", "λ": "l", "σ": "s",
     "ω": "w", "ζ": "z", "θ": "t", "φ": "f",
     "æ": "ae", "œ": "oe", "ø": "o", "đ": "d",
@@ -765,7 +782,9 @@ def project_detection_input(state):
     }
 
 
-def _value_appears(value, node, _seen=None, _depth=0):
+def _value_appears(value, node, _seen=None, _depth=0, _walked=None):
+    if _walked is None:
+        _walked = {}
     if isinstance(node, (dict, list, tuple, set, frozenset)):
         if _depth > VALUE_APPEARS_DEPTH_BOUND:
             raise NamedFailure(
@@ -775,23 +794,36 @@ def _value_appears(value, node, _seen=None, _depth=0):
             )
         seen = _seen if _seen is not None else set()
         if id(node) in seen:
-            return False
+            raise NamedFailure(
+                "canary presence read found a cycle: the value stands "
+                "in a cycle and no presence answer stands"
+            )
+        walked_key = (id(node), _depth)
+        if walked_key in _walked:
+            return _walked[walked_key]
         seen.add(id(node))
+        try:
+            if node == value:
+                result = True
+            elif isinstance(node, dict):
+                result = any(
+                    _value_appears(value, v, seen, _depth + 1, _walked)
+                    for v in dict.values(node)
+                ) or any(
+                    _value_appears(value, k, seen, _depth + 1, _walked)
+                    for k in dict.keys(node)
+                )
+            else:
+                result = any(
+                    _value_appears(value, item, seen, _depth + 1, _walked)
+                    for index, item in _base_entries(node)
+                )
+        finally:
+            seen.discard(id(node))
+        _walked[walked_key] = result
+        return result
     if node == value:
         return True
-    if isinstance(node, dict):
-        return any(
-            _value_appears(value, v, _seen, _depth + 1)
-            for v in dict.values(node)
-        ) or any(
-            _value_appears(value, k, _seen, _depth + 1)
-            for k in dict.keys(node)
-        )
-    if isinstance(node, (list, tuple, set, frozenset)):
-        return any(
-            _value_appears(value, item, _seen, _depth + 1)
-            for index, item in _base_entries(node)
-        )
     if isinstance(node, str) and isinstance(value, str):
         return value in node
     return False
@@ -1124,14 +1156,20 @@ VIEW_EXCLUDED_CONTENT = (
 VIEW_COPY_DEPTH_BOUND = 100
 
 
-def _view_copy_guard(value, _depth=0, _seen=None, _path=""):
+def _view_copy_guard(value, _depth=0, _seen=None, _path="", _walked=None):
     """Walk a value the view select and build acts are about to
     copy, under the same depth bound and named failure form as
     the TA-03 cures: a value standing deeper than the bound, or
     carrying a cycle, raises NamedFailure naming the bound or
     the cycle at its path, and no bare RecursionError escapes
     the copy. A value shared from two places on different paths
-    carries no cycle and stands admitted."""
+    carries no cycle and stands admitted. The walk carries a
+    walked standing across paths, keyed by the container and
+    the depth it stands walked at, so a container stands walked
+    once for the paths that reach it at that depth and a deeper
+    reach still stands judged at its own depth."""
+    if _walked is None:
+        _walked = set()
     if isinstance(value, (dict, list, tuple, set, frozenset)):
         if _depth > VIEW_COPY_DEPTH_BOUND:
             raise NamedFailure(
@@ -1144,21 +1182,26 @@ def _view_copy_guard(value, _depth=0, _seen=None, _path=""):
             raise NamedFailure(
                 "view record copy found a cycle at " + (_path or "root")
             )
+        if (id(value), _depth) in _walked:
+            return
         seen.add(id(value))
         try:
             if isinstance(value, dict):
                 for key, item in dict.items(value):
                     _view_copy_guard(
-                        key, _depth + 1, seen, _path + "/" + str(key))
+                        key, _depth + 1, seen, _path + "/" + str(key),
+                        _walked)
                     _view_copy_guard(
-                        item, _depth + 1, seen, _path + "/" + str(key))
+                        item, _depth + 1, seen, _path + "/" + str(key),
+                        _walked)
             else:
                 for index, item in _base_entries(value):
                     _view_copy_guard(
                         item, _depth + 1, seen,
-                        _path + "[" + str(index) + "]")
+                        _path + "[" + str(index) + "]", _walked)
         finally:
             seen.discard(id(value))
+        _walked.add((id(value), _depth))
 
 
 def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
@@ -1383,7 +1426,7 @@ def release_view(held, field_validation_passed=None, timing_passed=None):
     that is not delivered."""
     from crucible import mod10
 
-    view_record = held.get("view_record") if isinstance(held, dict) else None
+    view_record = dict.get(held, "view_record") if isinstance(held, dict) else None
     try:
         check = mod10.run_view_leak_check(view_record)
     except ValueError as exc:

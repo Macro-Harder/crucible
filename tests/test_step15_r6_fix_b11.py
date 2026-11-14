@@ -131,10 +131,10 @@ class TestR5013CountingBasis(unittest.TestCase):
     def test_core_barred_alone(self):
         self.assertTrue(mod03._is_barred_key(MEMBERSHIP_CORE))
 
-    def test_filler_forms_stand_on_the_past_bound_side(self):
-        self.assertFalse(
+    def test_filler_forms_stand_barred_on_the_past_bound_side(self):
+        self.assertTrue(
             mod03._is_barred_key(MEMBERSHIP_CORE + SHORT_I * 13))
-        self.assertFalse(
+        self.assertTrue(
             mod03._is_barred_key(MEMBERSHIP_CORE + CHI * 13))
 
     def test_controls(self):

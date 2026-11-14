@@ -95,13 +95,13 @@ class TestR5012ShortIReading(unittest.TestCase):
 
 
 class TestR5013CountingBasis(unittest.TestCase):
-    def test_defect_short_i_filler_past_bound_at_mod04(self):
+    def test_defect_short_i_filler_past_bound_barred_at_mod04(self):
         key = CORE + SHORT_I * 13
-        self.assertFalse(mod04._is_barred_key(key))
+        self.assertTrue(mod04._is_barred_key(key))
 
-    def test_control_chi_filler_past_bound_at_mod04(self):
+    def test_control_chi_filler_past_bound_barred_at_mod04(self):
         key = CORE + CHI * 13
-        self.assertFalse(mod04._is_barred_key(key))
+        self.assertTrue(mod04._is_barred_key(key))
 
     def test_control_core_alone_barred(self):
         self.assertTrue(mod04._is_barred_key(CORE))

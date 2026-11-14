@@ -69,14 +69,27 @@ def _freeze(value, _memo=None):
             return _memo[id(value)]
         copied = tuple(
             _freeze(item, _memo) for item in tuple.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
         _memo[id(value)] = copied
         return copied
     if isinstance(value, frozenset):
-        return frozenset(
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = frozenset(
             _freeze(item, _memo) for item in frozenset.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
     if isinstance(value, set):
-        return set(
-            _freeze(item, _memo) for item in set.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = set()
+        _memo[id(value)] = copied
+        for item in set.__iter__(value):
+            copied.add(_freeze(item, _memo))
+        return copied
     return value
 
 
@@ -413,8 +426,12 @@ def run_class_markings():
 # special Latin letters with no decomposition. The mapped name then
 # reads through compatibility decomposition with combining marks
 # dropped, so accented and fullwidth forms reduce to their base
-# letters, and every remaining digit reads as its decimal value in
-# plain digits. Only letters and digits survive the fold.
+# letters, and the decomposed and case folded characters then read
+# through the letter mapping again, in the sister form, so a letter
+# that decomposition or case folding reduces to a mapped letter
+# stands read as that letter. Every remaining digit reads as its
+# decimal value in plain digits. Only letters and digits survive
+# the fold.
 _LETTER_MAP = {
     "\u0430": "a", "\u0431": "b", "\u0432": "v", "\u0433": "g",
     "\u0434": "d", "\u0435": "e", "\u0451": "e", "\u0436": "zh",
@@ -426,7 +443,8 @@ _LETTER_MAP = {
     "\u044b": "y", "\u044c": "", "\u044d": "e", "\u044e": "yu",
     "\u044f": "ya",
     "\u03b1": "a", "\u03b2": "b", "\u03b3": "g", "\u03b4": "d",
-    "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "th",
+    "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "t",
+    "\u0398": "t", "\u03d1": "t", "\u03f4": "t",
     "\u03b9": "i", "\u03ba": "k", "\u03bb": "l", "\u03bc": "m",
     "\u03bd": "n", "\u03be": "x", "\u03bf": "o", "\u03c0": "p",
     "\u03c1": "r", "\u03c3": "s", "\u03c2": "s", "\u03c4": "t",
@@ -479,10 +497,12 @@ _LEET_MAP_I = dict(_LEET_MAP, **{"1": "i"})
 # Letters that carry two recorded readings at once, so one name
 # can need both readings at two positions in a single word:
 # Cyrillic es as s and as c, Greek upsilon and Cyrillic u as u
-# and as y, Cyrillic en as n and as its look alike reading h, and
-# Armenian vo as n and as the two letters un. A name stands read
+# and as y, Cyrillic en as n and as its look alike reading h,
+# Armenian vo as n and as the two letters un, and Greek theta as
+# t and as th. A name stands read
 # under every combination of these readings, position by position.
 _ALT_READINGS = {
+    "\u03b8": ("t", "th"),
     "\u0441": ("s", "c"),
     "\u03c5": ("u", "y"),
     "\u0443": ("u", "y"),
@@ -496,21 +516,51 @@ _ALT_READINGS = {
 }
 
 
-def _canonicalise_mapped(mapped):
+def _reading_characters(character):
+    """The characters one handed character stands as beside
+    itself: the parts of its compatibility decomposition and
+    the parts of its case folded form, with combining marks
+    left out, so a reading recorded for a decomposed or case
+    folded form of the character stands gathered for it."""
+    forms = [character]
+    for form in (unicodedata.normalize("NFKD", character),
+                 unicodedata.normalize(
+                     "NFKD", character.casefold())):
+        for part in form:
+            if unicodedata.combining(part) or \
+                    unicodedata.category(part).startswith("M"):
+                continue
+            if part not in forms:
+                forms.append(part)
+    return forms
+
+
+def _canonicalise_mapped(mapped, letter_map=None):
+    if letter_map is None:
+        letter_map = _LETTER_MAP
     decomposed = unicodedata.normalize("NFKD", mapped)
-    characters = []
-    for character in decomposed:
+    folded = unicodedata.normalize("NFKD", decomposed.casefold())
+    pieces = []
+    for character in folded:
         if unicodedata.combining(character) or \
                 unicodedata.category(character).startswith("M"):
             continue
-        character = character.lower()
         digit = unicodedata.digit(character, None)
         if digit is not None:
-            character = str(digit)
-        characters.append(character)
-    return "".join(
-        character for character in characters if character.isalnum()
-    )
+            pieces.append(str(digit))
+            continue
+        pieces.append(letter_map.get(
+            character, letter_map.get(character.lower(), character)))
+    return "".join(piece for piece in pieces if piece.isalnum())
+
+
+def _stored_text(value):
+    """The text a value stores, read through the base class
+    string form, never through a string reading the value
+    itself supplies."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    return str(value)
 
 
 def _canonicalised_name(key, letter_map=None):
@@ -521,11 +571,11 @@ def _canonicalised_name(key, letter_map=None):
             character.lower(), character))
         for character in str(key)
     )
-    return _canonicalise_mapped(mapped)
+    return _canonicalise_mapped(mapped, letter_map)
 
 
 def _folded_money_key(key):
-    return _canonicalised_name(key)
+    return _canonicalised_name(_stored_text(key))
 
 
 def _folded_money_variants(key):
@@ -546,14 +596,19 @@ def _folded_money_variants(key):
     positions, still stand read in full."""
     forms = set()
     bases = set()
+    stored = _stored_text(key)
     for letter_map in _CANONICAL_MAPS:
-        bases.add(_canonicalised_name(key, letter_map))
+        bases.add(_canonicalised_name(stored, letter_map))
     options = []
-    for character in str(key):
-        readings = _ALT_READINGS.get(
-            character, _ALT_READINGS.get(character.lower()))
-        if readings is not None:
-            options.append(readings)
+    for character in stored:
+        readings = set()
+        for form in _reading_characters(character):
+            alt = _ALT_READINGS.get(
+                form, _ALT_READINGS.get(form.lower()))
+            if alt is not None:
+                readings.update(alt)
+        if readings:
+            options.append(tuple(sorted(readings)))
         else:
             options.append((_LETTER_MAP.get(
                 character,
@@ -621,16 +676,17 @@ _FOLDED_READ_MODES = (None, "leet", "drop", "leetdrop")
 
 def _base_reading_options(key):
     options = []
-    for character in str(key):
+    for character in _stored_text(key):
         raw = set()
-        alt = _ALT_READINGS.get(
-            character, _ALT_READINGS.get(character.lower()))
-        if alt is not None:
-            raw.update(alt)
-        for letter_map in _CANONICAL_MAPS:
-            raw.add(letter_map.get(
-                character,
-                letter_map.get(character.lower(), character)))
+        for form in _reading_characters(character):
+            alt = _ALT_READINGS.get(
+                form, _ALT_READINGS.get(form.lower()))
+            if alt is not None:
+                raw.update(alt)
+            for letter_map in _CANONICAL_MAPS:
+                raw.add(letter_map.get(
+                    form,
+                    letter_map.get(form.lower(), form)))
         segments = {
             _canonicalise_mapped(reading) for reading in raw}
         options.append(tuple(sorted(segments)))

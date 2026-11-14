@@ -15,6 +15,7 @@ effect fails validation at MOD-01, whose lien state bar this module
 applies and does not restate.
 """
 import copy
+import unicodedata
 
 from crucible import mod01
 
@@ -337,6 +338,46 @@ def positive_control_record():
     }
 
 
+_PASSAGE_BLANK_GLYPHS = frozenset(("\u2800", "\u115f"))
+
+
+def _passage_text_states_something(text):
+    """Return True only where a text carries readable text, in
+    the form of row R6-032: characters of Unicode category Cf,
+    characters of Unicode category Mn, and the blank glyphs
+    carry no readable text, and spacing alone carries none.
+    The text stands read from its stored characters, never
+    through a strip reading the handed value supplies."""
+    cleaned = "".join(
+        char for char in text
+        if char not in _PASSAGE_BLANK_GLYPHS
+        and unicodedata.category(char) not in ("Cf", "Mn"))
+    return bool(str.strip(cleaned))
+
+
+def _passage_field_is_blank(field_value):
+    """Return True where a passage field holds only characters
+    that state nothing readable, in string, bytes, bytearray,
+    and memoryview forms alike. A bytes form stands read
+    through its stored bytes: where those bytes decode as
+    UTF-8 text, the decoded text stands judged on the same
+    readable text form as a string, and where they do not,
+    the bytes stand judged on their whitespace reading."""
+    if isinstance(field_value, str):
+        return not _passage_text_states_something(
+            str.__str__(field_value))
+    if isinstance(field_value, (bytes, bytearray, memoryview)):
+        raw = bytes(field_value)
+        if not bytes.strip(raw):
+            return True
+        try:
+            decoded = bytes.decode(raw, "utf-8")
+        except UnicodeDecodeError:
+            return False
+        return not _passage_text_states_something(decoded)
+    return False
+
+
 def validate_tracer_passage_set(records, positive_control=None):
     """Return True only for a complete and valid tracer set: one
     record per open semantic item, each carrying its four stated
@@ -359,17 +400,10 @@ def validate_tracer_passage_set(records, positive_control=None):
                 return False
             if field in ("what_in_fact_passed", "point_in_run"):
                 field_value = record.get(field)
-                if isinstance(field_value, str) \
-                        and not field_value.strip():
+                if _passage_field_is_blank(field_value):
                     return False
                 if isinstance(field_value, bool) \
                         and field_value is False:
-                    return False
-                if isinstance(field_value, (bytes, bytearray)) \
-                        and not bytes(field_value).strip():
-                    return False
-                if isinstance(field_value, memoryview) \
-                        and not bytes(field_value).strip():
                     return False
                 if isinstance(
                         field_value,
