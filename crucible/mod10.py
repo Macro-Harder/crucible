@@ -351,6 +351,8 @@ def _carries_real_money_field(value, _depth=0, _path=()):
     covers, and the shape stands read where the amount key stands
     in any of its folded readings with a value standing and the
     currency key stands present in any of its folded readings.
+    Dict keys stand walked beside dict values, so depth and
+    field matter standing in key position stand read as well.
     The read stands bounded: a value standing deeper than the
     bound, or carrying a cycle, stands refused in the stated
     ValueError form instead of escaping as a bare RecursionError."""
@@ -370,6 +372,8 @@ def _carries_real_money_field(value, _depth=0, _path=()):
         if amount_stands and currency_stands:
             return True
         for key, item in dict.items(value):
+            if _carries_real_money_field(key, _depth + 1, _path):
+                return True
             if item is not None and any(
                     _MONEY_MARKER_FOLDED in variant
                     for variant in _fold_variants(key)):
@@ -458,6 +462,7 @@ class RecorderStore:
                 "identity less record: the run identifier stands in "
                 "an unhashable form, and no record stands retained "
                 "under it") from exc
+        _guard_retention_shape(record)
         if _carries_real_money_field(record):
             raise ValueError(
                 "real money field in named form: a run record carrying "
@@ -888,11 +893,24 @@ def daily_snapshot_fields():
     return _DAILY_SNAPSHOT_FIELDS
 
 
+def _store_kind_stands(store_kind):
+    """Whether a store kind stands in the closed store kind
+    set, judged through base class comparison, as
+    RecorderStore judges it at construction: a kind standing
+    as a str subclass whose own equality reading answers
+    True against every kind stands judged by the stored text
+    alone, never by that reading."""
+    return (
+        isinstance(store_kind, str)
+        and any(
+            str.__eq__(store_kind, kind) for kind in STORE_KINDS))
+
+
 def retain_event_log_entry(entry, store_kind="sweep"):
     """Retain one EventLog entry as an opaque payload, in delivery
     order. No completeness validation stands performed, and no
     ordering by journal position stands applied."""
-    if store_kind not in STORE_KINDS:
+    if not _store_kind_stands(store_kind):
         raise ValueError("unknown store kind: " + str(store_kind))
     if not isinstance(entry, dict):
         raise ValueError(
@@ -922,7 +940,7 @@ def retain_daily_snapshot(snapshot, store_kind="sweep"):
     """Retain one DailySnapshot as an opaque payload. No validation
     of the daily state contents stands performed, and no per viewer
     snapshot stands delivered from this path."""
-    if store_kind not in STORE_KINDS:
+    if not _store_kind_stands(store_kind):
         raise ValueError("unknown store kind: " + str(store_kind))
     if not isinstance(snapshot, dict):
         raise ValueError(
@@ -966,9 +984,35 @@ def _whole_day(value):
     return value
 
 
+def _timing_day(value):
+    """Read one day through the one stated timing day form: a
+    whole day in integer or digit string form stands as the
+    integer it states through the whole day reading, a float
+    stands as itself, and a decimal string stands as the
+    number it states, so each of those forms stands judged
+    before the timing comparison. Any other form stands as
+    itself and stands judged by no comparison."""
+    whole = _whole_day(value)
+    if isinstance(whole, int) and not isinstance(whole, bool):
+        return whole
+    if isinstance(value, float):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        unsigned = text[1:] if text[:1] in ("+", "-") else text
+        if unsigned.count(".") == 1:
+            whole_part, _, fraction_part = unsigned.partition(".")
+            if (whole_part.isdigit() or not whole_part) and (
+                    fraction_part.isdigit() or not fraction_part) and (
+                    whole_part or fraction_part):
+                stated = float(text)
+                return stated if math.isfinite(stated) else value
+    return value
+
+
 def retain_checkpoint(manifest, store_kind="sweep"):
     """Retain one checkpoint manifest for a run."""
-    if store_kind not in STORE_KINDS:
+    if not _store_kind_stands(store_kind):
         raise ValueError("unknown store kind: " + str(store_kind))
     if not isinstance(manifest, dict):
         raise ValueError(
@@ -1513,19 +1557,24 @@ def _actor_segments_into_vocabulary(word, vocabulary):
 def _resolve_actor_word(word):
     """Read one actor word as the actor word it dresses, where
     it dresses one, against the actor vocabulary of person and
-    program: the word itself where it stands plain, a word
-    with one, two, or three added letters struck, a word with
-    one letter dropped from a vocabulary word, a word with
-    one letter replaced, a word with two adjacent letters
-    transposed, and the two compounded forms, one letter
-    dropped together with one letter replaced, and one
-    transposition together with one letter dropped. Any other
-    word stands as itself."""
+    program, in the shell form the MOD-14 resolver states: the
+    word itself where it stands plain, a word with one, two,
+    three, or four added letters struck, a word with one
+    letter dropped from a vocabulary word, a word with one
+    letter replaced, a word with two adjacent letters
+    transposed, and the compounded forms, one letter dropped
+    together with one letter replaced, one transposition
+    together with one letter dropped, two letters replaced,
+    two letters dropped from a vocabulary word, and one
+    transposition together with one letter replaced. The
+    dropped, replaced, and transposed limbs run on words of
+    two letters as well, so a drop from a three letter word
+    still resolves. Any other word stands as itself."""
     if word in _ACTOR_VOCABULARY:
         return word
     if _actor_segments_into_vocabulary(word, _ACTOR_VOCABULARY):
         return word
-    for added in (1, 2, 3):
+    for added in (1, 2, 3, 4):
         if len(word) > added:
             for cuts in itertools.combinations(
                     range(len(word)), added):
@@ -1550,6 +1599,15 @@ def _resolve_actor_word(word):
                 if swapped == word:
                     return candidate
         for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) == len(word) + 2:
+                for cuts in itertools.combinations(
+                        range(len(candidate)), 2):
+                    reduced = "".join(
+                        char for index, char in enumerate(candidate)
+                        if index not in cuts)
+                    if reduced == word:
+                        return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
             if len(candidate) != len(word):
                 continue
             differences = sum(
@@ -1573,6 +1631,28 @@ def _resolve_actor_word(word):
                         + dropped[swap] + dropped[swap + 2:])
                     if swapped == word:
                         return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            differences = sum(
+                1 for left, right in zip(candidate, word)
+                if left != right)
+            if differences == 2:
+                return candidate
+        for candidate in _ACTOR_VOCABULARY_ORDERED:
+            if len(candidate) != len(word):
+                continue
+            for swap in range(len(candidate) - 1):
+                if candidate[swap] == candidate[swap + 1]:
+                    continue
+                swapped = (
+                    candidate[:swap] + candidate[swap + 1]
+                    + candidate[swap] + candidate[swap + 2:])
+                differences = sum(
+                    1 for left, right in zip(swapped, word)
+                    if left != right)
+                if differences == 1:
+                    return candidate
     return word
 
 
@@ -1597,7 +1677,10 @@ def _normalised_actor(actor):
     vocabulary. The split parts of one actor word also stand
     read joined, so a separator split dress of one word reads
     as the word it names and is not split into a different
-    actor."""
+    actor. The joined reading also stands tried with article
+    words dropped wherever they stand, so articles inserted
+    between the split parts of one actor word do not hide the
+    word they split."""
     if not isinstance(actor, str):
         return actor
     text = _canonical_text(actor, _TRANSLITERATION_MAP)
@@ -1611,11 +1694,18 @@ def _normalised_actor(actor):
     joined = _resolve_actor_word("".join(words))
     if joined in _ACTOR_VOCABULARY:
         return joined
+    without_articles = _resolve_actor_word("".join(
+        word for word in words if word not in _ACTOR_ARTICLES))
+    if without_articles in _ACTOR_VOCABULARY:
+        return without_articles
     return " ".join(_resolve_actor_word(word) for word in words)
 
 
-_ZERO_WIDTH_CHARS = frozenset(
-    ("\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"))
+_ZERO_WIDTH_CHARS = frozenset((
+    "\u200b", "\u200c", "\u200d", "\u2060", "\ufeff",
+    "\u00ad", "\u180e", "\u200e", "\u200f", "\u061c",
+    "\u202a", "\u202e", "\u2061", "\u2064",
+))
 
 
 def _has_stated_condition(fired):
@@ -1623,10 +1713,15 @@ def _has_stated_condition(fired):
     condition: an entry states a condition where it stands as a
     string carrying text, or as a stated value other than None.
     A list holding only an empty string or only None states no
-    condition. An entry carrying only zero width or byte order
-    mark characters, beside any spacing, reads as blank text
-    and states no condition, because those characters carry no
-    readable text."""
+    condition. An entry carrying only zero width, byte order
+    mark, or invisible format characters, beside any spacing,
+    reads as blank text and states no condition, because those
+    characters carry no readable text. The invisible format
+    characters stand in the stated set beside the zero width
+    set: the soft hyphen, the Mongolian vowel separator, the
+    left to right and right to left marks, the Arabic letter
+    mark, the left to right and right to left embeddings, and
+    the invisible operator and invisible plus characters."""
     if isinstance(fired, str):
         entries = [fired]
     elif isinstance(fired, (list, tuple, set, frozenset)):
@@ -2087,7 +2182,7 @@ def store_lookup(store_kinds=None, key=None, store_kind=None):
     if len(tuple(kinds)) != 1:
         raise ValueError("a lookup that resolves across stores in one step is rejected")
     kind = tuple(kinds)[0]
-    if kind not in STORE_KINDS:
+    if not _store_kind_stands(kind):
         raise ValueError(
             "unknown store kind: " + str(kind) + "; a store kind stands "
             "among sweep, pilot, and live, and no record lookup stands "
@@ -2375,11 +2470,14 @@ def run_view_leak_check(view_record):
             raise ValueError(
                 "view leak check failure: form field_validation, view "
                 + view_name + ", field " + field + " stands absent")
-    day = _whole_day(view_record.get("simulated_day"))
+    day = _timing_day(view_record.get("simulated_day"))
     first_seen = view_record.get("first_seen_day_per_record") or {}
     for item, seen_day in first_seen.items():
-        seen_day = _whole_day(seen_day)
-        if (isinstance(seen_day, int) and isinstance(day, int)
+        seen_day = _timing_day(seen_day)
+        if (isinstance(seen_day, (int, float))
+                and not isinstance(seen_day, bool)
+                and isinstance(day, (int, float))
+                and not isinstance(day, bool)
                 and seen_day > day):
             raise ValueError(
                 "view leak check failure: form timing, view "

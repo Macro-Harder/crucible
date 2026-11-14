@@ -125,13 +125,21 @@ def _strict_eq(first, second, _seen=None, _depth=0):
     depth the comparison acts read. The reading carries the
     stated depth bound of 100: a shape standing deeper than the
     bound stands refused in NamedReplicationFailure form, at
-    this reading and at both public acts over it."""
+    this reading and at both public acts over it. The counting
+    basis for the bound is containers only: the depth of a value
+    counts the containers standing above it, and a scalar leaf
+    standing at the end of a chain counts no depth of its own.
+    On that basis a chain of 101 nested containers over a scalar
+    leaf stands within the bound, and a chain of 102 stands past
+    it and stands refused."""
     if _depth > COMPARISON_DEPTH_BOUND:
-        raise NamedReplicationFailure(
-            "comparison depth bound reached: the value stands "
-            "deeper than the stated bound of "
-            + str(COMPARISON_DEPTH_BOUND)
-        )
+        if isinstance(first, (dict, list, tuple, set, frozenset)) or isinstance(
+                second, (dict, list, tuple, set, frozenset)):
+            raise NamedReplicationFailure(
+                "comparison depth bound reached: the value stands "
+                "deeper than the stated bound of "
+                + str(COMPARISON_DEPTH_BOUND)
+            )
     if first is None or second is None:
         return first is None and second is None
     if isinstance(first, bool) or isinstance(second, bool):

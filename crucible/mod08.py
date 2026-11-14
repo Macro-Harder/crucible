@@ -231,7 +231,14 @@ _HOMOGLYPH_MAP = {
     "\u1d22": "z",
     "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
     "\u0452": "s", "\u0493": "h",
+    "\u13d2": "r", "\uaba2": "r", "\u13ac": "e", "\uab7c": "e",
+    "\u13aa": "a", "\uab7a": "a", "\u13de": "l", "\uabae": "l",
+    "\u13b7": "m", "\uab87": "m", "\u13be": "o", "\uab8e": "o",
+    "\u13c1": "n", "\uab91": "n", "\u13ef": "y", "\uabbf": "y",
+    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
+    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
     "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l", "\u00a5": "y",
+    "\u00a7": "s", "+": "t",
 }
 for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
     _HOMOGLYPH_MAP[_upper.upper()] = _lower
@@ -400,13 +407,17 @@ def _undirected_copy(value, _memo=None, _depth=0):
     iteration readings, so no copy protocol a part supplies is
     ever invoked. A part in no container form and no plain scalar
     form stands copied as itself. A value nested past the barred
-    search bound stands refused in the module named form."""
-    if _depth > BARRED_SEARCH_DEPTH_BOUND:
-        raise NamedDetectionFailure(
-            "delivery rejected: barred field search bound reached: "
-            "the value stands deeper than the stated bound of "
-            + str(BARRED_SEARCH_DEPTH_BOUND)
-        )
+    search bound stands refused in the module named form. The
+    bound test stands on containers only, on the stated basis
+    of R3-056, so the scalar leaf of a container chain is never
+    counted against the bound."""
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        if _depth > BARRED_SEARCH_DEPTH_BOUND:
+            raise NamedDetectionFailure(
+                "delivery rejected: barred field search bound reached: "
+                "the value stands deeper than the stated bound of "
+                + str(BARRED_SEARCH_DEPTH_BOUND)
+            )
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):

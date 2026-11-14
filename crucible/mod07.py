@@ -356,7 +356,8 @@ def validate_tracer_passage_set(records, positive_control=None):
                     return False
                 if isinstance(
                         field_value,
-                        (list, tuple, dict, set, frozenset)) \
+                        (list, tuple, dict, set, frozenset,
+                         bytes, bytearray)) \
                         and len(field_value) == 0:
                     return False
         if not isinstance(record.get("open_semantic_item"), str):

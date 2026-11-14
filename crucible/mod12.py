@@ -496,7 +496,11 @@ def _folded_money_variants(key):
     stands read under every combination of its readings, position
     by position, so a single name can carry both readings at once.
     A name stands as a barred or counted name where any one of its
-    forms reads as that name."""
+    forms reads as that name. The checks that consume these forms
+    also read a name through the bound free reading below, so a
+    name whose combinations pass the enumeration bound above, and
+    a name needing two leet readings of one figure at two
+    positions, still stand read in full."""
     forms = set()
     bases = set()
     for letter_map in _CANONICAL_MAPS:
@@ -531,6 +535,144 @@ def _folded_money_variants(key):
 
 _MONEY_MARKER_FOLDED = _MONEY_MARKER.replace("_", "")
 _ANCHOR_VALUES_FIELD_FOLDED = _folded_money_key(_ANCHOR_VALUES_FIELD)
+
+
+# The bound free reading behind the folded forms. The enumeration
+# above stops at 2048 combinations, so a name carrying more alt
+# reading positions than that bound holds, or a name needing two
+# different leet readings of the figure 1 at two positions, can
+# stand past every enumerated form while still reading as a barred
+# or counted name. The reading below never enumerates the
+# combinations: it carries, character by character, the set of
+# readings each character can stand for, and walks a target or a
+# marker through those sets position by position, in the manner
+# of the bound free character read at MOD-01. Each character
+# stands under the readings of every canonical map and under its
+# alt readings where it carries them, and the walk then runs
+# under three whole name modes: the readings as they stand, the
+# leet mode, and the digit drop mode. In the leet mode a digit
+# reads as the letter it stands for at that position, and the
+# figure 1 reads as l or as i at each position on its own, so one
+# name can carry the i reading at one position and the l reading
+# at another in a single reading.
+
+_FOLDED_READ_MODES = (None, "leet", "drop")
+
+
+def _base_reading_options(key):
+    options = []
+    for character in str(key):
+        raw = set()
+        alt = _ALT_READINGS.get(
+            character, _ALT_READINGS.get(character.lower()))
+        if alt is not None:
+            raw.update(alt)
+        for letter_map in _CANONICAL_MAPS:
+            raw.add(letter_map.get(
+                character,
+                letter_map.get(character.lower(), character)))
+        segments = {
+            _canonicalise_mapped(reading) for reading in raw}
+        options.append(tuple(sorted(segments)))
+    return options
+
+
+def _folded_segment_options(segment, mode):
+    if mode == "drop":
+        return {"".join(
+            character for character in segment
+            if not character.isdigit())}
+    if mode == "leet":
+        choices = []
+        for character in segment:
+            if character == "1":
+                choices.append(("l", "i"))
+            elif character in _LEET_MAP:
+                choices.append((_LEET_MAP[character],))
+            else:
+                choices.append((character,))
+        if not choices:
+            return {""}
+        return {
+            "".join(parts)
+            for parts in itertools.product(*choices)}
+    return {segment}
+
+
+def _segments_by_character(key, mode):
+    return [
+        tuple(sorted({
+            folded
+            for base in options
+            for folded in _folded_segment_options(base, mode)}))
+        for options in _base_reading_options(key)
+    ]
+
+
+def _folded_name_matches(key, folded_target):
+    """True where a name reads as the folded target under every
+    recorded reading, read position by position with no bound on
+    the number of combinations the name carries."""
+    for mode in _FOLDED_READ_MODES:
+        positions = {0}
+        for segment_options in _segments_by_character(key, mode):
+            next_positions = set()
+            for position in positions:
+                for segment in segment_options:
+                    if folded_target[
+                            position:position + len(segment)] == segment:
+                        next_positions.add(position + len(segment))
+            positions = next_positions
+            if not positions:
+                break
+        if len(folded_target) in positions:
+            return True
+    return False
+
+
+def _prefix_state(pattern, state, character):
+    candidate = pattern[:state] + character
+    limit = min(len(pattern), state + 1)
+    for length in range(limit, -1, -1):
+        if candidate.endswith(pattern[:length]):
+            return length
+    return 0
+
+
+def _segments_carry_pattern(segments_by_character, pattern):
+    full = len(pattern)
+    states = {0}
+    for options in segments_by_character:
+        next_states = set()
+        for state in states:
+            for segment in options:
+                current = state
+                for character in segment:
+                    if current == full:
+                        break
+                    current = _prefix_state(pattern, current, character)
+                next_states.add(current)
+        if full in next_states:
+            return True
+        states = next_states
+    return full in states
+
+
+def _folded_name_carries(key, folded_marker):
+    """True where a name carries the folded marker under every
+    recorded reading, read position by position, including the
+    transliterated spelling of the money marker, which the folded
+    forms above read as the marker itself."""
+    for mode in _FOLDED_READ_MODES:
+        if _segments_carry_pattern(
+                _segments_by_character(key, mode), folded_marker):
+            return True
+    if folded_marker == _MONEY_MARKER_FOLDED:
+        for mode in _FOLDED_READ_MODES:
+            if _segments_carry_pattern(
+                    _segments_by_character(key, mode), "realmani"):
+                return True
+    return False
 
 
 # One barred read bound for MOD-12 and its sister surfaces,
@@ -581,16 +723,21 @@ def _carries_barred_money_value(value, _depth=0, _seen=None):
         currency_stands = False
         for key, item in value.items():
             variants = _folded_money_variants(key)
-            if "amount" in variants and item is not None:
+            if ("amount" in variants
+                    or _folded_name_matches(key, "amount")) \
+                    and item is not None:
                 amount_stands = True
-            if "currency" in variants:
+            if "currency" in variants \
+                    or _folded_name_matches(key, "currency"):
                 currency_stands = True
         if amount_stands and currency_stands:
             return True
         for key, item in value.items():
-            if any(
+            if (any(
                     _MONEY_MARKER_FOLDED in variant
-                    for variant in _folded_money_variants(key)) and (
+                    for variant in _folded_money_variants(key))
+                    or _folded_name_carries(
+                        key, _MONEY_MARKER_FOLDED)) and (
                     item is not None):
                 return True
             if _carries_barred_money_value(item, _depth + 1, _seen):
@@ -628,7 +775,9 @@ def validate_run_record(run):
     if _carries_barred_money_value(run):
         return False
     for key, values in run.items():
-        if _ANCHOR_VALUES_FIELD_FOLDED not in _folded_money_variants(key):
+        if _ANCHOR_VALUES_FIELD_FOLDED not in _folded_money_variants(key) \
+                and not _folded_name_matches(
+                    key, _ANCHOR_VALUES_FIELD_FOLDED):
             continue
         try:
             count = len(values)

@@ -974,7 +974,12 @@ def _folded_readings(key):
     substitutions read as letters and a reading with digits
     dropped. The panel vocabulary itself stands unmoved; only its
     reading gains the folded form. The readings stand taken under
-    both the homoglyph map and the transliteration map."""
+    both the homoglyph map and the transliteration map, and under
+    every combination of the two readings position by position, so
+    a key needing the transliteration reading at one position and
+    the homoglyph reading at another position of the same word
+    stands read as the word it spells, as the MOD-10 fold reads
+    it."""
     readings = []
 
     def add(transformed):
@@ -984,10 +989,11 @@ def _folded_readings(key):
         if plain and plain not in readings:
             readings.append(plain)
 
-    for letter_map in (
+    letter_maps = (
         _HOMOGLYPH_MAP, _TRANSLITERATION_MAP,
         _HOMOGLYPH_MAP_VO, _TRANSLITERATION_MAP_VO,
-    ):
+    )
+    for letter_map in letter_maps:
         decomposed = unicodedata.normalize("NFKD", str(key).lower())
         base = "".join(
             letter_map.get(character, character)
@@ -1001,6 +1007,35 @@ def _folded_readings(key):
                     for character in base))
         add("".join(character for character in base
                     if not character.isdigit()))
+    characters = [
+        character
+        for character in unicodedata.normalize("NFKD", str(key).lower())
+        if not unicodedata.category(character).startswith("M")
+    ]
+    expanded = {""}
+    for character in characters:
+        options = {
+            letter_map.get(character, character)
+            for letter_map in letter_maps
+        }
+        combined = {
+            prefix + option
+            for prefix in expanded
+            for option in options
+        }
+        if len(combined) > 4096:
+            expanded = None
+            break
+        expanded = combined
+    if expanded is not None:
+        for base in expanded:
+            add(base)
+            add("".join(_LEET_MAP.get(character, character)
+                        for character in base))
+            add("".join(_LEET_L_MAP.get(character, character)
+                        for character in base))
+            add("".join(character for character in base
+                        if not character.isdigit()))
     return tuple(readings)
 
 

@@ -302,12 +302,18 @@ def _folded_readings(key):
             if options is None:
                 options = (
                     _TRANSLITERATION_MAP.get(character, character),)
-            if len(variants) * len(options) > 1024:
-                break
             variants = [
                 variant + option
                 for variant in variants for option in options
             ]
+            if len(variants) > 1024:
+                # The variant set stands trimmed back to the cap,
+                # never abandoned: generation carries on over the
+                # rest of the key, so every retained variant reads
+                # the whole key and no later character is dropped.
+                # The character by character readings below cover
+                # the combinations the trim sets aside.
+                variants = variants[:1024]
         for variant in variants:
             plain = "".join(
                 character for character in variant if character.isalnum())
@@ -326,8 +332,128 @@ def _folded_readings(key):
     return tuple(readings)
 
 
+_MULTI_FOLDED_MODES = (None, _LEET_MAP, _LEET_MAP_I, "drop")
+
+
+def _multi_folded_segment(option, mode):
+    plain = "".join(
+        character for character in option if character.isalnum())
+    if mode is None:
+        return plain
+    if mode == "drop":
+        return "".join(
+            character for character in plain if not character.isdigit())
+    return "".join(mode.get(character, character) for character in plain)
+
+
+def _multi_segments_by_character(key, mode):
+    """The per character segment options of one key under one
+    folded mode, in the form the multi reading generation builds:
+    a letter carrying two recorded readings offers both segments,
+    and every other letter offers its transliterated segment. No
+    variant is enumerated, so the reading covers the whole key at
+    any count of multi reading letters."""
+    decomposed = unicodedata.normalize("NFKD", str(key).lower())
+    segments = []
+    for character in decomposed:
+        if unicodedata.category(character).startswith("M"):
+            continue
+        options = _MULTI_READINGS.get(character)
+        if options is None:
+            options = (
+                _TRANSLITERATION_MAP.get(character, character),)
+        segments.append(tuple(
+            {_multi_folded_segment(option, mode) for option in options}))
+    return segments
+
+
+def _multi_prefix_state(pattern, state, character):
+    candidate = pattern[:state] + character
+    limit = min(len(pattern), state + 1)
+    for length in range(limit, -1, -1):
+        if candidate.endswith(pattern[:length]):
+            return length
+    return 0
+
+
+def _multi_segments_carry(segments_by_character, pattern):
+    full = len(pattern)
+    states = {0}
+    for options in segments_by_character:
+        next_states = set()
+        for state in states:
+            for segment in options:
+                current = state
+                for character in segment:
+                    if current == full:
+                        break
+                    current = _multi_prefix_state(
+                        pattern, current, character)
+                next_states.add(current)
+        if full in next_states:
+            return True
+        states = next_states
+    return full in states
+
+
+def _multi_segments_match(segments_by_character, target):
+    positions = {0}
+    for options in segments_by_character:
+        next_positions = set()
+        for position in positions:
+            for segment in options:
+                if target[position:position + len(segment)] == segment:
+                    next_positions.add(position + len(segment))
+        positions = next_positions
+        if not positions:
+            return False
+    return len(target) in positions
+
+
+def _key_carries_multi_reading(key, marker):
+    """Whether some position by position multi reading of the
+    whole key carries the marker, read character by character
+    without enumerating the variants, so a marker whose reading
+    stands past the variant cap still stands read. The
+    transliterated spelling realmani reads as the marker
+    realmoney under the same replacement the folded readings
+    apply, so that spelling stands checked beside the marker."""
+    decomposed = unicodedata.normalize("NFKD", str(key).lower())
+    if not any(character in _MULTI_READINGS for character in decomposed):
+        return False
+    patterns = (marker, "realmani") if marker == "realmoney" else (marker,)
+    for mode in _MULTI_FOLDED_MODES:
+        segments = _multi_segments_by_character(key, mode)
+        if any(
+            _multi_segments_carry(segments, pattern)
+            for pattern in patterns
+        ):
+            return True
+    return False
+
+
+def _key_matches_multi_reading(key, target):
+    """Whether some position by position multi reading of the
+    whole key stands equal to the target, read character by
+    character without enumerating the variants."""
+    decomposed = unicodedata.normalize("NFKD", str(key).lower())
+    if not any(character in _MULTI_READINGS for character in decomposed):
+        return False
+    targets = (target, "realmani") if target == "realmoney" else (target,)
+    for mode in _MULTI_FOLDED_MODES:
+        segments = _multi_segments_by_character(key, mode)
+        if any(
+            _multi_segments_match(segments, candidate)
+            for candidate in targets
+        ):
+            return True
+    return False
+
+
 def _key_reads_as(key, folded_name):
-    return folded_name in _folded_readings(key)
+    return (
+        folded_name in _folded_readings(key)
+        or _key_matches_multi_reading(key, folded_name))
 
 
 def _base_str_eq(first, second):
@@ -385,7 +511,9 @@ def _undirected_copy(value, _memo=None):
         base_iter = (
             set.__iter__ if isinstance(value, set)
             else frozenset.__iter__)
-        return type(value)(
+        plain_constructor = (
+            set if isinstance(value, set) else frozenset)
+        return plain_constructor(
             _undirected_copy(item, _memo)
             for item in base_iter(value))
     return value
@@ -442,6 +570,11 @@ def _payload_carries_barred(value, _depth=0, _seen=None):
                     "realmoney" in reading and item is not None
                 ):
                     return True
+            if _key_carries_multi_reading(key, "anchorset") or (
+                _key_carries_multi_reading(key, "realmoney")
+                and item is not None
+            ):
+                return True
             if _payload_carries_barred(key, _depth + 1, seen):
                 return True
             if _payload_carries_barred(item, _depth + 1, seen):
@@ -649,8 +782,8 @@ def _reads_as_excluded_profile(value):
         return False
     excluded_readings = _folded_readings(EXCLUDED_PROFILE)
     return any(
-        reading in excluded_readings
-        for reading in _folded_readings(value))
+        _key_reads_as(value, reading)
+        for reading in excluded_readings)
 
 
 def classify_instruction_refusal():

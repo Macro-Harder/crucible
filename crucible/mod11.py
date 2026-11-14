@@ -570,6 +570,10 @@ wrong
 yard yeah year yellow yes yesterday yet yield you young your
 youth zone
 rhythm glyph crypt
+because although despite hence median variance question
+readable children child beautiful country banana elephant
+zebra quilt oxygen voyage purple orange silver cohort
+quantile estimand whilst among sometimes moreover meanwhile
 """.split())
 
 
@@ -687,19 +691,27 @@ def _seam_ground_stated(other):
     """Return True where the other fields state a seam ground in
     any of its wordings: a vouch release or a vouch lien, in the
     singular or the plural, hyphenated, or stated in a verb form
-    such as a vouch that was released, or a slash, stated as
-    slash, slashes, or a slashed amount."""
+    such as a vouch that was released, in reversed word order
+    such as a release of a vouch or vouches released, in a verb
+    head form such as a vouched release or vouching releases,
+    with the release word standing before the vouch word or
+    further along the same statement than a short window
+    reaches, or a slash, stated as slash, slashes, or a slashed
+    amount. The vouch head word and the release or lien word
+    count as one stated ground where they stand together in
+    one statement of the unit, in either order."""
     tokens = _ground_tokens(other)
     if any(token in ("slash", "slashes", "slashed", "slashing")
            for token in tokens):
         return True
-    for index, token in enumerate(tokens):
-        if token != "vouch":
-            continue
-        window = tokens[index:index + 5]
-        if any(word in ("release", "releases", "released",
-                        "releasing", "lien", "liens")
-               for word in window):
+    head_words = ("vouch", "vouches", "vouched", "vouching")
+    tail_words = ("release", "releases", "released", "releasing",
+                  "lien", "liens")
+    for statement in re.split(r"[.!?;]", other):
+        statement_tokens = _ground_tokens(statement)
+        if any(token in head_words for token in statement_tokens) \
+                and any(token in tail_words
+                        for token in statement_tokens):
             return True
     return False
 
@@ -707,13 +719,14 @@ def _seam_ground_stated(other):
 def _anchor_ground_stated(other):
     """Return True where the other fields state an anchor ground
     in any of its wordings: an anchor scenario or anchor
-    scenarios, hyphenated or not, or the anchor test wording the
+    scenarios, anchors scenarios with the plural head word,
+    hyphenated or not, or the anchor test wording the
     sources prove beside it."""
     tokens = _ground_tokens(other)
     for index, token in enumerate(tokens):
-        if token != "anchor":
+        if token not in ("anchor", "anchors"):
             continue
-        window = tokens[index:index + 3]
+        window = tokens[max(0, index - 3):index + 4]
         if any(word in ("scenario", "scenarios", "test", "tests")
                for word in window):
             return True
@@ -731,11 +744,31 @@ def _parley_grounds_stated(other):
     """Return the set of Parley dependence grounds, among Q1, Q2,
     and Q5, that the other fields state, in any of their
     wordings: Parley Q1 with the letter and number spaced,
-    hyphenated, or joined, Parley question 1 with the number
-    digit or spelled out as a word, and the reversed wording
-    that names the question before Parley."""
+    hyphenated, or joined in one word as ParleyQ2, Parley
+    question 1 with the number digit or spelled out as a word,
+    Parley questions two and five with the plural head word,
+    and the reversed wording that names the question before
+    Parley."""
     tokens = _ground_tokens(other)
     grounds = set()
+    for token in tokens:
+        joined = re.fullmatch(
+            r"parleyq([125])", token)
+        if joined is not None:
+            grounds.add(joined.group(1))
+        joined_word = re.fullmatch(
+            r"parleyq(one|two|five)", token)
+        if joined_word is not None:
+            grounds.add(_PARLEY_GROUND_NUMBERS[joined_word.group(1)])
+        joined_question = re.fullmatch(
+            r"parleyquestions?([125])", token)
+        if joined_question is not None:
+            grounds.add(joined_question.group(1))
+        joined_question_word = re.fullmatch(
+            r"parleyquestions?(one|two|five)", token)
+        if joined_question_word is not None:
+            grounds.add(
+                _PARLEY_GROUND_NUMBERS[joined_question_word.group(1)])
     for index, token in enumerate(tokens):
         if token != "parley":
             continue
@@ -746,7 +779,8 @@ def _parley_grounds_stated(other):
             if item == "q" and place + 1 < len(window) \
                     and window[place + 1] in _PARLEY_GROUND_NUMBERS:
                 grounds.add(_PARLEY_GROUND_NUMBERS[window[place + 1]])
-            if item == "question" and place + 1 < len(window) \
+            if item in ("question", "questions") \
+                    and place + 1 < len(window) \
                     and window[place + 1] in _PARLEY_GROUND_NUMBERS:
                 grounds.add(_PARLEY_GROUND_NUMBERS[window[place + 1]])
     return grounds
@@ -852,8 +886,15 @@ def _quoted_copy(value, _memo=None, _depth=0):
     supplies. A part in no container form and no plain scalar
     form stands quoted as itself, so no copy protocol of the
     part itself is ever invoked. A value nested past the depth
-    bound stands refused in named form."""
-    if _depth > _DEPTH_BOUND:
+    bound stands refused in named form. The bound counts
+    containers only, on the stated basis of R3-056: a chain of
+    101 containers over a scalar leaf stands within the bound,
+    and a chain of 102 containers stands past it, so the bound
+    test stands on a part only where that part is itself a
+    container, and a scalar leaf at the foot of a chain of 101
+    containers draws no refusal."""
+    if _depth > _DEPTH_BOUND and isinstance(
+            value, (dict, list, tuple, set, frozenset)):
         raise ValueError(
             "quoted copy stands refused in named form: a value "
             "stands nested past the depth bound")

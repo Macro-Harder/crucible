@@ -193,6 +193,26 @@ def _folded_readings(key):
     for reading in _readings_for(_canonical_text(key, _ALT_LETTER_MAP)):
         if reading not in readings:
             readings.append(reading)
+    texts = {""}
+    overflow = False
+    for character in str(key):
+        options = set()
+        for letter_map in (
+                _WIDE_LETTER_MAP, _HOMOGLYPH_MAP, _ALT_LETTER_MAP):
+            options.add(_canonical_text(character, letter_map))
+        expanded = set()
+        for prefix in texts:
+            for option in options:
+                expanded.add(prefix + option)
+        if len(expanded) > 4096:
+            overflow = True
+            break
+        texts = expanded
+    if not overflow:
+        for text in texts:
+            for reading in _readings_for(text):
+                if reading not in readings:
+                    readings.append(reading)
     return tuple(readings)
 
 
@@ -240,6 +260,22 @@ def _is_barred_key(key):
             return True
         if any(part in reading for part in _BARRED_PARTS_FOLDED):
             return True
+    return False
+
+
+def _key_string_is_barred(key):
+    """Return whether any string standing inside a container key
+    stands barred. A plain string key is judged as itself, and a
+    tuple, frozenset, set, or list key is judged by every string
+    standing inside it, at any nesting."""
+    if isinstance(key, str):
+        return _is_barred_key(key)
+    if isinstance(key, dict):
+        return any(
+            _key_string_is_barred(part) for part in dict.keys(key))
+    if isinstance(key, (list, tuple, set, frozenset)):
+        return any(
+            _key_string_is_barred(part) for part in _base_iter(key))
     return False
 
 
@@ -656,6 +692,11 @@ def construct_farm(member_ids, farm_size=None, edges=None):
     counts = {farm["farm_id"]: 0 for farm in farms}
     for edge in edges or ():
         if isinstance(edge, dict):
+            if dict.get(edge, "voucher") is None:
+                raise NamedGeneratorFailure(
+                    "farm rejected: an edge carries no voucher, "
+                    "not as a voucher and vouchee pair: "
+                    + repr(edge))
             if dict.get(edge, "vouchee") is None:
                 raise NamedGeneratorFailure(
                     "farm rejected: an edge carries no vouchee, "
@@ -804,12 +845,20 @@ def _value_carries_rule_state(value, _depth=0, _seen=None, _path=""):
         seen.add(id(value))
         try:
             if isinstance(value, dict):
-                return any(
-                    key in RULE_STATE_FIELDS
-                    or _value_carries_rule_state(
-                        item, _depth + 1, seen, _path + "/" + str(key))
-                    for key, item in dict.items(value)
-                )
+                for key, item in dict.items(value):
+                    if key in RULE_STATE_FIELDS:
+                        return True
+                    if isinstance(
+                            key, (dict, list, tuple, set, frozenset)):
+                        if _value_carries_rule_state(
+                                key, _depth + 1, seen,
+                                _path + "/key"):
+                            return True
+                    if _value_carries_rule_state(
+                            item, _depth + 1, seen,
+                            _path + "/" + str(key)):
+                        return True
+                return False
             return any(
                 _value_carries_rule_state(
                     item, _depth + 1, seen,
@@ -864,6 +913,8 @@ def _value_carries_ground_truth(value, _depth=0, _seen=None, _path=""):
                                 key, _depth + 1, seen,
                                 _path + "/key"):
                             return True
+                        if _key_string_is_barred(key):
+                            return True
                     elif _is_barred_key(key):
                         return True
                     if _value_carries_ground_truth(
@@ -911,6 +962,8 @@ def _strip_ground_truth_value(value, _depth=0, _seen=None, _path=""):
                             key, (dict, list, tuple, set, frozenset)):
                         new_key = _strip_ground_truth_value(
                             key, _depth + 1, seen, _path + "/key")
+                        if _key_string_is_barred(key):
+                            continue
                     else:
                         if _is_barred_key(key):
                             continue
@@ -931,6 +984,18 @@ def _strip_ground_truth_value(value, _depth=0, _seen=None, _path=""):
                         item, _depth + 1, seen, _path + "[" + str(index) + "]")
                     for index, item in enumerate(_base_iter(value))
                 )
+            if isinstance(value, frozenset):
+                return frozenset(
+                    _strip_ground_truth_value(
+                        item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                    for index, item in enumerate(_base_iter(value))
+                )
+            if isinstance(value, set):
+                return {
+                    _strip_ground_truth_value(
+                        item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                    for index, item in enumerate(_base_iter(value))
+                }
             return value
         finally:
             seen.discard(id(value))

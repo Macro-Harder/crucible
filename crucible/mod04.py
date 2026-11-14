@@ -73,6 +73,46 @@ def _freeze(value):
     return copy.deepcopy(value)
 
 
+def _guarded_copy(value, _memo=None):
+    """Copy a value through base class readings only, the guarded
+    copy form the sister copy acts state. Dict parts stand read
+    through the base dict items reading, and list, tuple, set,
+    and frozenset parts through their base iteration readings,
+    built as plain containers of their kind, so no copy protocol
+    a part supplies is ever invoked and a part supplying a lying
+    deepcopy protocol cannot materialise as another value inside
+    the copy. A part in no container form stands copied as
+    itself."""
+    if _memo is None:
+        _memo = {}
+    if isinstance(value, dict):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = {}
+        _memo[id(value)] = copied
+        for key, item in dict.items(value):
+            copied[_guarded_copy(key, _memo)] = _guarded_copy(item, _memo)
+        return copied
+    if isinstance(value, list):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = []
+        _memo[id(value)] = copied
+        copied.extend(
+            _guarded_copy(item, _memo) for item in list.__iter__(value))
+        return copied
+    if isinstance(value, tuple):
+        return tuple(
+            _guarded_copy(item, _memo) for item in tuple.__iter__(value))
+    if isinstance(value, frozenset):
+        return frozenset(
+            _guarded_copy(item, _memo) for item in frozenset.__iter__(value))
+    if isinstance(value, set):
+        return set(
+            _guarded_copy(item, _memo) for item in set.__iter__(value))
+    return value
+
+
 class ContractAHandover:
     """One point, one assumption record, one seed input set, and one
     family identifier for one run, in interface form. The engine may
@@ -215,6 +255,7 @@ _HOMOGLYPH_MAP = {
     "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
     "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
     "\u1d22": "z",
+    "\u1d31": "e", "\u1d38": "l", "\u1d3c": "o", "\u1d40": "t",
     "\u0452": "s", "\u0493": "h",
     "\u13d2": "r", "\uaba2": "r", "\u13ac": "e", "\uab7c": "e",
     "\u13aa": "a", "\uab7a": "a", "\u13de": "l", "\uabae": "l",
@@ -263,6 +304,7 @@ _TRANSLITERATION_MAP = {
     "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
     "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
     "\u1d22": "z",
+    "\u1d31": "e", "\u1d38": "l", "\u1d3c": "o", "\u1d40": "t",
     "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
     "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
     "\u00a5": "y", "$": "s", "\u00a2": "c", "\u00a7": "s", "+": "t",
@@ -312,14 +354,15 @@ def _folded_readings(key):
     with digit and symbol substitutions read as the letters they
     stand for, and one with digits dropped, so a digit standing
     inside a word as a split reads as the word it splits."""
-    decomposed = unicodedata.normalize("NFKD", str(key).lower())
+    decomposed = unicodedata.normalize(
+        "NFKD", str(key).lower()).lower()
+    characters = [
+        character for character in decomposed
+        if not unicodedata.category(character).startswith("M")
+    ]
     readings = []
-    for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
-        base = "".join(
-            letter_map.get(character, character)
-            for character in decomposed
-            if not unicodedata.category(character).startswith("M")
-        )
+
+    def _add_readings(base):
         plain = "".join(
             character for character in base if character.isalnum())
         leet_applied_first = "".join(
@@ -341,6 +384,39 @@ def _folded_readings(key):
         ):
             if reading and reading not in readings:
                 readings.append(reading)
+
+    for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+        _add_readings("".join(
+            letter_map.get(character, character)
+            for character in characters
+        ))
+    # Position by position combination of the two maps, in the
+    # form the MOD-10 fold states: each character contributes the
+    # readings both maps record for it, so a word needing the
+    # transliteration reading at one position and the homoglyph
+    # reading at another stands read as the word it spells. Where
+    # the combination count would grow past the stated cap, the
+    # combined readings stand abandoned and the two whole map
+    # readings above stand as the readings of the key.
+    texts = {""}
+    combined = True
+    for character in characters:
+        options = {
+            letter_map.get(character, character)
+            for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP)
+        }
+        expanded = {
+            prefix + option
+            for prefix in texts
+            for option in options
+        }
+        if len(expanded) > 4096:
+            combined = False
+            break
+        texts = expanded
+    if combined:
+        for base in texts:
+            _add_readings(base)
     return tuple(readings)
 
 
@@ -397,7 +473,9 @@ def _clean_value(value, _depth=0, _seen=None, _path=""):
         try:
             if isinstance(value, dict):
                 return {
-                    key: _clean_value(item, _depth + 1, seen, _path + "/" + str(key))
+                    _clean_value(
+                        key, _depth + 1, seen, _path + "/" + str(key)):
+                    _clean_value(item, _depth + 1, seen, _path + "/" + str(key))
                     for key, item in dict.items(value)
                     if not _is_barred_key(key)
                 }
@@ -431,7 +509,8 @@ def _clean_feature_values(raw):
         for key, value in dict.items(raw):
             if _is_barred_key(key):
                 continue
-            cleaned[key] = _clean_value(value)
+            cleaned[_clean_value(key, 1, None, "/" + str(key))] = (
+                _clean_value(value))
     return cleaned
 
 
@@ -892,6 +971,22 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
     def _whole(value):
         return isinstance(value, int) and not isinstance(value, bool)
 
+    def _viewer_matches(viewer, wanted):
+        if isinstance(viewer, str):
+            result = str.__eq__(viewer, wanted)
+            return result if result is not NotImplemented else False
+        if isinstance(wanted, str):
+            return False
+        return viewer == wanted
+
+    def _base_add(first, second):
+        result = int.__add__(first, second)
+        return None if result is NotImplemented else result
+
+    def _base_order(first, second, operation):
+        result = operation(first, second)
+        return result if result is not NotImplemented else False
+
     if not _whole(as_of_day) or not _whole(delay):
         return []
     if as_of_position is not None and not _whole(as_of_position):
@@ -905,7 +1000,7 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
         viewer = dict.get(record, "viewer_id")
         if viewer is None:
             viewer = dict.get(record, "viewer_identifier")
-        if viewer != viewer_id:
+        if not _viewer_matches(viewer, viewer_id):
             continue
         first_seen = dict.get(record, "first_seen_day")
         if first_seen is None:
@@ -915,12 +1010,15 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
         if not _whole(first_seen):
             continue
         first_seen_day = first_seen
-        if first_seen_day + delay_days > view_day:
+        effective_day = _base_add(first_seen_day, delay_days)
+        if effective_day is None:
+            continue
+        if _base_order(effective_day, view_day, int.__gt__):
             continue
         if as_of_position is not None:
             if (
-                first_seen_day + delay_days == view_day
-                or first_seen_day >= view_day
+                _base_order(effective_day, view_day, int.__eq__)
+                or _base_order(first_seen_day, view_day, int.__ge__)
             ):
                 arising = dict.get(record, "arising_position")
                 if arising is None:
@@ -929,10 +1027,10 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
                     continue
                 if not _whole(arising):
                     continue
-                if arising > as_of_position:
+                if _base_order(arising, as_of_position, int.__gt__):
                     continue
         _view_copy_guard(record)
-        selected.append(_freeze(record))
+        selected.append(_guarded_copy(record))
     return selected
 
 
@@ -1064,7 +1162,7 @@ def hold_view(view_record):
     runs its three forms together on it and passes it, as
     release_view performs."""
     _view_copy_guard(view_record)
-    return {"view_record": _freeze(view_record), "held": True, "released": False}
+    return {"view_record": _guarded_copy(view_record), "held": True, "released": False}
 
 
 def release_view(held, field_validation_passed=None, timing_passed=None):

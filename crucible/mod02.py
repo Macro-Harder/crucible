@@ -242,11 +242,13 @@ def validate_stream_cardinality(counts=None, stream_set=None,
             if key in kwargs:
                 stream_set = kwargs[key]
                 break
-    if not counts:
+    if counts is None:
         return False
     try:
-        items = list(counts.items())
-    except AttributeError:
+        items = list(dict.items(counts))
+    except TypeError:
+        return False
+    if not items:
         return False
     classes = _stream_set_classes(stream_set)
     if classes is not None:

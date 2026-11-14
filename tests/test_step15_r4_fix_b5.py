@@ -213,6 +213,10 @@ class TestR3049KeyPositionDepth(unittest.TestCase):
             pass
         except RecursionError:
             self.fail("bare RecursionError escaped escrow_result")
+        else:
+            self.fail(
+                "escrow_result returned normally at depth 2000, "
+                "silently admitting the key chain payload")
 
     def test_screen_itself_counts_key_position(self):
         self.assertTrue(mod06._payload_carries_barred(

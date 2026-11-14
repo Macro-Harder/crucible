@@ -21,6 +21,7 @@ with no plan stated canonical form enters no hash equality claim.
 """
 
 import copy
+import itertools
 import unicodedata
 
 __all__ = [
@@ -622,6 +623,19 @@ def _traversal_guard(value, depth, seen):
             "record traversal found a cycle")
 
 
+def _base_iter(value):
+    """Iterate a list, tuple, set, or frozenset part through its
+    base class iteration, never through a reading the part
+    itself supplies."""
+    if isinstance(value, list):
+        return list.__iter__(value)
+    if isinstance(value, tuple):
+        return tuple.__iter__(value)
+    if isinstance(value, frozenset):
+        return frozenset.__iter__(value)
+    return set.__iter__(value)
+
+
 def _guard_copyable(value, depth=0, seen=None):
     if seen is None:
         seen = set()
@@ -629,11 +643,13 @@ def _guard_copyable(value, depth=0, seen=None):
         _traversal_guard(value, depth, seen)
         seen.add(id(value))
         try:
-            items = value.items() if isinstance(value, dict) else (
-                (item, item) for item in value)
-            for key, item in items:
-                _guard_copyable(key, depth + 1, seen)
-                _guard_copyable(item, depth + 1, seen)
+            if isinstance(value, dict):
+                for key, item in dict.items(value):
+                    _guard_copyable(key, depth + 1, seen)
+                    _guard_copyable(item, depth + 1, seen)
+            else:
+                for item in _base_iter(value):
+                    _guard_copyable(item, depth + 1, seen)
         finally:
             seen.discard(id(value))
 
@@ -642,7 +658,10 @@ def _carries_reserved_matter(value, _depth=0, _seen=None):
     if _seen is None:
         _seen = set()
     if isinstance(value, str):
-        return value in RESERVED_MATTER_VALUES
+        return any(
+            str.__eq__(value, reserved)
+            for reserved in RESERVED_MATTER_VALUES
+        )
     if isinstance(value, dict):
         _traversal_guard(value, _depth, _seen)
         _seen.add(id(value))
@@ -650,7 +669,7 @@ def _carries_reserved_matter(value, _depth=0, _seen=None):
             return any(
                 _carries_reserved_matter(k, _depth + 1, _seen)
                 or _carries_reserved_matter(v, _depth + 1, _seen)
-                for k, v in value.items()
+                for k, v in dict.items(value)
             )
         finally:
             _seen.discard(id(value))
@@ -660,7 +679,7 @@ def _carries_reserved_matter(value, _depth=0, _seen=None):
         try:
             return any(
                 _carries_reserved_matter(v, _depth + 1, _seen)
-                for v in value)
+                for v in _base_iter(value))
         finally:
             _seen.discard(id(value))
     return False
@@ -682,9 +701,11 @@ _LETTER_MAP = {
     "\u043d": "n", "\u043b": "l", "\u043c": "m", "\u0438": "i",
     "\u0447": "ch", "\u043a": "k", "\u0445": "x", "\u0441": "c",
     "\u0443": "y", "\u0432": "v", "\u0442": "t", "\u0434": "d",
+    "\u044d": "e",
     "\u03b1": "a", "\u03bf": "o", "\u03b5": "e", "\u03b9": "i",
     "\u03ba": "k", "\u03bc": "m", "\u03bd": "n", "\u03c1": "r",
     "\u03c4": "t", "\u03c5": "y", "\u03bb": "l", "\u03c3": "s",
+    "\u03c8": "ps",
     "\u03c2": "s", "\u03c9": "o", "\u03c7": "x",
     "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
     "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
@@ -864,9 +885,10 @@ _FOLDED_MODES = (None, _LEET_READING_ONE, _LEET_READING_TWO, "drop")
 
 
 def _matches_under_every_reading(key, folded_target):
+    characters = _normalised_characters(key)
     options_by_character = [
         _character_readings(character)
-        for character in _normalised_characters(key)
+        for character in characters
     ]
     for mode in _FOLDED_MODES:
         positions = {0}
@@ -874,6 +896,31 @@ def _matches_under_every_reading(key, folded_target):
             segments = {
                 _folded_segment(reading, mode) for reading in options
             }
+            next_positions = set()
+            for position in positions:
+                for segment in segments:
+                    if folded_target[
+                            position:position + len(segment)] == segment:
+                        next_positions.add(position + len(segment))
+            positions = next_positions
+            if not positions:
+                break
+        if len(folded_target) in positions:
+            return True
+    # The figure one carries two leet readings, as the letter l and
+    # as the letter i, and one name may need one reading at one
+    # position and the other reading at another position. This pass
+    # reads the figure one under either leet reading at each of its
+    # positions in a single name, while every other character keeps
+    # the reading of one chosen mode.
+    for mode in (None, _LEET_READING_ONE, _LEET_READING_TWO):
+        positions = {0}
+        for character, options in zip(characters, options_by_character):
+            segments = {
+                _folded_segment(reading, mode) for reading in options
+            }
+            if character == "1":
+                segments.update(("l", "i"))
             next_positions = set()
             for position in positions:
                 for segment in segments:
@@ -930,6 +977,29 @@ def _folded_key_variants(key):
         variants.add("".join(
             character for character in folded if not character.isdigit()
         ))
+    # The figure one may read as the letter l at one position of a
+    # name and as the letter i at another position of the same name,
+    # so the variants also carry every mixture of its two leet
+    # readings across the positions where the figure stands. The
+    # mixture stands bounded: a name carrying more than twelve
+    # instances of the figure one keeps the whole name readings
+    # above, and the character by character matching read still
+    # reads it in full.
+    mixed = set()
+    for folded in variants:
+        one_positions = [
+            index for index, character in enumerate(folded)
+            if character == "1"
+        ]
+        if not one_positions or len(one_positions) > 12:
+            continue
+        for choice in itertools.product(
+                ("l", "i"), repeat=len(one_positions)):
+            letters = list(folded)
+            for position, reading in zip(one_positions, choice):
+                letters[position] = reading
+            mixed.add("".join(letters))
+    variants.update(mixed)
     return variants
 
 
@@ -1073,7 +1143,8 @@ def _validate_record_inner(form_id, instance):
     if fid == "36":
         return _validate_eventlog(instance)
     for field in required_fields(fid):
-        if field not in instance or instance[field] is None:
+        if not dict.__contains__(instance, field) or (
+                dict.__getitem__(instance, field) is None):
             return False
     for condition in _conditions_for(fid):
         discriminator = instance.get(condition["discriminator"])
@@ -1339,20 +1410,37 @@ class ProvenanceBlock:
         }
 
 
+def _plain_number(value):
+    """The stored number of a handed int or float value, read
+    through the base class conversion of its kind, never through
+    a conversion the value itself supplies. A float subclass
+    storing a fraction whose own float conversion reports a whole
+    number therefore stands judged by the fraction it stores,
+    and an int subclass stands judged by the count it stores."""
+    if isinstance(value, float):
+        return float.__float__(value)
+    return int.__int__(value)
+
+
 def _is_count_value(value):
     # A count of cases stands in numeric form only: a whole number,
     # never a boolean, never a text value, and never a fraction of
     # one case. A float that stands at a whole number counts, because
-    # its value is a whole count; a fractional float does not.
+    # its value is a whole count; a fractional float does not. A
+    # count of cases also stands in range: no count stands below
+    # zero. The value stands judged by the number it stores, read
+    # through the base class conversion of its kind.
     if isinstance(value, bool):
         return False
     if isinstance(value, int):
-        return True
+        return _plain_number(value) >= 0
     if isinstance(value, float):
+        plain = float.__float__(value)
         return (
-            value == value
-            and abs(value) != float("inf")
-            and float(value).is_integer()
+            plain == plain
+            and abs(plain) != float("inf")
+            and plain.is_integer()
+            and plain >= 0
         )
     return False
 
@@ -1360,13 +1448,22 @@ def _is_count_value(value):
 def _is_share_value(value):
     # A share stands in numeric form only: a number, never a boolean
     # and never a text value. A fractional share stands, because a
-    # share is a part of the whole stated as a number.
+    # share is a part of the whole stated as a number. A share also
+    # stands in range: a share of a whole stands at no less than
+    # zero and at no more than the whole. The value stands judged
+    # by the number it stores, read through the base class
+    # conversion of its kind.
     if isinstance(value, bool):
         return False
     if isinstance(value, int):
-        return True
+        return 0 <= _plain_number(value) <= 1
     if isinstance(value, float):
-        return value == value and abs(value) != float("inf")
+        plain = float.__float__(value)
+        return (
+            plain == plain
+            and abs(plain) != float("inf")
+            and 0 <= plain <= 1
+        )
     return False
 
 
@@ -1378,35 +1475,41 @@ def validate_provenance_block(block):
         return False
     if not isinstance(data, dict):
         return False
-    counts = data.get("excluded_class_counts")
-    shares = data.get("excluded_class_shares")
+    counts = dict.get(data, "excluded_class_counts")
+    shares = dict.get(data, "excluded_class_shares")
     if not isinstance(counts, dict) or not isinstance(shares, dict):
         return False
-    if not counts or not shares:
+    if dict.__len__(counts) == 0 or dict.__len__(shares) == 0:
         return False
-    if set(counts) != set(shares):
+    if set(dict.keys(counts)) != set(dict.keys(shares)):
         return False
-    if any(value is None for value in counts.values()):
+    count_values = list(dict.values(counts))
+    share_values = list(dict.values(shares))
+    if any(value is None for value in count_values):
         return False
-    if any(value is None for value in shares.values()):
+    if any(value is None for value in share_values):
         return False
-    if any(not _is_count_value(value) for value in counts.values()):
+    if any(not _is_count_value(value) for value in count_values):
         return False
-    if any(not _is_share_value(value) for value in shares.values()):
+    if any(not _is_share_value(value) for value in share_values):
         return False
-    entries = data.get("entries")
-    if not entries:
+    entries = dict.get(data, "entries")
+    if isinstance(entries, (list, tuple)):
+        entries = list(_base_iter(entries))
+        if not entries:
+            return False
+    elif not entries:
         return False
     for entry in entries:
-        if not isinstance(entry, dict) or not entry.get("field"):
+        if not isinstance(entry, dict) or not dict.get(entry, "field"):
             return False
-        if "applicability" not in entry:
+        if not dict.__contains__(entry, "applicability"):
             return False
         field_reading = " ".join(
-            str(entry.get("field")).lower().replace(
+            str(dict.get(entry, "field")).lower().replace(
                 "_", " ").replace("-", " ").replace("\t", " ").split())
         if "arbiter accuracy" in field_reading:
-            if not entry.get("error_direction"):
+            if not dict.get(entry, "error_direction"):
                 return False
     return True
 
