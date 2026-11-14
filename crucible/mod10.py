@@ -111,11 +111,18 @@ _TRANSLITERATION_MAP = {
     "\u044a": "", "\u044b": "y", "\u044c": "", "\u044d": "e",
     "\u044e": "yu", "\u044f": "ya",
     "\u03b1": "a", "\u03b2": "b", "\u03b3": "g", "\u03b4": "d",
-    "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "th",
+    "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "t",
     "\u03b9": "i", "\u03ba": "k", "\u03bb": "l", "\u03bc": "m",
     "\u03bd": "n", "\u03bf": "o", "\u03c0": "p", "\u03c1": "r",
     "\u03c2": "s", "\u03c3": "s", "\u03c4": "t", "\u03c5": "u",
-    "\u03c6": "ph", "\u03c7": "h", "\u03c8": "ps", "\u03c9": "o",
+    "\u03c6": "f", "\u03c7": "h", "\u03c8": "ps", "\u03c9": "o",
+    "\u0455": "s", "\u0405": "s", "\u04bb": "h", "\u04ba": "h",
+    "\u13d2": "r", "\uaba2": "r", "\u13ac": "e", "\uab7c": "e",
+    "\u13aa": "a", "\uab7a": "a", "\u13de": "l", "\uabae": "l",
+    "\u13b7": "m", "\uab87": "m", "\u13be": "o", "\uab8e": "o",
+    "\u13c1": "n", "\uab91": "n", "\u13ef": "y", "\uabbf": "y",
+    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
+    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
     "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
     "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
     "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
@@ -159,8 +166,35 @@ _LEET_DIGITS_I = dict(_LEET_DIGITS, **{"1": "i"})
 
 _SYMBOL_LEET_READINGS = {
     "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
-    "\u00a5": "y", "$": "s",
+    "\u00a5": "y", "$": "s", "\u00a2": "c", "\u00a7": "s", "+": "t",
 }
+
+# Letters carrying two recorded readings, where one name may need
+# both readings at two positions in the same word: Cyrillic es as
+# s and as c, Cyrillic u and Greek upsilon as u and as y, Armenian
+# vo as n and as the pair un, and Cyrillic en as n and as h. The
+# folded variants of a name stand read under every combination of
+# these readings, position by position, beside the two whole map
+# readings.
+_AMBIGUOUS_READINGS = {
+    "\u0441": ("s", "c"),
+    "\u0443": ("u", "y"),
+    "\u03c5": ("u", "y"),
+    "\u0578": ("n", "un"),
+    "\u043d": ("n", "h"),
+}
+
+
+def _base_iter(value):
+    """Iterate a container through its base class iteration, never
+    through a reading the value itself supplies."""
+    if isinstance(value, list):
+        return list.__iter__(value)
+    if isinstance(value, tuple):
+        return tuple.__iter__(value)
+    if isinstance(value, frozenset):
+        return frozenset.__iter__(value)
+    return set.__iter__(value)
 
 
 def _canonical_text(value, letter_map):
@@ -183,21 +217,50 @@ def _canonical_text(value, letter_map):
     return "".join(pieces)
 
 
+def _add_fold_forms(variants, text):
+    for digit_map in (_LEET_DIGITS, _LEET_DIGITS_I):
+        leet = "".join(
+            character for character in "".join(
+                _SYMBOL_LEET_READINGS.get(
+                    character, digit_map.get(character, character))
+                for character in text)
+            if character.isalnum())
+        variants.add(leet.replace("realmani", "realmoney"))
+    dropped = "".join(
+        character for character in text if character.isalpha())
+    variants.add(dropped.replace("realmani", "realmoney"))
+
+
+def _expanded_texts(key):
+    """The canonical texts of a name under every combination of
+    the two reading letters, position by position. Each character
+    contributes the readings the two maps and the ambiguous
+    reading table record for it, so a name needing one reading at
+    one position and the other reading at another position stands
+    read as the word it spells."""
+    texts = {""}
+    for character in str(key).casefold():
+        options = set()
+        if character in _AMBIGUOUS_READINGS:
+            options.update(_AMBIGUOUS_READINGS[character])
+        for letter_map in (_TRANSLITERATION_MAP, _HOMOGLYPH_MAP):
+            options.add(_canonical_text(character, letter_map))
+        expanded = set()
+        for prefix in texts:
+            for option in options:
+                expanded.add(prefix + option)
+        if len(expanded) > 4096:
+            return set()
+        texts = expanded
+    return texts
+
+
 def _fold_variants(key):
     variants = set()
     for letter_map in (_TRANSLITERATION_MAP, _HOMOGLYPH_MAP):
-        text = _canonical_text(key, letter_map)
-        for digit_map in (_LEET_DIGITS, _LEET_DIGITS_I):
-            leet = "".join(
-                character for character in "".join(
-                    _SYMBOL_LEET_READINGS.get(
-                        character, digit_map.get(character, character))
-                    for character in text)
-                if character.isalnum())
-            variants.add(leet.replace("realmani", "realmoney"))
-        dropped = "".join(
-            character for character in text if character.isalpha())
-        variants.add(dropped.replace("realmani", "realmoney"))
+        _add_fold_forms(variants, _canonical_text(key, letter_map))
+    for text in _expanded_texts(key):
+        _add_fold_forms(variants, text)
     return variants
 
 
@@ -210,6 +273,68 @@ def _folded_money_key(key):
 
 
 _MONEY_MARKER_FOLDED = ("real_" + "money").replace("_", "")
+
+_DEEP_REFUSAL = (
+    "deep or cyclic record in named form: a record "
+    "standing deeper than the retention bound, or "
+    "carrying a cycle, stands refused at retention")
+
+
+def _guard_retention_shape(value):
+    """Refuse a value standing deeper than the retention bound of
+    100, or carrying a cycle, in the refusal form the cured
+    retain_run_record surface states. The walk is iterative over
+    dict, list, tuple, set, and frozenset parts, read through
+    base class operations, so a deep shape stands refused in this
+    form and never as a bare RecursionError."""
+    stack = [(value, 0, frozenset())]
+    while stack:
+        node, depth, path = stack.pop()
+        if not isinstance(node, (dict, list, tuple, set, frozenset)):
+            continue
+        if depth > 100 or id(node) in path:
+            raise ValueError(_DEEP_REFUSAL)
+        path = path | {id(node)}
+        if isinstance(node, dict):
+            children = list(dict.keys(node)) + list(dict.values(node))
+        else:
+            children = list(_base_iter(node))
+        for child in children:
+            stack.append((child, depth + 1, path))
+
+
+def _safe_copy(value, _memo=None):
+    """Copy a value through base class readings only. Dict parts
+    stand read through the base dict items reading, and sequence
+    and set parts through their base iteration, so no part of the
+    record can direct the copy and no copy protocol a part
+    supplies is ever honoured. A part in no container form stands
+    copied as itself."""
+    if _memo is None:
+        _memo = {}
+    if isinstance(value, dict):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = {}
+        _memo[id(value)] = copied
+        for key, item in dict.items(value):
+            copied[_safe_copy(key, _memo)] = _safe_copy(item, _memo)
+        return copied
+    if isinstance(value, list):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = []
+        _memo[id(value)] = copied
+        copied.extend(
+            _safe_copy(item, _memo) for item in list.__iter__(value))
+        return copied
+    if isinstance(value, tuple):
+        return tuple(
+            _safe_copy(item, _memo) for item in tuple.__iter__(value))
+    if isinstance(value, (set, frozenset)):
+        return type(value)(
+            _safe_copy(item, _memo) for item in _base_iter(value))
+    return value
 
 
 def _carries_real_money_field(value, _depth=0, _path=()):
@@ -224,12 +349,9 @@ def _carries_real_money_field(value, _depth=0, _path=()):
     The read stands bounded: a value standing deeper than the
     bound, or carrying a cycle, stands refused in the stated
     ValueError form instead of escaping as a bare RecursionError."""
-    if isinstance(value, (dict, list, tuple)):
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
         if _depth > 100 or id(value) in _path:
-            raise ValueError(
-                "deep or cyclic record in named form: a record "
-                "standing deeper than the retention bound, or "
-                "carrying a cycle, stands refused at retention")
+            raise ValueError(_DEEP_REFUSAL)
         _path = _path + (id(value),)
     if isinstance(value, dict):
         amount_stands = any(
@@ -250,10 +372,10 @@ def _carries_real_money_field(value, _depth=0, _path=()):
             if _carries_real_money_field(item, _depth + 1, _path):
                 return True
         return False
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, (list, tuple, set, frozenset)):
         return any(
             _carries_real_money_field(item, _depth + 1, _path)
-            for item in value)
+            for item in _base_iter(value))
     return False
 
 
@@ -338,12 +460,9 @@ class RecorderStore:
         if rid in self._records:
             raise ValueError("second record for the same run is rejected: " + str(rid))
         try:
-            stored = copy.deepcopy(record)
+            stored = _safe_copy(record)
         except RecursionError as exc:
-            raise ValueError(
-                "deep or cyclic record in named form: a record "
-                "standing deeper than the retention bound, or "
-                "carrying a cycle, stands refused at retention") from exc
+            raise ValueError(_DEEP_REFUSAL) from exc
         self._records[rid] = stored
         self._index.append(rid)
         try:
@@ -355,7 +474,7 @@ class RecorderStore:
                 "recorder store flush failure: the retained record stands "
                 "not written, and the prior store file stands whole: "
                 + str(exc)) from exc
-        return copy.deepcopy(record)
+        return _safe_copy(record)
 
     def read_run_record(self, run_id):
         """The Recorder store reading path. The tracer cut reads
@@ -367,7 +486,7 @@ class RecorderStore:
             raise LookupFailure(run_id) from exc
         if not present:
             raise LookupFailure(run_id)
-        return copy.deepcopy(self._records[run_id])
+        return _safe_copy(self._records[run_id])
 
     def has_run_record(self, run_id):
         try:
@@ -778,18 +897,19 @@ def retain_event_log_entry(entry, store_kind="sweep"):
         raise ValueError(
             "identity less entry: no run identifier stands on the "
             "entry, and no entry stands retained under no identifier")
+    _guard_retention_shape(entry)
     bucket = _EVENT_LOGS.setdefault((store_kind, run_id), [])
     for existing in bucket:
         if existing == entry:
-            return copy.deepcopy(existing)
-    bucket.append(copy.deepcopy(entry))
-    return copy.deepcopy(entry)
+            return _safe_copy(existing)
+    bucket.append(_safe_copy(entry))
+    return _safe_copy(entry)
 
 
 def event_log_entries(run_id, store_kind="sweep"):
     """Read the retained EventLog entries of a run, in delivery
     order. Reading never writes."""
-    return copy.deepcopy(_EVENT_LOGS.get((store_kind, run_id), []))
+    return _safe_copy(_EVENT_LOGS.get((store_kind, run_id), []))
 
 
 def retain_daily_snapshot(snapshot, store_kind="sweep"):
@@ -807,18 +927,37 @@ def retain_daily_snapshot(snapshot, store_kind="sweep"):
         raise ValueError(
             "identity less snapshot: no run identifier stands on the "
             "snapshot, and no snapshot stands retained under no identifier")
+    _guard_retention_shape(snapshot)
     bucket = _DAILY_SNAPSHOTS.setdefault((store_kind, run_id), [])
     for existing in bucket:
         if existing == snapshot:
-            return copy.deepcopy(existing)
-    bucket.append(copy.deepcopy(snapshot))
-    return copy.deepcopy(snapshot)
+            return _safe_copy(existing)
+    bucket.append(_safe_copy(snapshot))
+    return _safe_copy(snapshot)
 
 
 def daily_snapshots(run_id, store_kind="sweep"):
     """Read the retained DailySnapshot records of a run. Reading
     never writes."""
-    return copy.deepcopy(_DAILY_SNAPSHOTS.get((store_kind, run_id), []))
+    return _safe_copy(_DAILY_SNAPSHOTS.get((store_kind, run_id), []))
+
+
+def _whole_day(value):
+    """Read a checkpoint day through one stated whole day form: an
+    integer stands as itself, and a string stating whole digits
+    stands as the integer it states, so the string 1 beside the
+    integer 1 is one day. Any other form stands as itself."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if text.isdigit():
+            return int(text)
+        if text.startswith("+") and text[1:].isdigit():
+            return int(text)
+    return value
 
 
 def retain_checkpoint(manifest, store_kind="sweep"):
@@ -835,16 +974,18 @@ def retain_checkpoint(manifest, store_kind="sweep"):
         raise ValueError(
             "identity less checkpoint: no run identifier stands on the "
             "manifest, and no checkpoint stands retained under no identifier")
+    _guard_retention_shape(manifest)
     bucket = _CHECKPOINTS.setdefault((store_kind, run_id), [])
     if any(
-            item.get("simulated_day") == manifest.get("simulated_day")
+            _whole_day(item.get("simulated_day"))
+            == _whole_day(manifest.get("simulated_day"))
             for item in bucket):
         _REJECTED_CHECKPOINT_WRITES.append({
             "run_id": run_id,
             "run_identifier": run_id,
             "simulated_day": manifest.get("simulated_day"),
             "store_kind": store_kind,
-            "manifest": copy.deepcopy(manifest),
+            "manifest": _safe_copy(manifest),
             "recorded_as": "rejected write",
         })
         raise ValueError(
@@ -852,16 +993,16 @@ def retain_checkpoint(manifest, store_kind="sweep"):
             + str(run_id) + " day " + str(manifest.get("simulated_day")))
     if len(bucket) >= 10000:
         raise ValueError("checkpoint cap in named form: a run stands at the ruled cap of 10,000 checkpoints per run under ruling Entry 18, and no further checkpoint stands retained")
-    stored = copy.deepcopy(manifest)
+    stored = _safe_copy(manifest)
     if "journal_event_count_at_checkpoint" not in stored:
         stored["journal_event_count_at_checkpoint"] = len(
             event_log_entries(run_id, store_kind))
     bucket.append(stored)
     if manifest.get("checkpoint_state") is not None:
         _CHECKPOINT_STATES[(store_kind, run_id,
-                            manifest.get("simulated_day"))] = (
-            copy.deepcopy(manifest["checkpoint_state"]))
-    return copy.deepcopy(manifest)
+                            _whole_day(manifest.get("simulated_day")))] = (
+            _safe_copy(manifest["checkpoint_state"]))
+    return _safe_copy(manifest)
 
 
 def rejected_checkpoint_writes(run_id=None):
@@ -881,13 +1022,14 @@ def checkpoint_state_at(run_id, simulated_day, store_kind="sweep"):
     checkpoint manifest, where one was written with it. Reading
     never writes: no state beside the manifest returns None."""
     return copy.deepcopy(
-        _CHECKPOINT_STATES.get((store_kind, run_id, simulated_day)))
+        _CHECKPOINT_STATES.get(
+            (store_kind, run_id, _whole_day(simulated_day))))
 
 
 def checkpoints_for_run(run_id, store_kind="sweep"):
     """Enumerate the retained checkpoints of a run by its
     CheckpointManifest set. Reading never writes."""
-    return copy.deepcopy(_CHECKPOINTS.get((store_kind, run_id), []))
+    return _safe_copy(_CHECKPOINTS.get((store_kind, run_id), []))
 
 
 def _normalised_form_text(value):
@@ -947,7 +1089,7 @@ def delete_checkpoint(run_id, checkpoint_day, store_kind="sweep",
     bucket = _CHECKPOINTS.get((store_kind, run_id), [])
     kept = [
         item for item in bucket
-        if item.get("simulated_day") != checkpoint_day
+        if _whole_day(item.get("simulated_day")) != _whole_day(checkpoint_day)
     ]
     removed = len(bucket) - len(kept)
     if removed:
@@ -1008,9 +1150,9 @@ def close_run_retention(run_id, tier, store_kind="sweep"):
             "unknown retention tier for the close act: " + str(tier))
     bucket = _CHECKPOINTS.get((store_kind, run_id), [])
     days = sorted({
-        item.get("simulated_day") for item in bucket
-        if isinstance(item.get("simulated_day"), int)
-        and not isinstance(item.get("simulated_day"), bool)
+        _whole_day(item.get("simulated_day")) for item in bucket
+        if isinstance(_whole_day(item.get("simulated_day")), int)
+        and not isinstance(_whole_day(item.get("simulated_day")), bool)
     })
     if not days or tier == "Tier 3":
         kept_days = list(days)
@@ -1028,7 +1170,7 @@ def close_run_retention(run_id, tier, store_kind="sweep"):
     if released_days:
         _CHECKPOINTS[(store_kind, run_id)] = [
             item for item in bucket
-            if item.get("simulated_day") in kept_days
+            if _whole_day(item.get("simulated_day")) in kept_days
         ]
     return {
         "run_id": run_id,
@@ -1270,9 +1412,10 @@ def validate_storage_claim(claim):
 def write_summary_record(record):
     """Retain the summary record of a run, as written at run close
     or as amended by a deferred evaluation written into it."""
+    _guard_retention_shape(record)
     run_id = record.get("run_id") or record.get("run_identifier")
-    _SUMMARY_RECORDS[run_id] = copy.deepcopy(record)
-    return copy.deepcopy(record)
+    _SUMMARY_RECORDS[run_id] = _safe_copy(record)
+    return _safe_copy(record)
 
 
 def summary_record_for_run(run_id="run-under-test"):
@@ -1287,7 +1430,7 @@ def summary_record_for_run(run_id="run-under-test"):
     retained, the form stands returned with a form only marker
     inside it."""
     if run_id in _SUMMARY_RECORDS:
-        return copy.deepcopy(_SUMMARY_RECORDS[run_id])
+        return _safe_copy(_SUMMARY_RECORDS[run_id])
     record = None
     try:
         record = _DEFAULT_STORE.read_run_record(run_id)
@@ -1339,11 +1482,52 @@ _RUN_CLASS_TIERS = {
 _FLAG_OUTCOMES = ("promote", "demote")
 
 
+def _normalised_actor(actor):
+    """Normalise an actor reading before the person check, to the
+    same form the MOD-14 shell applies: case is folded, spacing
+    is collapsed to single spaces, separator characters read as
+    spacing, and one leading article is dropped, so a person
+    actor in case, spacing, or article dress reads as the plain
+    actor it names."""
+    if not isinstance(actor, str):
+        return actor
+    text = actor.lower().replace("_", " ").replace("-", " ")
+    words = text.split()
+    if words and words[0] in ("the", "a", "an"):
+        words = words[1:]
+    return " ".join(words)
+
+
+def _has_stated_condition(fired):
+    """Whether a fired condition list states at least one
+    condition: an entry states a condition where it stands as a
+    string carrying text, or as a stated value other than None.
+    A list holding only an empty string or only None states no
+    condition."""
+    if isinstance(fired, str):
+        entries = [fired]
+    elif isinstance(fired, (list, tuple, set, frozenset)):
+        entries = list(_base_iter(fired))
+    elif fired is None:
+        entries = []
+    else:
+        entries = [fired]
+    for entry in entries:
+        if isinstance(entry, str):
+            if entry.strip():
+                return True
+        elif entry is not None:
+            return True
+    return False
+
+
 def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inputs=None):
     if not isinstance(record, dict):
         raise ValueError(
             "flag evaluation in named form: the evaluation stands on a "
             "summary record, and no other form stands evaluated")
+    _guard_retention_shape(record)
+    actor = _normalised_actor(actor)
     if actor == "person":
         raise ValueError("promotion by a person after close is barred")
     if outcome is not None and outcome not in _FLAG_OUTCOMES:
@@ -1373,7 +1557,7 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
             fired = inputs.get("flag_conditions_fired") or []
         if not fired:
             fired = record.get("flag_conditions_fired") or []
-        if not fired:
+        if not _has_stated_condition(fired):
             raise ValueError(
                 "flag promotion with no stated flag condition fired: "
                 "a promotion stands only with at least one stated "
@@ -1387,7 +1571,7 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
             raise ValueError(
                 "a promote outcome with no effected promotion stands "
                 "refused")
-    updated = copy.deepcopy(record)
+    updated = _safe_copy(record)
     if outcome == "promote" and tier is not None:
         updated["retention_tier"] = tier
     updated["flag_evaluation"] = {
@@ -1587,12 +1771,18 @@ def annotation_link_at_checkpoint(checkpoint):
         or checkpoint.get("annotation_link"))
 
 
-def resume_from_checkpoint(checkpoint):
+def resume_from_checkpoint(checkpoint, store_kind=None):
     """Resume from a checkpoint. Where a retained checkpoint stands
     for the run and day the handed checkpoint names, the handed
-    checkpoint stands checked against it: a checkpoint differing
-    from the retained one stands refused in named form, and no
-    resume stands performed from it."""
+    checkpoint stands checked against the retained bucket of its
+    own store kind: where a store kind stands named, by the call
+    or on the checkpoint itself, that bucket alone stands
+    compared; where none stands named, the handed checkpoint
+    stands checked against every retained bucket for its run and
+    day and stands resumed where it matches the retained
+    checkpoint of any one of them. A checkpoint differing from
+    every retained checkpoint for its run and day stands refused
+    in named form, and no resume stands performed from it."""
     if not isinstance(checkpoint, dict):
         raise ValueError(
             "identity less checkpoint: a resume stands on a checkpoint "
@@ -1602,27 +1792,37 @@ def resume_from_checkpoint(checkpoint):
         raise ValueError(
             "identity less checkpoint: no run identifier stands on the "
             "checkpoint, and no resume stands performed")
-    for (kind, bucket_run), bucket in _CHECKPOINTS.items():
+    kind = store_kind or checkpoint.get("store_kind")
+    if kind is not None and kind not in STORE_KINDS:
+        raise ValueError("unknown store kind: " + str(kind))
+    handed_form = {
+        key: value for key, value in checkpoint.items()
+        if key not in ("journal_event_count_at_checkpoint", "store_kind")
+    }
+    candidates = []
+    for (bucket_kind, bucket_run), bucket in _CHECKPOINTS.items():
         if bucket_run != run_id:
             continue
+        if kind is not None and bucket_kind != kind:
+            continue
         for retained in bucket:
-            if retained.get("simulated_day") == checkpoint.get("simulated_day"):
-                retained_form = {
-                    key: value for key, value in retained.items()
-                    if key != "journal_event_count_at_checkpoint"
-                }
-                handed_form = {
-                    key: value for key, value in checkpoint.items()
-                    if key != "journal_event_count_at_checkpoint"
-                }
-                if retained_form != handed_form:
-                    raise ValueError(
-                        "checkpoint integrity refusal: the handed "
-                        "checkpoint differs from the retained checkpoint "
-                        "for its run and day, and no resume stands "
-                        "performed from it")
-                return copy.deepcopy(checkpoint)
-    return copy.deepcopy(checkpoint)
+            if _whole_day(retained.get("simulated_day")) == _whole_day(
+                    checkpoint.get("simulated_day")):
+                candidates.append(retained)
+    if not candidates:
+        return copy.deepcopy(checkpoint)
+    for retained in candidates:
+        retained_form = {
+            key: value for key, value in retained.items()
+            if key not in ("journal_event_count_at_checkpoint", "store_kind")
+        }
+        if retained_form == handed_form:
+            return copy.deepcopy(checkpoint)
+    raise ValueError(
+        "checkpoint integrity refusal: the handed "
+        "checkpoint differs from the retained checkpoint "
+        "for its run and day, and no resume stands "
+        "performed from it")
 
 
 def validate_annotation_claim(claim):
@@ -1977,7 +2177,7 @@ def _carries_barred_key(value):
             if id(node) in visited:
                 continue
             visited.add(id(node))
-            stack.extend(node)
+            stack.extend(_base_iter(node))
     return False
 
 
@@ -2020,7 +2220,7 @@ def run_view_leak_check(view_record):
                 + " carries a barred key")
     for field in mod01.ViewRecord.FIELDS:
         if field in ("scheduling_position_identifier",
-                     "rule_version_set"):
+                     "rule_version_set") and field in view_record:
             continue
         if view_record.get(field) is None:
             raise ValueError(
@@ -2069,13 +2269,13 @@ def retain_view_record(record, tier=None):
                 or record.get("viewer_id")),
             "simulated_day": record.get("simulated_day"),
             "retention_tier": "Tier 1",
-            "divergence_companion": copy.deepcopy(
+            "divergence_companion": _safe_copy(
                 record.get("divergence_companion")
                 or {"nil_divergence_components": []}),
             "form": "divergence companion in place of the full view record",
         }
     else:
-        stored = copy.deepcopy(record)
+        stored = _safe_copy(record)
         stored["retention_tier"] = tier
     _VIEW_RECORDS.setdefault(run_id, []).append(stored)
     return copy.deepcopy(stored)
@@ -2084,4 +2284,4 @@ def retain_view_record(record, tier=None):
 def view_records_for_run(run_id):
     """Read the retained ViewRecords of a run. Reading never
     writes."""
-    return copy.deepcopy(_VIEW_RECORDS.get(run_id, []))
+    return _safe_copy(_VIEW_RECORDS.get(run_id, []))

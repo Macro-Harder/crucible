@@ -14,6 +14,7 @@ operator procedure as that runbook.
 """
 
 import copy
+import itertools
 import unicodedata
 
 from crucible import mod01 as _mod01
@@ -388,7 +389,8 @@ def nondeterminism_census(material):
         "confinement": "pilot confined material only",
         "face_statement": (
             "this census stands on pilot confined material only "
-            "and states no sweep result"),
+            "and states no sweep result; permitted divergence "
+            "for any reportable run stays at zero"),
         "entries_read": 1 if isinstance(material, dict) else 0,
     }
 
@@ -452,20 +454,53 @@ def store_kind_check_with_reason(kind):
 RETENTION_TIERS = ("Tier 1", "Tier 2", "Tier 3")
 
 
+def _has_stated_condition(fired):
+    """Return whether a fired condition list states a condition:
+    at least one entry stands stated, where an entry that is
+    empty text, blank text, or no value states no condition.
+    A list holding only such entries states no condition."""
+    if isinstance(fired, str):
+        entries = (fired,)
+    elif isinstance(fired, (list, tuple, set, frozenset)):
+        entries = tuple(fired)
+    elif fired is None:
+        entries = ()
+    else:
+        entries = (fired,)
+    for entry in entries:
+        if entry is None:
+            continue
+        if isinstance(entry, str) and not entry.strip():
+            continue
+        return True
+    return False
+
+
 def _normalise_actor(actor):
     """Normalise an actor reading before the exact person check
     in MOD-10: case is folded, spacing is collapsed to single
-    spaces, separator characters read as spacing, and one
-    leading article is dropped, so a person actor in that dress
-    reads as the plain actor it names."""
+    spaces, and repeated leading articles are dropped. Each
+    word stands read through the leet reading and the word
+    resolver against the actor vocabulary, so a person actor
+    in a letter change dress or a plural dress reads as the
+    plain actor it names. Separator characters stand read as
+    spacing for the word reading, but the split parts of one
+    actor word also stand read joined, so a separator split
+    dress of one word reads as the word it names and is not
+    split into a different actor."""
     if not isinstance(actor, str):
         return actor
     text = _canonicalise_text(actor)
     text = "".join(char if char.isalnum() else " " for char in text)
-    words = text.split()
-    if words and words[0] in _ARTICLES:
+    words = [_canonicalise_word(word) for word in text.split()]
+    while words and words[0] in _ARTICLES:
         words = words[1:]
-    return " ".join(words)
+    if not words:
+        return ""
+    joined = _resolve_actor_word("".join(words))
+    if joined in _ACTOR_VOCABULARY:
+        return joined
+    return " ".join(_resolve_actor_word(word) for word in words)
 
 
 def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
@@ -496,7 +531,7 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
             fired = inputs.get("flag_conditions_fired") or []
         if not fired:
             fired = summary_record.get("flag_conditions_fired") or []
-        if not fired:
+        if not _has_stated_condition(fired):
             raise NamedShellFailure(
                 "flag promotion with no stated flag condition fired")
     return _mod10.apply_flag_evaluation(
@@ -690,32 +725,54 @@ _VOCABULARY_ORDERED = tuple(dict.fromkeys(
 ))
 
 
-def _resolve_word(word):
+def _segments_into_vocabulary(word, vocabulary):
+    """Return whether a word stands as two or more vocabulary
+    words joined with no separator. Such a word stands read
+    by the folded joined reading, not as one dressed word, so
+    the resolver leaves it as itself."""
+    counts = [set() for _ in range(len(word) + 1)]
+    counts[0].add(0)
+    for start in range(len(word)):
+        if not counts[start]:
+            continue
+        for candidate in vocabulary:
+            if word.startswith(candidate, start):
+                for count in counts[start]:
+                    counts[start + len(candidate)].add(count + 1)
+    return any(count >= 2 for count in counts[len(word)])
+
+
+def _resolve_against(word, ordered, vocabulary):
     """Read one word as the vocabulary word it dresses, where
     it dresses one: the word itself where it stands plain, a
-    word with one or two added letters struck, a word with one
-    letter dropped from a vocabulary word, a word with one
-    letter replaced, and a word with two adjacent letters
-    transposed. Any other word stands as itself."""
-    if word in _VOCABULARY_WORDS:
+    word with one, two, or three added letters struck, a word
+    with one letter dropped from a vocabulary word, a word
+    with one letter replaced, a word with two adjacent letters
+    transposed, and the two compounded forms, one letter
+    dropped together with one letter replaced, and one
+    transposition together with one letter dropped. The
+    dropped, replaced, and transposed limbs run on words of
+    two letters as well, so a drop from a three letter word
+    still resolves. Any other word stands as itself."""
+    if word in vocabulary:
         return word
-    if len(word) > 3:
-        for cut in range(len(word)):
-            reduced = word[:cut] + word[cut + 1:]
-            if reduced in _VOCABULARY_WORDS:
-                return reduced
-        for first in range(len(word)):
-            for second in range(first + 1, len(word)):
-                reduced = word[:first] + word[first + 1:second] + word[second + 1:]
-                if reduced in _VOCABULARY_WORDS:
+    if _segments_into_vocabulary(word, vocabulary):
+        return word
+    for added in (1, 2, 3):
+        if len(word) > added:
+            for cuts in itertools.combinations(range(len(word)), added):
+                reduced = "".join(
+                    char for index, char in enumerate(word)
+                    if index not in cuts)
+                if reduced in vocabulary:
                     return reduced
-    if len(word) >= 3:
-        for candidate in _VOCABULARY_ORDERED:
+    if len(word) >= 2:
+        for candidate in ordered:
             if len(candidate) == len(word) + 1:
                 for cut in range(len(candidate)):
                     if candidate[:cut] + candidate[cut + 1:] == word:
                         return candidate
-        for candidate in _VOCABULARY_ORDERED:
+        for candidate in ordered:
             if len(candidate) != len(word):
                 continue
             for cut in range(len(word) - 1):
@@ -724,14 +781,48 @@ def _resolve_word(word):
                     + candidate[cut] + candidate[cut + 2:])
                 if swapped == word:
                     return candidate
-        for candidate in _VOCABULARY_ORDERED:
+        for candidate in ordered:
             if len(candidate) != len(word):
                 continue
             differences = sum(
                 1 for left, right in zip(candidate, word) if left != right)
             if differences == 1:
                 return candidate
+        for candidate in ordered:
+            if len(candidate) != len(word) + 1:
+                continue
+            for cut in range(len(candidate)):
+                dropped = candidate[:cut] + candidate[cut + 1:]
+                differences = sum(
+                    1 for left, right in zip(dropped, word)
+                    if left != right)
+                if differences == 1:
+                    return candidate
+                for swap in range(len(dropped) - 1):
+                    swapped = (
+                        dropped[:swap] + dropped[swap + 1]
+                        + dropped[swap] + dropped[swap + 2:])
+                    if swapped == word:
+                        return candidate
     return word
+
+
+def _resolve_word(word):
+    """Read one word as the vocabulary word it dresses.
+    See _resolve_against for the forms read."""
+    return _resolve_against(word, _VOCABULARY_ORDERED, _VOCABULARY_WORDS)
+
+
+_ACTOR_VOCABULARY_ORDERED = ("person", "program")
+_ACTOR_VOCABULARY = frozenset(_ACTOR_VOCABULARY_ORDERED)
+
+
+def _resolve_actor_word(word):
+    """Read one actor word as the actor word it dresses, under
+    the same resolver limbs as the protected target words,
+    against the actor vocabulary of person and program."""
+    return _resolve_against(
+        word, _ACTOR_VOCABULARY_ORDERED, _ACTOR_VOCABULARY)
 
 
 def _normalise_name(value):

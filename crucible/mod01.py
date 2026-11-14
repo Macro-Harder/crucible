@@ -701,14 +701,36 @@ _LETTER_MAP = {
     "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
     "\u1d22": "z",
     "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
+    "\u13d2": "r", "\u13ac": "e", "\u13aa": "a", "\u13de": "l",
+    "\u13b7": "m", "\u13be": "o", "\u13c1": "n", "\u13ef": "y",
+    "\uaba2": "r", "\uab7c": "e", "\uab7a": "a", "\uabae": "l",
+    "\uab87": "m", "\uab8e": "o", "\uab91": "n", "\uabbf": "y",
+    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
+    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
+    "\u2ca2": "r", "\u2c88": "e", "\u2c80": "a", "\u2c96": "l",
+    "\u2c98": "m", "\u2c9e": "o", "\u2c9a": "n", "\u2ca8": "y",
+}
+
+# Letters that carry two recorded readings each, so one name may need
+# either reading at either position where the letter stands. The first
+# reading in each pair is the primary reading the letter map above
+# records. Cyrillic es reads as c and as s. Cyrillic u and Greek
+# upsilon read as y and as u. Cyrillic en reads as n and as h.
+# Armenian vo reads as n and as the two letters un.
+_MULTI_READINGS = {
+    "\u0441": ("c", "s"),
+    "\u0443": ("y", "u"),
+    "\u03c5": ("y", "u"),
+    "\u043d": ("n", "h"),
+    "\u0578": ("n", "un"),
 }
 
 # Symbol substitutions in the leet readings, beside the digit readings
 # below: a sign standing in a marker word for the letter it commonly
-# stands for reads as that letter, for a, e, l and y.
+# stands for reads as that letter, for a, c, e, l, s, t and y.
 _SYMBOL_LEET_READINGS = {
     "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
-    "\u00a5": "y",
+    "\u00a5": "y", "\u00a2": "c", "$": "s", "\u00a7": "s", "+": "t",
 }
 
 _TRANSLITERATED_SPELLINGS = (
@@ -727,7 +749,7 @@ _LEET_READING_ONE = {
 _LEET_READING_TWO = dict(_LEET_READING_ONE, **{"1": "i"})
 
 
-def _canonicalise_letters(text):
+def _normalised_characters(text):
     decomposed = unicodedata.normalize("NFKD", str(text))
     without_marks = "".join(
         character for character in decomposed
@@ -742,12 +764,52 @@ def _canonicalise_letters(text):
             digit = unicodedata.digit(character, None)
             if digit is not None:
                 character = str(digit)
-        characters.append(_LETTER_MAP.get(
-            character, _SYMBOL_LEET_READINGS.get(character, character)))
-    canonical = "".join(characters)
+        characters.append(character)
+    return characters
+
+
+def _primary_reading(character):
+    return _LETTER_MAP.get(
+        character, _SYMBOL_LEET_READINGS.get(character, character))
+
+
+def _canonicalise_letters(text):
+    canonical = "".join(
+        _primary_reading(character)
+        for character in _normalised_characters(text)
+    )
     for source, target in _TRANSLITERATED_SPELLINGS:
         canonical = canonical.replace(source, target)
     return canonical
+
+
+def _canonical_variants(text):
+    # A symbol sign carries two readings in the variants: the letter
+    # it stands for, and the sign itself, which the fold drops as it
+    # drops every separator. A name therefore reads both ways, with
+    # the sign standing for its letter and with the sign holding
+    # nothing apart.
+    variants = [""]
+    for character in _normalised_characters(text):
+        if character in _MULTI_READINGS:
+            readings = _MULTI_READINGS[character]
+        elif character in _SYMBOL_LEET_READINGS:
+            readings = (_SYMBOL_LEET_READINGS[character], character)
+        else:
+            readings = (_primary_reading(character),)
+        if len(variants) * len(readings) > 1024:
+            readings = readings[:1]
+        variants = [
+            prefix + reading
+            for prefix in variants
+            for reading in readings
+        ]
+    canonical_variants = []
+    for variant in variants:
+        for source, target in _TRANSLITERATED_SPELLINGS:
+            variant = variant.replace(source, target)
+        canonical_variants.append(variant)
+    return canonical_variants
 
 
 def _folded_money_key(key):
@@ -758,15 +820,19 @@ def _folded_money_key(key):
 
 
 def _folded_key_variants(key):
-    folded = _folded_money_key(key)
-    variants = {folded}
-    for reading in (_LEET_READING_ONE, _LEET_READING_TWO):
+    variants = set()
+    for canonical in _canonical_variants(key):
+        folded = "".join(
+            character for character in canonical if character.isalnum()
+        )
+        variants.add(folded)
+        for reading in (_LEET_READING_ONE, _LEET_READING_TWO):
+            variants.add("".join(
+                reading.get(character, character) for character in folded
+            ))
         variants.add("".join(
-            reading.get(character, character) for character in folded
+            character for character in folded if not character.isdigit()
         ))
-    variants.add("".join(
-        character for character in folded if not character.isdigit()
-    ))
     return variants
 
 
@@ -1180,9 +1246,17 @@ def validate_provenance_block(block):
         return False
     if not isinstance(data, dict):
         return False
-    if not data.get("excluded_class_counts"):
+    counts = data.get("excluded_class_counts")
+    shares = data.get("excluded_class_shares")
+    if not isinstance(counts, dict) or not isinstance(shares, dict):
         return False
-    if not data.get("excluded_class_shares"):
+    if not counts or not shares:
+        return False
+    if set(counts) != set(shares):
+        return False
+    if any(value is None for value in counts.values()):
+        return False
+    if any(value is None for value in shares.values()):
         return False
     entries = data.get("entries")
     if not entries:
@@ -1192,8 +1266,9 @@ def validate_provenance_block(block):
             return False
         if "applicability" not in entry:
             return False
-        field_reading = str(entry.get("field")).lower().replace(
-            "_", " ").replace("-", " ")
+        field_reading = " ".join(
+            str(entry.get("field")).lower().replace(
+                "_", " ").replace("-", " ").replace("\t", " ").split())
         if "arbiter accuracy" in field_reading:
             if not entry.get("error_direction"):
                 return False

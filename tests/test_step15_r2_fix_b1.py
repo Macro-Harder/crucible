@@ -169,11 +169,15 @@ class TestRecursionGuard(unittest.TestCase):
 
     def test_version_stamp_deep_copy_guarded(self):
         try:
-            mod01.VersionStamp({"family_version": self._deep(600)})
+            stamp = mod01.VersionStamp({"family_version": self._deep(600)})
         except RecursionError:
             self.fail("VersionStamp escaped as bare RecursionError")
         except ValueError:
-            pass
+            return
+        stored_deep = "family_version" in stamp._values
+        self.fail(
+            "VersionStamp accepted a 600 deep value, stored: "
+            + repr(stored_deep))
 
 
 class TestPartialMarking(unittest.TestCase):

@@ -122,26 +122,48 @@ def _stream_set_classes(stream_set):
     None where no StreamSet stands handed in. A StreamSet stands
     read in its typed form, in record form, or as a plain list of
     class names, and each inventory entry stands read as a name
-    or as a record carrying its class name."""
+    or as a record carrying its class name. A StreamSet that
+    stands handed in but cannot be read in any stated form stands
+    refused in this module named failure form, a ValueError, and
+    never falls back to the no StreamSet behaviour."""
     if stream_set is None:
         return None
+    typed = False
     if isinstance(stream_set, dict):
         values = stream_set
+    elif isinstance(stream_set, (list, tuple, set, frozenset)):
+        values = stream_set
+    elif isinstance(getattr(stream_set, "values", None), dict):
+        values = stream_set.values
+        typed = True
     else:
-        values = getattr(stream_set, "values", stream_set)
+        raise ValueError(
+            "stream set stands in no stated form: "
+            + repr(stream_set))
     inventory = None
+    inventory_found = False
     if isinstance(values, dict):
         for key in ("stream_class_inventory", "stream_classes",
                     "inventory", "classes"):
             if key in values:
                 inventory = values[key]
+                inventory_found = True
                 break
-        if inventory is None:
+        if not inventory_found:
+            if typed:
+                raise ValueError(
+                    "stream set carries no stream class inventory")
             inventory = list(values.keys())
     elif isinstance(values, (list, tuple, set, frozenset)):
         inventory = list(values)
-    else:
-        return None
+        inventory_found = True
+    if inventory_found:
+        if isinstance(inventory, dict):
+            inventory = list(inventory.keys())
+        elif not isinstance(inventory, (list, tuple, set, frozenset)):
+            raise ValueError(
+                "stream class inventory stands in no stated form: "
+                + repr(inventory))
     classes = []
     for entry in inventory or []:
         if isinstance(entry, dict):
@@ -152,10 +174,19 @@ def _stream_set_classes(stream_set):
                     name = entry.get(key)
                     break
             if name is None:
-                return None
+                raise ValueError(
+                    "stream class inventory entry names no class: "
+                    + repr(entry))
             classes.append(name)
         else:
             classes.append(entry)
+    for name in classes:
+        try:
+            hash(name)
+        except TypeError:
+            raise ValueError(
+                "stream class entry stands in no stated form: "
+                + repr(name)) from None
     return classes
 
 
@@ -171,6 +202,10 @@ def validate_stream_cardinality(counts=None, stream_set=None,
     the counts must stand as exactly the classes of that set: a
     class of the set with no count stands missing and fails, and
     a counted class the set does not carry stands extra and fails.
+    A StreamSet that stands handed in but cannot be read in any
+    stated form stands refused with a ValueError, in this module
+    named failure form, instead of falling back to the no
+    StreamSet behaviour.
     """
     if stream_set is None:
         for key in ("streamset", "run_stream_set", "stream_classes",

@@ -41,6 +41,12 @@ class TestFlagRuleAmendmentForm(unittest.TestCase):
         Failure: while the surface stands absent the test fails naming this behaviour and TG-10.3; with the surface present, a promotion not written into the stored record by the evaluating program fails.
         """
         require_surface(self, "flag rule amendment written into the stored summary record", "summary_record_for_run", "apply_flag_evaluation")
+        try:
+            SURFACE.read_run_record("run-under-test")
+        except Exception:
+            SURFACE.retain_run_record(
+                {"run_id": "run-under-test",
+                 "run_identifier": "run-under-test"})
         record = SURFACE.summary_record_for_run(run_id="run-under-test")
         self.assertEqual(record["written_at"], "run_close")
         updated = SURFACE.apply_flag_evaluation(record, outcome="promote", tier="Tier 3", inputs={"flag_conditions_fired": ["condition-1"]})

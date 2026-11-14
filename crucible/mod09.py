@@ -543,10 +543,10 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
             if not cost or harm is None:
                 continue
             factor = harm / cost
-        if not _stands_numeric(factor):
+        if not _stands_numeric(factor) or not math.isfinite(factor):
             raise NamedAttackerFailure(
                 "bond parameter search rejected: a griefing factor "
-                "stands in no numeric form: " + repr(factor)
+                "stands in no finite numeric form: " + repr(factor)
             )
         scored.append({
             "parameter_set": copy.deepcopy(params),

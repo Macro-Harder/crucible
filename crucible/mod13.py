@@ -78,6 +78,163 @@ def _base_get(record, key):
     return None
 
 
+def _strict_eq(first, second, _seen=None):
+    """Judge two values by the values themselves, through base
+    class comparisons that no part can override, at every nesting
+    level. A part that overrides its own equality, for example a
+    str subclass whose equality agrees with everything, is judged
+    by the characters it stores, and the same rule runs inside
+    plain lists, tuples, dicts, sets and frozensets nested at any
+    depth the comparison acts read."""
+    if first is None or second is None:
+        return first is None and second is None
+    if isinstance(first, bool) or isinstance(second, bool):
+        if not (isinstance(first, bool) and isinstance(second, bool)):
+            return False
+        return bool.__eq__(first, second)
+    if isinstance(first, str) or isinstance(second, str):
+        if not (isinstance(first, str) and isinstance(second, str)):
+            return False
+        result = str.__eq__(first, second)
+        return result if result is not NotImplemented else False
+    if isinstance(first, bytes) or isinstance(second, bytes):
+        if not (isinstance(first, bytes) and isinstance(second, bytes)):
+            return False
+        result = bytes.__eq__(first, second)
+        return result if result is not NotImplemented else False
+    if isinstance(first, dict) or isinstance(second, dict):
+        if not (isinstance(first, dict) and isinstance(second, dict)):
+            return False
+        if _seen is None:
+            _seen = set()
+        pair = (id(first), id(second))
+        if pair in _seen:
+            return True
+        _seen = _seen | {pair}
+        first_items = list(dict.items(first))
+        second_items = list(dict.items(second))
+        if len(first_items) != len(second_items):
+            return False
+        used = [False] * len(second_items)
+        for first_key, first_value in first_items:
+            matched = False
+            for index in range(len(second_items)):
+                if used[index]:
+                    continue
+                second_key, second_value = second_items[index]
+                if _strict_eq(first_key, second_key, _seen) and _strict_eq(
+                        first_value, second_value, _seen):
+                    used[index] = True
+                    matched = True
+                    break
+            if not matched:
+                return False
+        return True
+    if isinstance(first, list) or isinstance(second, list):
+        if not (isinstance(first, list) and isinstance(second, list)):
+            return False
+        if _seen is None:
+            _seen = set()
+        pair = (id(first), id(second))
+        if pair in _seen:
+            return True
+        _seen = _seen | {pair}
+        if list.__len__(first) != list.__len__(second):
+            return False
+        for index in range(list.__len__(first)):
+            if not _strict_eq(
+                    list.__getitem__(first, index),
+                    list.__getitem__(second, index), _seen):
+                return False
+        return True
+    if isinstance(first, tuple) or isinstance(second, tuple):
+        if not (isinstance(first, tuple) and isinstance(second, tuple)):
+            return False
+        if _seen is None:
+            _seen = set()
+        pair = (id(first), id(second))
+        if pair in _seen:
+            return True
+        _seen = _seen | {pair}
+        if tuple.__len__(first) != tuple.__len__(second):
+            return False
+        for index in range(tuple.__len__(first)):
+            if not _strict_eq(
+                    tuple.__getitem__(first, index),
+                    tuple.__getitem__(second, index), _seen):
+                return False
+        return True
+    if isinstance(first, (set, frozenset)) or isinstance(
+            second, (set, frozenset)):
+        if not (isinstance(first, (set, frozenset))
+                and isinstance(second, (set, frozenset))):
+            return False
+        if _seen is None:
+            _seen = set()
+        pair = (id(first), id(second))
+        if pair in _seen:
+            return True
+        _seen = _seen | {pair}
+        first_items = list(first)
+        second_items = list(second)
+        if len(first_items) != len(second_items):
+            return False
+        used = [False] * len(second_items)
+        for first_item in first_items:
+            matched = False
+            for index in range(len(second_items)):
+                if used[index]:
+                    continue
+                if _strict_eq(first_item, second_items[index], _seen):
+                    used[index] = True
+                    matched = True
+                    break
+            if not matched:
+                return False
+        return True
+    if isinstance(first, int) and isinstance(second, int):
+        result = int.__eq__(first, second)
+        if result is not NotImplemented:
+            return result
+        return float.__eq__(float(first), float(second))
+    if isinstance(first, float) and isinstance(second, float):
+        result = float.__eq__(first, second)
+        return result if result is not NotImplemented else False
+    if isinstance(first, (int, float)) and isinstance(second, (int, float)):
+        return first == second
+    if type(first) is not type(second):
+        return False
+    return first == second
+
+
+def _replication_sentences_ok(record):
+    """Return True only where the sentence form of a verdict
+    record answers to the joined replication statement: the field
+    stands present, in list or tuple form, holding exactly the
+    canonical sentences in order, as read through the base dict
+    get and judged by the strict value comparison, and the
+    sentences joined with single spaces give the joined statement
+    the record carries, which is the canonical statement."""
+    if not isinstance(record, dict):
+        return False
+    sentences = dict.get(record, "replication_statement_sentences")
+    if not isinstance(sentences, (list, tuple)):
+        return False
+    if len(sentences) == 0:
+        return False
+    if not _strict_eq(
+            list(sentences), list(REPLICATION_STATEMENT_SENTENCES)):
+        return False
+    joined = dict.get(record, "replication_statement")
+    if not isinstance(joined, str):
+        return False
+    constructed = " ".join(list(sentences))
+    return (
+        _strict_eq(constructed, REPLICATION_STATEMENT)
+        and _strict_eq(joined, REPLICATION_STATEMENT)
+    )
+
+
 def _comparability_value(record, item):
     for alias in COMPARABILITY_ITEM_ALIASES[item]:
         value = _base_get(record, alias)
@@ -92,7 +249,9 @@ def _comparability(first, second):
     records, with every differing item named."""
     differing = [
         item for item in COMPARABILITY_ITEMS
-        if _comparability_value(first, item) != _comparability_value(second, item)
+        if not _strict_eq(
+            _comparability_value(first, item),
+            _comparability_value(second, item))
     ]
     record = {
         "comparable": not differing,
@@ -198,12 +357,16 @@ def replay_check(first, second):
     for field in fields:
         if field in missing:
             differing.append(field)
-        elif _base_get(first_record, field) != _base_get(second_record, field):
+        elif not _strict_eq(
+                _base_get(first_record, field),
+                _base_get(second_record, field)):
             differing.append(field)
     unit_differs = (
         _base_get(first_record, "headline_unit") is None
         or _base_get(second_record, "headline_unit") is None
-        or _base_get(first_record, "headline_unit") != _base_get(second_record, "headline_unit")
+        or not _strict_eq(
+            _base_get(first_record, "headline_unit"),
+            _base_get(second_record, "headline_unit"))
     )
     if unit_differs:
         differing.append("headline_unit")
@@ -387,7 +550,9 @@ def resume_check(original, resumed):
     for field in fields:
         if field in missing:
             differing.append(field)
-        elif _base_get(original_record, field) != _base_get(resumed_record, field):
+        elif not _strict_eq(
+                _base_get(original_record, field),
+                _base_get(resumed_record, field)):
             differing.append(field)
     verdict_differing = []
     original_verdicts = _base_get(original_record, "detection_verdicts")
@@ -400,7 +565,9 @@ def resume_check(original, resumed):
         if (
             _base_get(original_verdicts, point) is None
             or _base_get(resumed_verdicts, point) is None
-            or _base_get(original_verdicts, point) != _base_get(resumed_verdicts, point)
+            or not _strict_eq(
+                _base_get(original_verdicts, point),
+                _base_get(resumed_verdicts, point))
         ):
             verdict_differing.append(point)
     failed = bool(differing or verdict_differing)
@@ -496,7 +663,11 @@ def verdict_record(claim_id, standard="exact replay alone", outcome="rests"):
 def validate_verdict_record(record):
     """Return True only for a lawful verdict record. While the
     OP-20 quantities stand unfixed, no record naming the
-    distributional equivalence standard stands."""
+    distributional equivalence standard stands. The sentence form
+    of the replication statement must answer to the joined
+    statement: a record whose sentence form stands empty or
+    missing, or whose sentences contradict the joined statement,
+    does not validate."""
     if not isinstance(record, dict):
         return False
     if not record.get("claim_identifier"):
@@ -506,6 +677,8 @@ def validate_verdict_record(record):
     if record.get("standard_applied") == "distributional equivalence":
         return False
     if dict.get(record, "replication_statement") != REPLICATION_STATEMENT:
+        return False
+    if not _replication_sentences_ok(record):
         return False
     return record.get("standard_applied") == "exact replay alone"
 
@@ -517,6 +690,8 @@ def publishable_on_replication(claim, verdict):
     if not isinstance(verdict, dict):
         return False
     if verdict.get("claim_identifier") != (claim or {}).get("claim_identifier"):
+        return False
+    if not _replication_sentences_ok(verdict):
         return False
     if not validate_verdict_record(verdict):
         return False

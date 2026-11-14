@@ -333,10 +333,80 @@ def _field10_stands(value):
 
 _PLAIN_WORDS_MIN = 4
 
+_READABLE_VOWELS = frozenset("aeiou")
+
+
+def _is_readable_word(word):
+    """Return True only where a letter string stands as a readable
+    word on the stated reading: at least three letters, at least
+    one vowel and at least one consonant among them, and at least
+    two distinct letters, so a string of one repeated letter and a
+    string with no vowel in it counts as no word. The reading is
+    the form words take in the stated sentences this module itself
+    carries, in its claim and grounding sentences, its Field 10
+    marks, and its readout rule statements: every word those
+    sentences rest on carries a vowel and a consonant and is not
+    one repeated letter."""
+    if len(word) < 3:
+        return False
+    letters = set(word)
+    if len(letters) < 2:
+        return False
+    if not any(letter in _READABLE_VOWELS for letter in letters):
+        return False
+    return any(letter not in _READABLE_VOWELS for letter in letters)
+
 
 def _plain_word_count(text):
+    """Count plain words on the readable word reading: each
+    distinct readable word in the text counts once, so a sentence
+    repeating one word counts that word once, and a letter string
+    that stands as no readable word counts not at all."""
     words = re.findall(r"[A-Za-z]+", str(text).lower())
-    return sum(1 for word in words if len(word) >= 3)
+    return len({word for word in words if _is_readable_word(word)})
+
+
+def _field10_matches_grounds(unit):
+    """Return True only where the Field 10 marks stand with the
+    grounds the unit other fields state. A unit whose other
+    fields state that the result rests on a slash, a vouch lien
+    amount, or a vouch release must carry the computed in Parley
+    seam value in Field 10, and not the no cross seam effect
+    value. A unit whose other fields state that the result rests
+    on an anchor scenario must carry that scenario in Field 10
+    with the DQ-163 mark, and not the statement that no anchor
+    scenario is used. A unit whose other fields state that the
+    claim depends on Parley Q1 must carry the DQ-164 mark in
+    Field 10, and not the statement that no dependence mark
+    applies."""
+    field10 = _part_text(
+        dict.get(unit, "qualifiers_and_markings_block")
+    ).lower().replace("_", " ")
+    other = " ".join(
+        _part_text(dict.get(unit, field))
+        for field in HEADLINE_UNIT_FIELDS
+        if field != "qualifiers_and_markings_block"
+    ).lower().replace("_", " ")
+    if re.search(r"\b(vouch release|vouch lien|slash)\b", other):
+        if "computed in parley and not settled in the chosen escrow" \
+                not in field10:
+            return False
+        if "no cross seam effect" in field10:
+            return False
+    if "anchor scenario" in other:
+        if "no anchor scenario is used" in field10:
+            return False
+        if "dq-163" not in field10:
+            return False
+        for scenario in re.findall(r"\ban-[0-9]+\b", other):
+            if scenario not in field10:
+                return False
+    if "parley q1" in other:
+        if "dq-164" not in field10:
+            return False
+        if "no dependence mark applies" in field10:
+            return False
+    return True
 
 
 def _has_plain_scope_limits_sentence(value):
@@ -413,6 +483,8 @@ def validate_headline_unit(unit):
         return False
     if not _field10_stands(
             dict.get(unit, "qualifiers_and_markings_block")):
+        return False
+    if not _field10_matches_grounds(unit):
         return False
     if not _has_plain_scope_limits_sentence(
             dict.get(unit, "claim_sentence")):
@@ -790,9 +862,20 @@ def validate_transition_unit(unit):
         numbers = re.findall(r"[0-9]+(?:\.[0-9]+)?", sentence)
         if not numbers:
             return False
-        if horizon is not None and str(horizon) not in numbers \
-                and str(float(horizon)) not in numbers:
-            return False
+        if horizon is not None:
+            lowered = sentence.lower()
+            positioned = re.findall(
+                r"([0-9]+(?:\.[0-9]+)?)\s*(?:days?\s+)?horizon",
+                lowered)
+            positioned += re.findall(
+                r"horizon\s*(?:is\s+|of\s+|:|=)?\s*"
+                r"([0-9]+(?:\.[0-9]+)?)",
+                lowered)
+            if not positioned:
+                return False
+            if not any(float(value) == float(horizon)
+                       for value in positioned):
+                return False
     return True
 
 

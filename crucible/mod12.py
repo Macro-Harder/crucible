@@ -14,6 +14,7 @@ no sweep run starts here.
 """
 
 import copy
+import itertools
 import unicodedata
 
 from crucible import mod01 as _mod01
@@ -136,18 +137,65 @@ def apply_family_edit(record, change=None):
     """Apply an edit to a family record. An edit to a sealed record
     creates a new family identifier, and runs under the new
     identifier start again, per Shape 1 and operation C-10. An
-    edit to an unsealed record lands in place."""
+    edit to an unsealed record lands in place. The record and the
+    change stand under the same depth bound and cycle guard as
+    validate_run_record: a shape past the bound or carrying a
+    cycle is refused in the named form, never as a bare
+    RecursionError. A claims list handed in as an empty list
+    stands read as an empty list, never as absent, and an edit
+    whose kill check fields name a claim that no longer stands
+    is refused in the named form."""
+    if _shape_exceeds_bounds(record) or (
+            change is not None and _shape_exceeds_bounds(change)):
+        raise NamedControllerFailure(
+            "family edit refused: the record or the change stands "
+            "deeper than the stated bound of "
+            + str(_MAX_BARRED_READ_DEPTH)
+            + " or carries a cycle")
     edited = _freeze(record)
     if isinstance(change, dict):
         edited.update(_freeze(change))
-    standing = edited.get("headline_claims") or edited.get("claims")
-    if standing:
-        standing = list(standing)
+    explicit_checks = []
+    if isinstance(change, dict):
+        for field in ("kill_check_fields", "kill_checks"):
+            supplied = change.get(field)
+            if isinstance(supplied, (list, tuple)):
+                explicit_checks.extend(supplied)
+    if isinstance(change, dict) and (
+            "headline_claims" in change or "claims" in change):
+        raw = change.get("headline_claims") if (
+            "headline_claims" in change) else change.get("claims")
+    else:
+        raw = edited.get("headline_claims") if (
+            "headline_claims" in edited) else edited.get("claims")
+    if raw is not None:
+        standing = list(raw) if isinstance(
+            raw, (list, tuple)) else list(raw)
         edited["headline_claims"] = standing
         edited["claims"] = standing
         checks = [kill_check_for_claim(claim) for claim in standing]
         edited["kill_check_fields"] = checks
         edited["kill_checks"] = checks
+        for check in explicit_checks:
+            if isinstance(check, dict) and check.get("claim") is not None \
+                    and check.get("claim") not in standing:
+                raise NamedControllerFailure(
+                    "family edit refused: a kill check field names "
+                    "a claim that no longer stands: "
+                    + str(check.get("claim")))
+    elif explicit_checks:
+        standing_now = edited.get("headline_claims")
+        if not isinstance(standing_now, (list, tuple)):
+            standing_now = edited.get("claims")
+        if isinstance(standing_now, (list, tuple)):
+            for check in explicit_checks:
+                if isinstance(check, dict) \
+                        and check.get("claim") is not None \
+                        and check.get("claim") not in standing_now:
+                    raise NamedControllerFailure(
+                        "family edit refused: a kill check field "
+                        "names a claim that no longer stands: "
+                        + str(check.get("claim")))
     if record.get("sealed"):
         base_id = record.get("family_identifier") or record.get("family_id")
         new_id = str(base_id) + "-edited-1"
@@ -209,6 +257,19 @@ def validate_family_record(record):
     if record.get("sealed") and record.get("edited_after_seal"):
         if not record.get("identifier_changed"):
             return False
+    for field in ("kill_check_fields", "kill_checks"):
+        checks = record.get(field)
+        if not isinstance(checks, (list, tuple)):
+            continue
+        standing_claims = record.get("headline_claims")
+        if not isinstance(standing_claims, (list, tuple)):
+            standing_claims = record.get("claims")
+        if not isinstance(standing_claims, (list, tuple)):
+            continue
+        for check in checks:
+            if isinstance(check, dict) and check.get("claim") is not None \
+                    and check.get("claim") not in standing_claims:
+                return False
     if record.get("ecology_point") == "fixed" and not record.get("amendment_landed"):
         return False
     if record.get("data_dependent_top_up") and not record.get("look_register"):
@@ -337,6 +398,12 @@ _LETTER_MAP = {
     "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
     "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
     "\u00a5": "y",
+    "\u13d2": "r", "\u13ac": "e", "\u13aa": "a", "\u13de": "l",
+    "\u13b7": "m", "\u13be": "o", "\u13c1": "n", "\u13ef": "y",
+    "\uaba2": "r", "\uab7c": "e", "\uab7a": "a", "\uabae": "l",
+    "\uab87": "m", "\uab8e": "o", "\uab91": "n", "\uabbf": "y",
+    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
+    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
 }
 
 # Beside the s reading of Cyrillic U+0441, the same letter carries
@@ -361,14 +428,26 @@ _LEET_MAP = {
 _LEET_MAP_I = dict(_LEET_MAP, **{"1": "i"})
 
 
-def _canonicalised_name(key, letter_map=None):
-    if letter_map is None:
-        letter_map = _LETTER_MAP
-    mapped = "".join(
-        letter_map.get(character, letter_map.get(
-            character.lower(), character))
-        for character in str(key)
-    )
+# Letters that carry two recorded readings at once, so one name
+# can need both readings at two positions in a single word:
+# Cyrillic es as s and as c, Greek upsilon and Cyrillic u as u
+# and as y, Cyrillic en as n and as its look alike reading h, and
+# Armenian vo as n and as the two letters un. A name stands read
+# under every combination of these readings, position by position.
+_ALT_READINGS = {
+    "\u0441": ("s", "c"),
+    "\u03c5": ("u", "y"),
+    "\u0443": ("u", "y"),
+    "\u043d": ("n", "h"),
+    "\u0578": ("n", "un"),
+    "\u00a2": ("", "c"),
+    "$": ("", "s"),
+    "\u00a7": ("", "s"),
+    "+": ("", "t"),
+}
+
+
+def _canonicalise_mapped(mapped):
     decomposed = unicodedata.normalize("NFKD", mapped)
     characters = []
     for character in decomposed:
@@ -385,6 +464,17 @@ def _canonicalised_name(key, letter_map=None):
     )
 
 
+def _canonicalised_name(key, letter_map=None):
+    if letter_map is None:
+        letter_map = _LETTER_MAP
+    mapped = "".join(
+        letter_map.get(character, letter_map.get(
+            character.lower(), character))
+        for character in str(key)
+    )
+    return _canonicalise_mapped(mapped)
+
+
 def _folded_money_key(key):
     return _canonicalised_name(key)
 
@@ -396,11 +486,31 @@ def _folded_money_variants(key):
     second form, as i); that form with digits dropped; and each of
     those with the transliterated spelling of the money marker, the
     Cyrillic spelling that reads realmani in Latin letters, read as
-    the marker itself. A name stands as a barred or counted name
-    where any one of its forms reads as that name."""
+    the marker itself. A letter that carries two recorded readings
+    stands read under every combination of its readings, position
+    by position, so a single name can carry both readings at once.
+    A name stands as a barred or counted name where any one of its
+    forms reads as that name."""
     forms = set()
+    bases = set()
     for letter_map in _CANONICAL_MAPS:
-        base = _canonicalised_name(key, letter_map)
+        bases.add(_canonicalised_name(key, letter_map))
+    options = []
+    for character in str(key):
+        readings = _ALT_READINGS.get(
+            character, _ALT_READINGS.get(character.lower()))
+        if readings is not None:
+            options.append(readings)
+        else:
+            options.append((_LETTER_MAP.get(
+                character,
+                _LETTER_MAP.get(character.lower(), character)),))
+    for index, combination in enumerate(
+            itertools.product(*options)):
+        if index >= 2048:
+            break
+        bases.add(_canonicalise_mapped("".join(combination)))
+    for base in bases:
         forms.add(base)
         for table in (_LEET_MAP, _LEET_MAP_I):
             forms.add("".join(table.get(character, character)
@@ -417,7 +527,9 @@ _MONEY_MARKER_FOLDED = _MONEY_MARKER.replace("_", "")
 _ANCHOR_VALUES_FIELD_FOLDED = _folded_money_key(_ANCHOR_VALUES_FIELD)
 
 
-_MAX_BARRED_READ_DEPTH = 64
+# One barred read bound for MOD-12 and its sister surfaces,
+# stated at 100, the bound every sister cured surface states.
+_MAX_BARRED_READ_DEPTH = 100
 
 
 def _shape_exceeds_bounds(value):
@@ -430,7 +542,7 @@ def _shape_exceeds_bounds(value):
         current, depth, path = stack.pop()
         if depth > _MAX_BARRED_READ_DEPTH:
             return True
-        if isinstance(current, (dict, list, tuple)):
+        if isinstance(current, (dict, list, tuple, set, frozenset)):
             if id(current) in path:
                 return True
             path = path | {id(current)}
@@ -446,7 +558,7 @@ def _shape_exceeds_bounds(value):
 def _carries_barred_money_value(value, _depth=0, _seen=None):
     if _depth > _MAX_BARRED_READ_DEPTH:
         return False
-    if isinstance(value, (dict, list, tuple)):
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
         if _seen is None:
             _seen = frozenset()
         if id(value) in _seen:
@@ -471,7 +583,7 @@ def _carries_barred_money_value(value, _depth=0, _seen=None):
                 return True
             if _carries_barred_money_value(item, _depth + 1, _seen):
                 return True
-    elif isinstance(value, (list, tuple)):
+    elif isinstance(value, (list, tuple, set, frozenset)):
         return any(
             _carries_barred_money_value(item, _depth + 1, _seen)
             for item in value)

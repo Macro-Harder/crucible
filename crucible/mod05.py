@@ -149,26 +149,35 @@ def proportion_record(numerator, denominator):
     return {"numerator": numerator, "denominator": denominator}
 
 
+def _base_number(part):
+    if isinstance(part, float):
+        return float(part)
+    return int(part)
+
+
 def validate_proportion(record):
     """True only where a proportion stands stored with its numerator
     and denominator apart, and any stored quotient agrees with them."""
     if not isinstance(record, dict):
         return False
-    if "numerator" not in record or "denominator" not in record:
+    if not dict.__contains__(record, "numerator") or not dict.__contains__(record, "denominator"):
         return False
     numerator = dict.__getitem__(record, "numerator")
     denominator = dict.__getitem__(record, "denominator")
     for part in (numerator, denominator):
         if isinstance(part, bool) or not isinstance(part, (int, float)):
             return False
-        if not math.isfinite(part):
+        if not math.isfinite(_base_number(part)):
             return False
+    numerator = _base_number(numerator)
+    denominator = _base_number(denominator)
     if denominator <= 0 or numerator < 0:
         return False
-    if "quotient" in record and dict.__getitem__(record, "quotient") is not None:
+    if dict.__contains__(record, "quotient") and dict.__getitem__(record, "quotient") is not None:
         quotient = dict.__getitem__(record, "quotient")
         if isinstance(quotient, bool) or not isinstance(quotient, (int, float)):
             return False
+        quotient = _base_number(quotient)
         if not math.isfinite(quotient):
             return False
         if abs(quotient - numerator / denominator) > 1e-12:
@@ -900,9 +909,38 @@ _HOMOGLYPH_MAP = {
     "\u00c6": "ae", "\u0152": "oe", "\u00d8": "o", "\u0110": "d",
     "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
     "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
+    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
+    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
+    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
+    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
+    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
+    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
+    "\u1d22": "z",
+    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
+    "\u0452": "s", "\u0493": "h",
+    "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l", "\u00a5": "y",
 }
 for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
     _HOMOGLYPH_MAP[_upper.upper()] = _lower
+
+_TRANSLITERATION_MAP = dict(_HOMOGLYPH_MAP)
+_TRANSLITERATION_MAP.update({
+    "\u0431": "b", "\u0432": "v", "\u0433": "g", "\u0434": "d",
+    "\u0451": "e", "\u0436": "zh", "\u0437": "z", "\u0438": "i",
+    "\u0439": "y", "\u043b": "l", "\u043c": "m", "\u043d": "n",
+    "\u043f": "p", "\u0440": "r", "\u0441": "s", "\u0442": "t",
+    "\u0443": "u", "\u0444": "f", "\u0445": "h", "\u0446": "ts",
+    "\u0447": "ch", "\u0448": "sh", "\u0449": "shch", "\u044a": "",
+    "\u044b": "y", "\u044c": "", "\u044d": "e", "\u044e": "yu",
+    "\u044f": "ya",
+    "\u03b2": "b", "\u03b3": "g", "\u03b4": "d", "\u03b6": "z",
+    "\u03b7": "e", "\u03b8": "th", "\u03bb": "l", "\u03bc": "m",
+    "\u03bd": "n", "\u03c0": "p", "\u03c1": "r", "\u03c2": "s",
+    "\u03c3": "s", "\u03c5": "u", "\u03c6": "ph", "\u03c7": "h",
+    "\u03c8": "ps", "\u03c9": "o",
+})
+for _upper, _lower in list(_TRANSLITERATION_MAP.items()):
+    _TRANSLITERATION_MAP[_upper.upper()] = _lower
 
 _LEET_MAP = {
     "0": "o", "1": "i", "3": "e", "4": "a",
@@ -923,13 +961,8 @@ def _folded_readings(key):
     zero width characters dropped, beside a reading with digit
     substitutions read as letters and a reading with digits
     dropped. The panel vocabulary itself stands unmoved; only its
-    reading gains the folded form."""
-    decomposed = unicodedata.normalize("NFKD", str(key).lower())
-    base = "".join(
-        _HOMOGLYPH_MAP.get(character, character)
-        for character in decomposed
-        if not unicodedata.category(character).startswith("M")
-    )
+    reading gains the folded form. The readings stand taken under
+    both the homoglyph map and the transliteration map."""
     readings = []
 
     def add(transformed):
@@ -939,13 +972,20 @@ def _folded_readings(key):
         if plain and plain not in readings:
             readings.append(plain)
 
-    add(base)
-    add("".join(_LEET_MAP.get(character, character)
-                for character in base))
-    add("".join(_LEET_L_MAP.get(character, character)
-                for character in base))
-    add("".join(character for character in base
-                if not character.isdigit()))
+    for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+        decomposed = unicodedata.normalize("NFKD", str(key).lower())
+        base = "".join(
+            letter_map.get(character, character)
+            for character in decomposed
+            if not unicodedata.category(character).startswith("M")
+        )
+        add(base)
+        add("".join(_LEET_MAP.get(character, character)
+                    for character in base))
+        add("".join(_LEET_L_MAP.get(character, character)
+                    for character in base))
+        add("".join(character for character in base
+                    if not character.isdigit()))
     return tuple(readings)
 
 
@@ -964,6 +1004,8 @@ def _panel_key_barred(key):
         if reading in _PANEL_BARRED_FOLDED_EXACT:
             return True
         if "groundtruth" in reading:
+            return True
+        if "membership" in reading:
             return True
     return False
 
@@ -984,8 +1026,20 @@ def _panel_traversal_guard(value, depth, seen, path):
         )
 
 
+def _base_iter(value):
+    if isinstance(value, list):
+        return list.__iter__(value)
+    if isinstance(value, tuple):
+        return tuple.__iter__(value)
+    if isinstance(value, frozenset):
+        return frozenset.__iter__(value)
+    if isinstance(value, set):
+        return set.__iter__(value)
+    return iter(value)
+
+
 def _panel_clean(value, _depth=0, _seen=None, _path=""):
-    if isinstance(value, (dict, list, tuple)):
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
         seen = _seen if _seen is not None else set()
         _panel_traversal_guard(value, _depth, seen, _path)
         seen.add(id(value))
@@ -994,7 +1048,7 @@ def _panel_clean(value, _depth=0, _seen=None, _path=""):
                 return {
                     key: _panel_clean(
                         item, _depth + 1, seen, _path + "/" + str(key))
-                    for key, item in value.items()
+                    for key, item in dict.items(value)
                     if not _panel_key_barred(key)
                 }
             if isinstance(value, list):
@@ -1002,21 +1056,35 @@ def _panel_clean(value, _depth=0, _seen=None, _path=""):
                     _panel_clean(
                         item, _depth + 1, seen,
                         _path + "[" + str(index) + "]")
-                    for index, item in enumerate(value)
+                    for index, item in enumerate(_base_iter(value))
                 ]
-            return tuple(
+            if isinstance(value, tuple):
+                return tuple(
+                    _panel_clean(
+                        item, _depth + 1, seen,
+                        _path + "[" + str(index) + "]")
+                    for index, item in enumerate(_base_iter(value))
+                )
+            if isinstance(value, frozenset):
+                return frozenset(
+                    _panel_clean(
+                        item, _depth + 1, seen,
+                        _path + "[" + str(index) + "]")
+                    for index, item in enumerate(_base_iter(value))
+                )
+            return {
                 _panel_clean(
                     item, _depth + 1, seen,
                     _path + "[" + str(index) + "]")
-                for index, item in enumerate(value)
-            )
+                for index, item in enumerate(_base_iter(value))
+            }
         finally:
             seen.discard(id(value))
     return _freeze(value)
 
 
 def _panel_carries_barred(value, _depth=0, _seen=None, _path=""):
-    if isinstance(value, (dict, list, tuple)):
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
         seen = _seen if _seen is not None else set()
         _panel_traversal_guard(value, _depth, seen, _path)
         seen.add(id(value))
@@ -1025,13 +1093,13 @@ def _panel_carries_barred(value, _depth=0, _seen=None, _path=""):
                 return any(
                     _panel_key_barred(key) or _panel_carries_barred(
                         item, _depth + 1, seen, _path + "/" + str(key))
-                    for key, item in value.items()
+                    for key, item in dict.items(value)
                 )
             return any(
                 _panel_carries_barred(
                     item, _depth + 1, seen,
                     _path + "[" + str(index) + "]")
-                for index, item in enumerate(value)
+                for index, item in enumerate(_base_iter(value))
             )
         finally:
             seen.discard(id(value))
@@ -1045,6 +1113,8 @@ def panel_inputs(case):
     recursively at every depth: ground truth keys, derived ground
     truth keys, and the membership, label, and honesty keys never
     stand in a formed panel set."""
+    if isinstance(case, dict):
+        return _panel_clean(case)
     return _panel_clean(dict(case))
 
 
@@ -1081,10 +1151,16 @@ def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
     elif outcome not in ("slashable", "not slashable"):
         fail("the adjudication outcome stands outside the stated vocabulary")
     formed = panel_inputs(case)
-    remainder = {
-        key: value for key, value in dict(case).items()
-        if key not in ("ground_truth_label_reference", "ground_truth_label", "label_reference")
-    }
+    if isinstance(case, dict):
+        remainder = {
+            key: value for key, value in dict.items(case)
+            if key not in ("ground_truth_label_reference", "ground_truth_label", "label_reference")
+        }
+    else:
+        remainder = {
+            key: value for key, value in dict(case).items()
+            if key not in ("ground_truth_label_reference", "ground_truth_label", "label_reference")
+        }
     if _panel_carries_barred(remainder):
         fail("the formed panel set carries a barred ground truth or membership key")
     return {

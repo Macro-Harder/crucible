@@ -46,6 +46,43 @@ _DEPENDENCY_EDGES = (
 _LOG_FIELDS = mod01.form_fields("18")
 _TRACER_FIELDS = mod01.form_fields("29")
 
+COPY_DEPTH_BOUND = 100
+
+
+def _copy_guard(value, _depth=0, _seen=None, _path="root"):
+    """Walk a value the choice and seam copy surfaces are about
+    to copy, under the stated depth bound of 100 and a cycle
+    guard: a value standing deeper than the bound, or carrying a
+    cycle, stands refused in named form, and no bare
+    RecursionError escapes the copy. A value shared from two
+    places on different paths carries no cycle and stands
+    admitted."""
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        if _depth > COPY_DEPTH_BOUND:
+            raise ValueError(
+                "adapter copy stands refused in named form: a "
+                "value stands deeper than the stated bound of "
+                + str(COPY_DEPTH_BOUND) + " at " + _path)
+        seen = _seen if _seen is not None else set()
+        if id(value) in seen:
+            raise ValueError(
+                "adapter copy stands refused in named form: a "
+                "value carries a cycle at " + _path)
+        seen.add(id(value))
+        try:
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    _copy_guard(
+                        item, _depth + 1, seen,
+                        _path + "/" + str(key))
+            else:
+                for index, item in enumerate(value):
+                    _copy_guard(
+                        item, _depth + 1, seen,
+                        _path + "[" + str(index) + "]")
+        finally:
+            seen.discard(id(value))
+
 
 def seam_gap_counts():
     """Return the seam gap counts R10 records: creation 7, release
@@ -103,6 +140,10 @@ def make_adapter_choice(choice_identifier, reading_applied,
     choice, its effects, and its approver, named before a run may
     use the choice. The drives list names only decision level
     computed values."""
+    for part in (approval, dependence_marks, drives,
+                 ruling_references):
+        if part is not None:
+            _copy_guard(part)
     return {
         "choice_identifier": choice_identifier,
         "reading_applied": reading_applied,
@@ -298,8 +339,8 @@ def validate_tracer_passage_set(records, positive_control=None):
         for field in _TRACER_FIELDS:
             if record.get(field) is None:
                 return False
-            if field == "what_in_fact_passed" and isinstance(
-                    record.get(field), str) \
+            if field in ("what_in_fact_passed", "point_in_run") \
+                    and isinstance(record.get(field), str) \
                     and not record.get(field).strip():
                 return False
         if record.get("result") not in TRACER_RESULTS:
@@ -444,6 +485,7 @@ def seam_effect_report(effect):
     empty effect, in the form the slash report reads its outcome."""
     if not isinstance(effect, dict):
         effect = {}
+    _copy_guard(effect)
     return {
         "effect": effect.get("kind"),
         "reporting": INTERIM_REPORTING,
@@ -634,6 +676,7 @@ def validate_feedback_classification(record):
 
 
 __all__ = [
+    "COPY_DEPTH_BOUND",
     "OPEN_SEMANTIC_ITEMS",
     "SEAM_GAP_COUNTS",
     "TRACER_RESULTS",

@@ -210,8 +210,15 @@ _HOMOGLYPH_MAP = {
     "\u0441": "c", "\u0445": "x", "\u0443": "y", "\u0456": "i",
     "\u0458": "j", "\u0455": "s", "\u04bb": "h",
     "\u03b1": "a", "\u03b5": "e", "\u03bf": "o", "\u03c1": "p",
-    "\u03c4": "t", "\u03ba": "k", "\u03b9": "i", "\u03bd": "v",
-    "\u03c7": "x",
+    "\u03c4": "t", "\u03ba": "k", "\u03b9": "i", "\u03bd": "n",
+    "\u03c7": "x", "\u0442": "t",
+    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
+    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
+    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
+    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
+    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
+    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
+    "\u1d22": "z",
     "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
     "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
     "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
@@ -286,8 +293,22 @@ def _is_barred_key(key):
 BARRED_SEARCH_DEPTH_BOUND = 100
 
 
+def _base_iter(node):
+    """Iterate a container through its base class reading, never
+    through an iteration reading the value itself supplies."""
+    if isinstance(node, list):
+        return list.__iter__(node)
+    if isinstance(node, tuple):
+        return tuple.__iter__(node)
+    if isinstance(node, frozenset):
+        return frozenset.__iter__(node)
+    if isinstance(node, set):
+        return set.__iter__(node)
+    return iter(node)
+
+
 def _find_barred(node, path="", _depth=0, _seen=None):
-    if isinstance(node, (dict, list, tuple)):
+    if isinstance(node, (dict, list, tuple, set, frozenset)):
         if _depth > BARRED_SEARCH_DEPTH_BOUND:
             raise NamedDetectionFailure(
                 "delivery rejected: barred field search bound reached at "
@@ -311,7 +332,7 @@ def _find_barred(node, path="", _depth=0, _seen=None):
                         hits.append(here)
                     hits.extend(_find_barred(value, here, _depth + 1, seen))
             else:
-                for index, item in enumerate(node):
+                for index, item in enumerate(_base_iter(node)):
                     hits.extend(_find_barred(
                         item, path + "[" + str(index) + "]", _depth + 1, seen))
             return hits
@@ -334,6 +355,57 @@ def _record_values(record):
     if isinstance(values, dict):
         return values
     return None
+
+
+def _undirected_copy(value, _memo=None, _depth=0):
+    """Copy a checked value through base class readings only.
+
+    Dict parts stand read through the base dict items reading,
+    and list, tuple, set and frozenset parts through their base
+    iteration readings, so no copy protocol a part supplies is
+    ever invoked. A part in no container form and no plain scalar
+    form stands copied as itself. A value nested past the barred
+    search bound stands refused in the module named form."""
+    if _depth > BARRED_SEARCH_DEPTH_BOUND:
+        raise NamedDetectionFailure(
+            "delivery rejected: barred field search bound reached: "
+            "the value stands deeper than the stated bound of "
+            + str(BARRED_SEARCH_DEPTH_BOUND)
+        )
+    if _memo is None:
+        _memo = {}
+    if isinstance(value, dict):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = {}
+        _memo[id(value)] = copied
+        for key, item in dict.items(value):
+            copied[_undirected_copy(key, _memo, _depth + 1)] = (
+                _undirected_copy(item, _memo, _depth + 1))
+        return copied
+    if isinstance(value, list):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = []
+        _memo[id(value)] = copied
+        copied.extend(
+            _undirected_copy(item, _memo, _depth + 1)
+            for item in list.__iter__(value))
+        return copied
+    if isinstance(value, tuple):
+        return tuple(
+            _undirected_copy(item, _memo, _depth + 1)
+            for item in tuple.__iter__(value))
+    if isinstance(value, (set, frozenset)):
+        base_iter = set.__iter__ if isinstance(value, set) \
+            else frozenset.__iter__
+        return type(value)(
+            _undirected_copy(item, _memo, _depth + 1)
+            for item in base_iter(value))
+    if isinstance(value, (str, bytes, bytearray, int, float,
+                          complex, bool)) or value is None:
+        return value
+    return value
 
 
 def accept_detection_input(record):
@@ -439,7 +511,8 @@ def accept_detection_input(record):
         "agent_identifier": identifier,
         "day": day,
         "feature_values": feature_values,
-        _RECORDS_KEY: copy.deepcopy(list(records)),
+        _RECORDS_KEY: _undirected_copy(
+            [item for item in _base_iter(records)]),
     }
 
 
@@ -664,7 +737,7 @@ def _carries_barred_verdict(node, _depth=0, _seen=None):
     output as a whole and no bare RecursionError escapes. A part
     shared from two places on different paths carries no cycle
     and stands read on each path."""
-    if isinstance(node, (dict, list, tuple)):
+    if isinstance(node, (dict, list, tuple, set, frozenset)):
         if _depth > BARRED_SEARCH_DEPTH_BOUND:
             return True
         seen = _seen if _seen is not None else set()
@@ -686,7 +759,7 @@ def _carries_barred_verdict(node, _depth=0, _seen=None):
                 return False
             return any(
                 _carries_barred_verdict(item, _depth + 1, seen)
-                for item in node)
+                for item in _base_iter(node))
         finally:
             seen.discard(id(node))
     return False
@@ -755,6 +828,12 @@ def score_profiles(profile_set=None):
             streams = int.__int__(streams)
         else:
             streams = float.__float__(streams)
+        if isinstance(streams, float) and not math.isfinite(streams):
+            raise NamedDetectionFailure(
+                "profile set rejected: the streams per profile "
+                "value stands in no finite number form: "
+                + repr(streams)
+            )
         if streams < F06_MINIMUM_STREAMS_PER_PROFILE:
             raise NamedDetectionFailure(
                 "profile set stands below the F-06 stream count"

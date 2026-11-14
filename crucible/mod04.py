@@ -205,14 +205,86 @@ _HOMOGLYPH_MAP = {
     "\u00c6": "ae", "\u0152": "oe", "\u00d8": "o", "\u0110": "d",
     "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
     "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
+    "\u0431": "b", "\u0433": "g", "\u0434": "d", "\u0438": "i",
+    "\u043f": "p", "\u03b7": "e", "\u03c0": "p", "\u03c2": "s",
+    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
+    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
+    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
+    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
+    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
+    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
+    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
+    "\u1d22": "z",
+    "\u0452": "s", "\u0493": "h",
+    "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l", "\u00a5": "y",
 }
 for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
     _HOMOGLYPH_MAP[_upper.upper()] = _lower
 
+_TRANSLITERATION_MAP = {
+    "\u0430": "a", "\u0431": "b", "\u0432": "v", "\u0433": "g",
+    "\u0434": "d", "\u0435": "e", "\u0451": "e", "\u0436": "zh",
+    "\u0437": "z", "\u0438": "i", "\u0439": "y", "\u043a": "k",
+    "\u043b": "l", "\u043c": "m", "\u043d": "n", "\u043e": "o",
+    "\u043f": "p", "\u0440": "r", "\u0441": "s", "\u0442": "t",
+    "\u0443": "u", "\u0444": "f", "\u0445": "h", "\u0446": "ts",
+    "\u0447": "ch", "\u0448": "sh", "\u0449": "shch",
+    "\u044a": "", "\u044b": "y", "\u044c": "", "\u044d": "e",
+    "\u044e": "yu", "\u044f": "ya",
+    "\u0455": "s", "\u04bb": "h", "\u0456": "i",
+    "\u0452": "s", "\u0493": "h",
+    "\u03b1": "a", "\u03b2": "b", "\u03b3": "g", "\u03b4": "d",
+    "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "th",
+    "\u03b9": "i", "\u03ba": "k", "\u03bb": "l", "\u03bc": "m",
+    "\u03bd": "n", "\u03bf": "o", "\u03c0": "p", "\u03c1": "r",
+    "\u03c2": "s", "\u03c3": "s", "\u03c4": "t", "\u03c5": "u",
+    "\u03c6": "ph", "\u03c7": "h", "\u03c8": "ps", "\u03c9": "o",
+    "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
+    "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
+    "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
+    "\u0167": "t",
+    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
+    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
+    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
+    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
+    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
+    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
+    "\u1d22": "z",
+    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
+    "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
+    "\u00a5": "y", "$": "s",
+}
+for _upper, _lower in list(_TRANSLITERATION_MAP.items()):
+    _TRANSLITERATION_MAP[_upper.upper()] = _lower
+
 _LEET_MAP = {
     "0": "o", "1": "l", "3": "e", "4": "a", "5": "s",
     "7": "t", "8": "b", "@": "a", "$": "s",
+    "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l", "\u00a5": "y",
 }
+
+
+def _base_entries(value):
+    """The (index, item) entries of a container, read through the
+    base class of its kind, never through an iteration reading the
+    value itself supplies. A list or tuple subclass whose own
+    iteration yields nothing therefore hides nothing it holds in
+    base class storage, and a set or frozenset reads the same way."""
+    if isinstance(value, list):
+        return [
+            (index, list.__getitem__(value, index))
+            for index in range(list.__len__(value))
+        ]
+    if isinstance(value, tuple):
+        return [
+            (index, tuple.__getitem__(value, index))
+            for index in range(tuple.__len__(value))
+        ]
+    if isinstance(value, frozenset):
+        return list(enumerate(frozenset.__iter__(value)))
+    if isinstance(value, set):
+        return list(enumerate(set.__iter__(value)))
+    return list(enumerate(value))
 
 
 def _folded_readings(key):
@@ -228,33 +300,34 @@ def _folded_readings(key):
     stand for, and one with digits dropped, so a digit standing
     inside a word as a split reads as the word it splits."""
     decomposed = unicodedata.normalize("NFKD", str(key).lower())
-    base = "".join(
-        _HOMOGLYPH_MAP.get(character, character)
-        for character in decomposed
-        if not unicodedata.category(character).startswith("M")
-    )
-    plain = "".join(
-        character for character in base if character.isalnum())
-    leet_applied_first = "".join(
-        character for character in "".join(
-            _LEET_MAP.get(character, character) for character in base)
-        if character.isalnum())
-    leet_one_as_i = "".join(
-        character for character in "".join(
-            "i" if character == "1"
-            else _LEET_MAP.get(character, character)
-            for character in base)
-        if character.isalnum())
     readings = []
-    for reading in (
-        plain,
-        leet_applied_first,
-        leet_one_as_i,
-        "".join(character for character in plain
-                if not character.isdigit()),
-    ):
-        if reading and reading not in readings:
-            readings.append(reading)
+    for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+        base = "".join(
+            letter_map.get(character, character)
+            for character in decomposed
+            if not unicodedata.category(character).startswith("M")
+        )
+        plain = "".join(
+            character for character in base if character.isalnum())
+        leet_applied_first = "".join(
+            character for character in "".join(
+                _LEET_MAP.get(character, character) for character in base)
+            if character.isalnum())
+        leet_one_as_i = "".join(
+            character for character in "".join(
+                "i" if character == "1"
+                else _LEET_MAP.get(character, character)
+                for character in base)
+            if character.isalnum())
+        for reading in (
+            plain,
+            leet_applied_first,
+            leet_one_as_i,
+            "".join(character for character in plain
+                    if not character.isdigit()),
+        ):
+            if reading and reading not in readings:
+                readings.append(reading)
     return tuple(readings)
 
 
@@ -285,7 +358,7 @@ CLEANING_DEPTH_BOUND = 100
 
 
 def _clean_value(value, _depth=0, _seen=None, _path=""):
-    if isinstance(value, (dict, list, tuple)):
+    if isinstance(value, (dict, list, tuple, frozenset)):
         if _depth > CLEANING_DEPTH_BOUND:
             raise NamedFailure(
                 "projection cleaning bound reached at " + (_path or "root")
@@ -302,17 +375,22 @@ def _clean_value(value, _depth=0, _seen=None, _path=""):
             if isinstance(value, dict):
                 return {
                     key: _clean_value(item, _depth + 1, seen, _path + "/" + str(key))
-                    for key, item in value.items()
+                    for key, item in dict.items(value)
                     if not _is_barred_key(key)
                 }
             if isinstance(value, list):
                 return [
                     _clean_value(item, _depth + 1, seen, _path + "[" + str(index) + "]")
-                    for index, item in enumerate(value)
+                    for index, item in _base_entries(value)
                 ]
-            return tuple(
+            if isinstance(value, tuple):
+                return tuple(
+                    _clean_value(item, _depth + 1, seen, _path + "[" + str(index) + "]")
+                    for index, item in _base_entries(value)
+                )
+            return frozenset(
                 _clean_value(item, _depth + 1, seen, _path + "[" + str(index) + "]")
-                for index, item in enumerate(value)
+                for index, item in _base_entries(value)
             )
         finally:
             seen.discard(id(value))
@@ -322,7 +400,7 @@ def _clean_value(value, _depth=0, _seen=None, _path=""):
 def _clean_feature_values(raw):
     cleaned = {}
     if isinstance(raw, dict):
-        for key, value in raw.items():
+        for key, value in dict.items(raw):
             if _is_barred_key(key):
                 continue
             cleaned[key] = _clean_value(value)
@@ -332,7 +410,7 @@ def _clean_feature_values(raw):
 def _clean_rule_records(raw):
     cleaned = []
     if isinstance(raw, (list, tuple)):
-        for item in raw:
+        for index, item in _base_entries(raw):
             cleaned.append(_clean_value(item))
     return cleaned
 
@@ -385,11 +463,14 @@ def _value_appears(value, node, _seen=None):
     if node == value:
         return True
     if isinstance(node, dict):
-        return any(_value_appears(value, v, _seen) for v in node.values()) or any(
-            _value_appears(value, k, _seen) for k in node.keys()
+        return any(_value_appears(value, v, _seen) for v in dict.values(node)) or any(
+            _value_appears(value, k, _seen) for k in dict.keys(node)
         )
     if isinstance(node, (list, tuple)):
-        return any(_value_appears(value, item, _seen) for item in node)
+        return any(
+            _value_appears(value, item, _seen)
+            for index, item in _base_entries(node)
+        )
     if isinstance(node, str) and isinstance(value, str):
         return value in node
     return False
@@ -745,11 +826,11 @@ def _view_copy_guard(value, _depth=0, _seen=None, _path=""):
         seen.add(id(value))
         try:
             if isinstance(value, dict):
-                for key, item in value.items():
+                for key, item in dict.items(value):
                     _view_copy_guard(
                         item, _depth + 1, seen, _path + "/" + str(key))
             else:
-                for index, item in enumerate(value):
+                for index, item in _base_entries(value):
                     _view_copy_guard(
                         item, _depth + 1, seen,
                         _path + "[" + str(index) + "]")
@@ -797,7 +878,10 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
         if first_seen_day + delay_days > view_day:
             continue
         if as_of_position is not None:
-            if first_seen_day + delay_days == view_day:
+            if (
+                first_seen_day + delay_days == view_day
+                or first_seen_day >= view_day
+            ):
                 arising = record.get("arising_position")
                 if arising is None:
                     arising = record.get("position")
@@ -836,7 +920,16 @@ def build_view_record(run_id="run-under-test", viewer_id="viewer-1",
     stands taken."""
     if completeness not in COMPLETENESS_STATES:
         raise NamedFailure("completeness state outside the closed vocabulary: " + str(completeness))
-    contents = list(contents or ())
+    if contents is None:
+        contents = []
+    elif isinstance(contents, (list, tuple)):
+        contents = [item for index, item in _base_entries(contents)]
+    else:
+        raise NamedFailure(
+            "view record writing refused in named form: contents stands "
+            "in a non record sequence form and no view record stands "
+            "written from it: " + type(contents).__name__
+        )
     _view_copy_guard(contents)
     _view_copy_guard(reputation_and_band or {})
     _view_copy_guard(graph_position or {})
@@ -919,7 +1012,8 @@ def view_record_carries_barred_field(view_record):
             if id(node) in visited:
                 continue
             visited.add(id(node))
-            stack.extend(node)
+            stack.extend(
+                item for index, item in _base_entries(node))
     return False
 
 
@@ -929,6 +1023,7 @@ def hold_view(view_record):
     released only after the Recorder leak check runner in MOD-10
     runs its three forms together on it and passes it, as
     release_view performs."""
+    _view_copy_guard(view_record)
     return {"view_record": _freeze(view_record), "held": True, "released": False}
 
 

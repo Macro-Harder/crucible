@@ -168,6 +168,25 @@ _HOMOGLYPH_MAP.update({
     "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
 })
 
+# The sister fold readings: the small capital letters read as the
+# Latin letters they stand for, the Armenian oh and vo letters read
+# as o and n, and the symbol substitutions read as the letters they
+# commonly stand for. The symbol readings stand in the letter maps
+# themselves, so a symbol standing in a word reads as its letter
+# before any non alphanumeric character is dropped from the fold.
+_HOMOGLYPH_MAP.update({
+    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
+    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
+    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
+    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
+    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
+    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
+    "\u1d22": "z",
+    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
+    "@": "a", "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
+    "\u00a5": "y", "$": "s",
+})
+
 # The transliterated reading: the same letters read by the Latin
 # spelling they transliterate to, where that spelling differs from
 # the letter they stand rendered as. Cyrillic er reads as r, es as
@@ -189,6 +208,14 @@ _TRANSLITERATION_MAP.update({
     "\u03c3": "s", "\u03c5": "u", "\u03c6": "ph", "\u03c7": "h",
     "\u03c8": "ps", "\u03c9": "o",
 })
+
+# Beside the n reading of the Armenian vo letters, the same letters
+# carry an un reading, as the sister fold at MOD-12 records, so an
+# amount key spelled with vo standing for the letters un reads as
+# amount under this further reading while the n reading stands.
+_HOMOGLYPH_MAP_VO = dict(_HOMOGLYPH_MAP, **{"\u0578": "un", "\u0548": "un"})
+_TRANSLITERATION_MAP_VO = dict(
+    _TRANSLITERATION_MAP, **{"\u0578": "un", "\u0548": "un"})
 
 _LEET_MAP = {
     "0": "o", "1": "l", "3": "e", "4": "a", "5": "s",
@@ -216,7 +243,10 @@ def _folded_readings(key):
     transliterated spelling of the money marker word itself reads
     as the marker."""
     readings = []
-    for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+    for letter_map in (
+        _HOMOGLYPH_MAP, _TRANSLITERATION_MAP,
+        _HOMOGLYPH_MAP_VO, _TRANSLITERATION_MAP_VO,
+    ):
         decomposed = unicodedata.normalize("NFKD", str(key).lower())
         base = "".join(
             letter_map.get(character, character)
@@ -259,7 +289,11 @@ def _payload_carries_barred(value, _depth=0, _seen=None):
     against cycles: a payload past the bound, or one that revisits
     a container on its own path, reads as barred, so the callers
     answer in their stated forms and never in a bare recursion
-    error."""
+    error. Records stand read through base class operations, so a
+    dict subclass cannot hide its stored contents behind its own
+    items, keys, iteration or get readings, and set and frozenset
+    nesting stands traversed and bounded on the same terms as list
+    and tuple nesting."""
     if _depth > _PAYLOAD_DEPTH_BOUND:
         return True
     if isinstance(value, dict):
@@ -267,15 +301,15 @@ def _payload_carries_barred(value, _depth=0, _seen=None):
         if id(value) in seen:
             return True
         seen.add(id(value))
-        keys = {str(key).lower() for key in value}
+        keys = {str(key).lower() for key in dict.keys(value)}
         if "amount" in keys and "currency" in keys:
             return True
         if (
-            any(_key_reads_as(key, "amount") for key in value)
-            and any(_key_reads_as(key, "currency") for key in value)
+            any(_key_reads_as(key, "amount") for key in dict.keys(value))
+            and any(_key_reads_as(key, "currency") for key in dict.keys(value))
         ):
             return True
-        for key, item in value.items():
+        for key, item in dict.items(value):
             lowered = str(key).lower()
             if "anchor_set" in lowered or (
                 "real_money" in lowered and item is not None
@@ -293,9 +327,21 @@ def _payload_carries_barred(value, _depth=0, _seen=None):
         if id(value) in seen:
             return True
         seen.add(id(value))
+        base_iter = list.__iter__ if isinstance(value, list) else tuple.__iter__
         return any(
             _payload_carries_barred(item, _depth + 1, seen)
-            for item in value)
+            for item in base_iter(value))
+    if isinstance(value, (set, frozenset)):
+        seen = set(_seen) if _seen is not None else set()
+        if id(value) in seen:
+            return True
+        seen.add(id(value))
+        base_iter = (
+            frozenset.__iter__ if isinstance(value, frozenset)
+            else set.__iter__)
+        return any(
+            _payload_carries_barred(item, _depth + 1, seen)
+            for item in base_iter(value))
     return False
 
 
@@ -359,17 +405,17 @@ def validate_escrow_result(result):
     other than true, is not reportable as an escrow result."""
     if not isinstance(result, dict):
         return False
-    if result.get("core_only_qualifier") is not True:
+    if dict.get(result, "core_only_qualifier") is not True:
         return False
-    if result.get("verification_limit") != VERIFICATION_LIMIT:
+    if dict.get(result, "verification_limit") != VERIFICATION_LIMIT:
         return False
-    if not result.get("k1_and_l2_state"):
+    if not dict.get(result, "k1_and_l2_state"):
         return False
-    if result.get("real_money_value") is not None:
+    if dict.get(result, "real_money_value") is not None:
         return False
     if _payload_carries_barred(result):
         return False
-    return not _payload_carries_barred(result.get("payload"))
+    return not _payload_carries_barred(dict.get(result, "payload"))
 
 
 # ---------------------------------------------------------------------------

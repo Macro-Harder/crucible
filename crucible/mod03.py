@@ -88,16 +88,68 @@ _HOMOGLYPH_MAP = {
 for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
     _HOMOGLYPH_MAP[_upper.upper()] = _lower
 
+# The wider barred reading set, in its own map beside the
+# shared homoglyph map above: the letter classes the MOD-10
+# surfaces carry in their transliteration and symbol maps,
+# stated at MOD-10 for the transliteration letters, the
+# small capital and phonetic Latin letters, the Armenian
+# letters, and the extra symbol classes, together with the
+# two letters the R1-009 cure added at MOD-10. These readings
+# feed the folded barred reading of this module, so the
+# barred reading of this module reads the wider set, while
+# the shared homoglyph map above stands as the parity map
+# its sister surfaces stand on.
+_WIDER_READING_MAP = {
+    "\u0431": "b", "\u0433": "g", "\u0434": "d", "\u0438": "i",
+    "\u043f": "p",
+    "\u0451": "e", "\u0452": "s", "\u0493": "h",
+    "\u03c2": "s",
+    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
+    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
+    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
+    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
+    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
+    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
+    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
+    "\u1d22": "z",
+    "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
+    "\u00a5": "y",
+}
+for _upper, _lower in list(_WIDER_READING_MAP.items()):
+    _WIDER_READING_MAP[_upper.upper()] = _lower
+
+_WIDE_LETTER_MAP = dict(_HOMOGLYPH_MAP)
+_WIDE_LETTER_MAP.update(_WIDER_READING_MAP)
+
+# The transliteration reading of the letters whose rendered
+# form reads as a different Latin letter: the wider reading
+# set the MOD-10 surfaces carry, where a letter stands read
+# both as the letter it resembles and as the letter it
+# transliterates. These readings stand beside the homoglyph
+# reading above, never in place of it.
+_TRANSLITERATION_OVERRIDES = {
+    "\u0440": "r", "\u0445": "h", "\u0432": "v", "\u0441": "s",
+    "\u043d": "n", "\u0443": "u",
+    "\u03b7": "e", "\u03c0": "p", "\u03c7": "h", "\u03c1": "r",
+}
+_ALT_LETTER_MAP = dict(_WIDE_LETTER_MAP)
+_ALT_LETTER_MAP.update(_TRANSLITERATION_OVERRIDES)
+for _upper, _lower in list(_TRANSLITERATION_OVERRIDES.items()):
+    _ALT_LETTER_MAP[_upper.upper()] = _lower
+
 _DROPPED_INVISIBLE = frozenset(
     ["\u200b", "\u200c", "\u200d", "\ufeff", "\u00ad", "\u2060"])
 
 _LEET_MAP = {
     "0": "o", "1": "i", "3": "e", "4": "a",
     "5": "s", "7": "t", "8": "b", "@": "a", "$": "s",
+    "\u20ac": "e", "\u00a3": "l", "!": "l", "|": "l",
+    "\u00a5": "y",
 }
 
 
-def _canonical_text(key):
+def _canonical_text(key, letter_map=None):
+    mapping = _HOMOGLYPH_MAP if letter_map is None else letter_map
     decomposed = unicodedata.normalize("NFKD", str(key))
     chars = []
     for character in decomposed:
@@ -105,12 +157,11 @@ def _canonical_text(key):
             continue
         if unicodedata.category(character).startswith("M"):
             continue
-        chars.append(_HOMOGLYPH_MAP.get(character, character))
+        chars.append(mapping.get(character, character))
     return "".join(chars).casefold()
 
 
-def _folded_readings(key):
-    canonical = _canonical_text(key)
+def _readings_for(canonical):
     letters_only = "".join(
         character for character in canonical if character.isalpha())
     leet_read = "".join(
@@ -123,6 +174,17 @@ def _folded_readings(key):
     leet_l_letters = "".join(
         character for character in leet_l_read if character.isalpha())
     return (letters_only, leet_letters, leet_l_letters)
+
+
+def _folded_readings(key):
+    readings = list(_readings_for(_canonical_text(key, _WIDE_LETTER_MAP)))
+    for reading in _readings_for(_canonical_text(key)):
+        if reading not in readings:
+            readings.append(reading)
+    for reading in _readings_for(_canonical_text(key, _ALT_LETTER_MAP)):
+        if reading not in readings:
+            readings.append(reading)
+    return tuple(readings)
 
 
 def _fold_name(name):
@@ -577,8 +639,16 @@ def construct_farm(member_ids, farm_size=None, edges=None):
     for edge in edges or ():
         if isinstance(edge, dict):
             first, second = edge.get("voucher"), edge.get("vouchee")
+        elif isinstance(edge, (str, bytes)):
+            raise NamedGeneratorFailure(
+                "farm rejected: an edge stands as text, not as a "
+                "voucher and vouchee pair: " + repr(edge))
+        elif isinstance(edge, (list, tuple)) and len(edge) == 2:
+            first, second = edge[0], edge[1]
         else:
-            first, second = edge
+            raise NamedGeneratorFailure(
+                "farm rejected: an edge is not a voucher and "
+                "vouchee pair of size two: " + repr(edge))
         farm_id = farm_of.get(first)
         if farm_id is not None and farm_id == farm_of.get(second):
             counts[farm_id] += 1
@@ -679,6 +749,20 @@ def generator_holds_rule_state():
     return False
 
 
+def _base_iter(value):
+    """Iterate a list, tuple, set, or frozenset part through its
+    base class iteration, never through a reading the part
+    itself supplies, so a part whose own iteration yields
+    nothing still stands read by the contents in its base
+    class storage."""
+    iter_by_base = {list: list.__iter__, tuple: tuple.__iter__,
+                    set: set.__iter__, frozenset: frozenset.__iter__}
+    for base, base_iter in iter_by_base.items():
+        if isinstance(value, base):
+            return base_iter(value)
+    return iter(value)
+
+
 def _value_carries_rule_state(value, _depth=0, _seen=None, _path=""):
     """Return whether a value carries a rule state field at any depth.
 
@@ -707,7 +791,7 @@ def _value_carries_rule_state(value, _depth=0, _seen=None, _path=""):
                 _value_carries_rule_state(
                     item, _depth + 1, seen,
                     _path + "[" + str(index) + "]")
-                for index, item in enumerate(value)
+                for index, item in enumerate(_base_iter(value))
             )
         finally:
             seen.discard(id(value))
@@ -726,7 +810,8 @@ def validate_generator_output(output):
     in a cast delivery is scoring carriage, not an effect, and
     stands outside this check, which reads proposal outputs.
     """
-    items = output if isinstance(output, (list, tuple)) else [output]
+    items = _base_iter(output) if isinstance(
+        output, (list, tuple)) else [output]
     for item in items:
         if not isinstance(item, dict):
             return False
@@ -758,7 +843,7 @@ def _value_carries_ground_truth(value, _depth=0, _seen=None, _path=""):
             return any(
                 _value_carries_ground_truth(
                     item, _depth + 1, seen, _path + "[" + str(index) + "]")
-                for index, item in enumerate(value)
+                for index, item in enumerate(_base_iter(value))
             )
         finally:
             seen.discard(id(value))
@@ -799,13 +884,13 @@ def _strip_ground_truth_value(value, _depth=0, _seen=None, _path=""):
                 return [
                     _strip_ground_truth_value(
                         item, _depth + 1, seen, _path + "[" + str(index) + "]")
-                    for index, item in enumerate(value)
+                    for index, item in enumerate(_base_iter(value))
                 ]
             if isinstance(value, tuple):
                 return tuple(
                     _strip_ground_truth_value(
                         item, _depth + 1, seen, _path + "[" + str(index) + "]")
-                    for index, item in enumerate(value)
+                    for index, item in enumerate(_base_iter(value))
                 )
             return value
         finally:
@@ -934,6 +1019,15 @@ def cold_society_degree(day, envelope=None, gate_passing_share=None):
             "a whole count day in its stated form: " + repr(day))
     if day <= COLD_SOCIETY_FIRST_DAYS:
         return 0
+    for operand, naming in ((envelope, "envelope"),
+                            (gate_passing_share, "gate passing share")):
+        if operand is not None and (
+                isinstance(operand, bool)
+                or not isinstance(operand, (int, float))):
+            raise NamedGeneratorFailure(
+                "cold society degree rejected: the stated "
+                + naming + " is not a number in its stated "
+                "form: " + repr(operand))
     if envelope is None or gate_passing_share is None:
         return {
             "degree": None,
