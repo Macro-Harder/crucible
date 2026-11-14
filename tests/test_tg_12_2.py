@@ -83,7 +83,7 @@ class TestEstablishedOnlyUnderStoppingRule(unittest.TestCase):
         Failure: while the surface stands absent the test fails naming this behaviour and TG-12.2; with the surface present, an established wording on this readout fails.
         """
         require_surface(self, "incomplete challenge search reported as a lower bound with condition 2 named", "readout_status")
-        readout = {"search_complete": False, "material_failure_found": True, "bound_fixed_in_advance": True}
+        readout = {"claim_in_bounding_form": True, "search_complete": False, "material_failure_found": True, "bound_fixed_in_advance": True}
         status = SURFACE.readout_status(readout)
         self.assertEqual(status["form"], "lower_bound")
         self.assertEqual(status["named_condition"], 2)
@@ -95,7 +95,7 @@ class TestEstablishedOnlyUnderStoppingRule(unittest.TestCase):
         Failure: while the surface stands absent the test fails naming this behaviour and TG-12.2; with the surface present, an established wording on this readout fails.
         """
         require_surface(self, "bound not fixed in advance blocks the established wording", "readout_status")
-        readout = {"search_complete": True, "material_failure_found": False, "bound_fixed_in_advance": False}
+        readout = {"claim_in_bounding_form": True, "search_complete": True, "material_failure_found": False, "bound_fixed_in_advance": False}
         status = SURFACE.readout_status(readout)
         self.assertNotEqual(status["form"], "established")
         self.assertEqual(status["named_condition"], 2)

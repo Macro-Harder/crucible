@@ -318,6 +318,63 @@ def _stored_strip_blank(value):
     return False
 
 
+def _stored_copy(value, _memo=None):
+    """A copy of a handed value built from its stored contents
+    only: dict parts through the base dict items reading, list,
+    tuple, set, and frozenset parts through their base iteration
+    readings, and text parts through the base string form, so
+    no copy protocol a part supplies is ever honoured and no
+    reading a part itself supplies directs the copy. The buffer
+    forms stand carried as stored: a bytearray as a fresh
+    bytearray and a memoryview as a memoryview over fresh bytes.
+    A part in no container form and no buffer form stands copied
+    as itself."""
+    if _memo is None:
+        _memo = {}
+    if isinstance(value, dict):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = {}
+        _memo[id(value)] = copied
+        for key, item in dict.items(value):
+            copied[_stored_copy(key, _memo)] = _stored_copy(
+                item, _memo)
+        return copied
+    if isinstance(value, list):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = []
+        _memo[id(value)] = copied
+        copied.extend(
+            _stored_copy(item, _memo)
+            for item in list.__iter__(value))
+        return copied
+    if isinstance(value, tuple):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = tuple(
+            _stored_copy(item, _memo)
+            for item in tuple.__iter__(value))
+        _memo[id(value)] = copied
+        return copied
+    if isinstance(value, (set, frozenset)):
+        parts = [
+            _stored_copy(item, _memo) for item in (
+                set.__iter__(value) if isinstance(value, set)
+                else frozenset.__iter__(value))]
+        return set(parts) if isinstance(value, set) else frozenset(
+            parts)
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bytes):
+        return bytes(value)
+    if isinstance(value, bytearray):
+        return bytearray(bytes(value))
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
+    return value
+
+
 def _carry_text(value):
     """A text value as the plain text it stores, and any other
     value as itself, for carriage in a built record."""
@@ -410,7 +467,7 @@ def make_strategy(identifier, in_protocol_payoff=0,
         "external_profit_standing": (
             "swept parameter, labelled assumption, " + UNITS),
         "external_profit_declared_by": None,
-        "parameters": copy.deepcopy(parameters or {}),
+        "parameters": _stored_copy(parameters or {}),
         "units": UNITS,
     }
 
@@ -626,6 +683,111 @@ def run_record_carriage(strategy_class, ladder_position,
     }
 
 
+def search_record_validation_failures(record, fixed_class=None):
+    failures = []
+    if not isinstance(record, dict):
+        return ["the search record stands in no record form"]
+    missing = object()
+    carriage = _base_dict_get(record, "run_record", missing)
+    if carriage is missing:
+        carriage = record
+    if _stored_truthy(_base_dict_get(record, "mid_run_strategies")):
+        failures.append(
+            "mid_run_strategies stand stated: a strategy stands "
+            "introduced mid run")
+    try:
+        run_record_carriage(
+            _base_dict_get(carriage, "strategy_class"),
+            _base_dict_get(carriage, "ladder_position"),
+            _base_dict_get(carriage, "catalogue_version_or_hash"),
+            _base_dict_get(carriage, "ladder_definition_pointer"),
+            _base_dict_get(carriage, "ladder_definition_version"),
+            strategies=_base_dict_get(
+                carriage, "strategies_exercised", []),
+        )
+    except NamedAttackerFailure as failure:
+        failures.append(
+            "the run record carriage stands refused: " + str(failure))
+    if fixed_class is not None:
+        if not isinstance(
+                fixed_class, (list, tuple, set, frozenset)):
+            failures.append(
+                "the fixed class stands in no iterable form")
+        else:
+            carriage_parts = _base_sequence(
+                _base_dict_get(carriage, "strategy_class", []))
+            fixed_parts = _base_sequence(fixed_class)
+            matched_all = len(carriage_parts) == len(fixed_parts)
+            if matched_all:
+                remaining = list(fixed_parts)
+                for part in carriage_parts:
+                    hit = None
+                    for index, candidate in enumerate(remaining):
+                        if _stored_match(part, candidate) and _stored_eq(
+                                part, candidate):
+                            hit = index
+                            break
+                    if hit is None:
+                        matched_all = False
+                        break
+                    remaining.pop(hit)
+            if not matched_all:
+                failures.append(
+                    "the exercised strategy class does not stand as "
+                    "the fixed class")
+    search = _base_dict_get(record, "search_record", {})
+    if not isinstance(search, dict):
+        failures.append("the search record field list stands absent")
+    else:
+        for field in SEARCH_RECORD_FIELDS:
+            key = field.replace(" ", "_")
+            if not _base_dict_contains(search, key) or _base_dict_get(
+                    search, key) is None:
+                failures.append(
+                    "the search record field stands absent: " + field)
+            else:
+                stored = _base_dict_get(search, key)
+                if key != "every_adaptation" and isinstance(
+                        stored, (str, list, tuple, dict, set)) and (
+                        _base_length(stored) == 0):
+                    failures.append(
+                        "the search record field stands empty: "
+                        + field)
+    bond = _base_dict_get(record, "bond_parameter_search")
+    if not isinstance(bond, dict):
+        failures.append(
+            "the bond parameter search limb stands absent")
+    else:
+        if _base_dict_get(bond, "worst_griefing_factor") is None:
+            failures.append(
+                "the bond parameter search carries no worst "
+                "griefing factor")
+        if not _stored_truthy(_base_dict_get(bond, "parameter_set")):
+            failures.append(
+                "the bond parameter search carries no parameter set")
+    case_uses = _base_dict_get(record, "case_uses", [])
+    if not isinstance(case_uses, (list, tuple)):
+        failures.append("case_uses stand in no list form")
+    else:
+        for use in _base_items(case_uses):
+            if not isinstance(use, dict):
+                failures.append("a case use stands in no record form")
+                break
+            if _base_dict_get(use, "fixture") == "F-26" and (
+                    _base_dict_get(use, "use")
+                    != "strategy search point only"):
+                failures.append(
+                    "the F-26 case stands in a use other than a "
+                    "strategy search point")
+                break
+    return failures
+
+
+def validate_search_record_with_reason(record, fixed_class=None):
+    failures = search_record_validation_failures(record, fixed_class)
+    return (not failures, failures)
+
+
 def validate_search_record(record, fixed_class=None):
     """Check one search record against the seat bars.
 
@@ -661,13 +823,26 @@ def validate_search_record(record, fixed_class=None):
         )
     except NamedAttackerFailure:
         return False
-    if fixed_class is not None and _base_sequence(
-            _base_dict_get(carriage, "strategy_class", [])) != (
-            _base_sequence(fixed_class)
-            if isinstance(
-                fixed_class, (list, tuple, set, frozenset))
-            else list(fixed_class)):
-        return False
+    if fixed_class is not None:
+        if not isinstance(
+                fixed_class, (list, tuple, set, frozenset)):
+            return False
+        carriage_parts = _base_sequence(
+            _base_dict_get(carriage, "strategy_class", []))
+        fixed_parts = _base_sequence(fixed_class)
+        if len(carriage_parts) != len(fixed_parts):
+            return False
+        remaining = list(fixed_parts)
+        for part in carriage_parts:
+            matched = None
+            for index, candidate in enumerate(remaining):
+                if _stored_match(part, candidate) and _stored_eq(
+                        part, candidate):
+                    matched = index
+                    break
+            if matched is None:
+                return False
+            remaining.pop(matched)
     search = _base_dict_get(record, "search_record", {})
     if not isinstance(search, dict):
         return False
@@ -756,7 +931,7 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
         params = _base_dict_get(
             candidate, "parameter_set", candidate)
         if griefing_evaluator is not None:
-            factor = griefing_evaluator(copy.deepcopy(params))
+            factor = griefing_evaluator(_stored_copy(params))
         else:
             cost = _base_dict_get(candidate, "attacker_cost")
             harm = _base_dict_get(candidate, "harm")
@@ -776,7 +951,7 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
                 "stands in no finite numeric form: " + repr(factor)
             )
         scored.append({
-            "parameter_set": copy.deepcopy(params),
+            "parameter_set": _stored_copy(params),
             "griefing_factor": factor,
         })
     if not scored:
@@ -815,7 +990,7 @@ def build_search_record(run_carriage, points_tried,
     """
     uses = []
     for use in case_uses or []:
-        entry = copy.deepcopy(use)
+        entry = _stored_copy(use)
         if entry.get("fixture") == "F-26":
             entry["use"] = "strategy search point only"
             entry["standings_carried"] = list(
@@ -824,16 +999,16 @@ def build_search_record(run_carriage, points_tried,
             entry["deployed_failure_case"] = False
         uses.append(entry)
     record = {
-        "run_record": copy.deepcopy(run_carriage),
+        "run_record": _stored_copy(run_carriage),
         "search_record": {
             "search_budget": budget,
-            "points_tried": copy.deepcopy(points_tried),
+            "points_tried": _stored_copy(points_tried),
             "neighbourhood_definition_and_step_sizes": (
-                copy.deepcopy(neighbourhood)),
-            "starting_points": copy.deepcopy(starting_points),
-            "order_of_search": copy.deepcopy(order_of_search),
-            "per_point_outcome": copy.deepcopy(per_point_outcome),
-            "every_adaptation": copy.deepcopy(adaptations or []),
+                _stored_copy(neighbourhood)),
+            "starting_points": _stored_copy(starting_points),
+            "order_of_search": _stored_copy(order_of_search),
+            "per_point_outcome": _stored_copy(per_point_outcome),
+            "every_adaptation": _stored_copy(adaptations or []),
         },
         "bond_parameter_search": bond_search(
             bond_candidates, griefing_evaluator),
@@ -842,7 +1017,7 @@ def build_search_record(run_carriage, points_tried,
             external_profit_swept_values or []),
         "mid_run_strategies": list(mid_run_strategies or []),
         "stopping_rule": stopping_rule_state(
-            run_carriage.get("ladder_position")),
+            _base_dict_get(run_carriage, "ladder_position")),
         "units": UNITS,
     }
     if not validate_search_record(record):

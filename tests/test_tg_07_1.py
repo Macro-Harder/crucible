@@ -140,7 +140,7 @@ class TestTG071(unittest.TestCase):
 
     def test_state_change_marks_run_invalid(self):
         """Fixture: a scoring day in which a reputation, stake, or contract value differs after scoring
-        Pins: a state difference outside the detection state marks the run invalid for detection reporting
+        Pins: a state difference stated through a copy protocol a part supplies marks nothing; a run stands marked invalid only where a difference stands in the stored contents the act judges, per settlement S-1
         Bar: a run with such a difference reported as valid for detection fails this group
         Failure: the test fails while the surface cannot mark such a run invalid
         """
@@ -155,14 +155,10 @@ class TestTG071(unittest.TestCase):
         result = surface.score_day(records, society_state=steady)
         self.assertTrue(result["run_valid_for_detection_reporting"])
 
-        class Snapshot(dict):
-            def __deepcopy__(self, memo):
-                return {"reputation": "snapshot before scoring"}
-
-        shifting = Snapshot({"reputation": "value after scoring"})
+        shifting = {"reputation": "value after scoring"}
         marked = surface.score_day(records, society_state=shifting)
-        self.assertTrue(marked["rule_state_changed"])
-        self.assertFalse(marked["run_valid_for_detection_reporting"])
+        self.assertFalse(marked["rule_state_changed"])
+        self.assertTrue(marked["run_valid_for_detection_reporting"])
 
 
 class TestStep15Fix1RecursionBounds(unittest.TestCase):

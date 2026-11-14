@@ -356,26 +356,11 @@ def _character_reading_options(character):
     return tuple(sorted(options))
 
 
-def _folded_readings(key):
-    """The folded readings of one key, in the same canonicalised
-    form the barred surfaces read: compatibility decomposition
-    with combining marks dropped, non Latin homoglyph letters
-    mapped to the Latin letters they stand for, separators and
-    zero width characters dropped, beside a reading with digit
-    substitutions read as letters and a reading with digits
-    dropped. The barred forms themselves stand unmoved; only
-    their reading gains the folded form. The readings stand taken
-    under both the homoglyph map and the transliteration map, and
-    under both readings of the figure one, as l and as i, and the
-    transliterated spelling of the money marker word itself reads
-    as the marker. The readings also stand generated position by
-    position over every reading a character carries across the
-    reading kinds, so a key needing a homoglyph reading at one
-    position and a transliteration or multi reading at another
-    stands read as the word it spells. The combined generation
-    stands abandoned past 4096 combined texts, never trimmed
-    partway through a key, and the character by character
-    readings below cover the combinations past that bound."""
+def _folded_base_readings(key):
+    """The folded readings of one key under the whole map
+    readings alone, with no combined variant ever listed: the
+    four letter maps, each taken plain, under both digit
+    substitution readings, and with digits dropped."""
     readings = []
     for letter_map in (
         _HOMOGLYPH_MAP, _TRANSLITERATION_MAP,
@@ -401,6 +386,111 @@ def _folded_readings(key):
             reading = reading.replace("realmani", "realmoney")
             if reading and reading not in readings:
                 readings.append(reading)
+    return tuple(readings)
+
+
+def _payload_folded_carries(key, marker):
+    """Whether some folded reading of a key carries the
+    marker, judged without listing a combined variant text:
+    the whole map readings stand read directly, and the
+    combined readings stand judged position by position
+    through the multi reading act, which covers the
+    combinations in the form _folded_readings itself states
+    for the texts past its combined bound."""
+    if any(
+            marker in reading
+            for reading in _folded_base_readings(key)):
+        return True
+    return _key_carries_multi_reading(key, marker)
+
+
+def _payload_folded_carries_pair(key, first, second):
+    """Whether some folded reading of a key carries both
+    markers, judged as _payload_folded_carries judges one
+    marker: the whole map readings stand read directly, and
+    the combined readings stand judged position by position
+    over the pair of marker prefix states at once, so no
+    combined variant text stands listed."""
+    if any(
+            first in reading and second in reading
+            for reading in _folded_base_readings(key)):
+        return True
+    if not _has_combined_reading(key):
+        return False
+    for mode in _MULTI_FOLDED_MODES:
+        segments = _multi_segments_by_character(key, mode)
+        states = {(0, 0)}
+        for options in segments:
+            following = set()
+            for first_state, second_state in states:
+                for segment in options:
+                    new_first = first_state
+                    new_second = second_state
+                    for character in segment:
+                        if new_first < len(first):
+                            new_first = _multi_prefix_state(
+                                first, new_first, character)
+                        if new_second < len(second):
+                            new_second = _multi_prefix_state(
+                                second, new_second, character)
+                    following.add((new_first, new_second))
+            if (len(first), len(second)) in following:
+                return True
+            states = following
+    return False
+
+
+def _payload_pair_can_stand(key):
+    """Whether the amount and currency pair can stand in any
+    folded reading of a container key at all, judged on the
+    characters the key stores: every character of the two
+    markers must stand producible, with its multiplicity in
+    the markers, by the stored characters under some reading
+    a character carries, in the generous form that counts a
+    character for every marker character any of its folded
+    segments contains. Where the supply falls short the pair
+    stands in no reading of any order of the parts, and the
+    walk lists no joined candidate for it."""
+    needed = {}
+    for character in "amountcurrency":
+        needed[character] = needed.get(character, 0) + 1
+    characters = _fold_characters(_joined_stored_text(key))
+    supply = {}
+    for character in set(characters):
+        produced = set()
+        for option in _character_reading_options(character):
+            for mode in _MULTI_FOLDED_MODES:
+                produced.update(_multi_folded_segment(option, mode))
+        for marker in needed:
+            if marker in produced:
+                supply[marker] = supply.get(marker, 0) + len(
+                    [c for c in characters if c == character])
+    return all(
+        supply.get(marker, 0) >= count
+        for marker, count in needed.items())
+
+
+def _folded_readings(key):
+    """The folded readings of one key, in the same canonicalised
+    form the barred surfaces read: compatibility decomposition
+    with combining marks dropped, non Latin homoglyph letters
+    mapped to the Latin letters they stand for, separators and
+    zero width characters dropped, beside a reading with digit
+    substitutions read as letters and a reading with digits
+    dropped. The barred forms themselves stand unmoved; only
+    their reading gains the folded form. The readings stand taken
+    under both the homoglyph map and the transliteration map, and
+    under both readings of the figure one, as l and as i, and the
+    transliterated spelling of the money marker word itself reads
+    as the marker. The readings also stand generated position by
+    position over every reading a character carries across the
+    reading kinds, so a key needing a homoglyph reading at one
+    position and a transliteration or multi reading at another
+    stands read as the word it spells. The combined generation
+    stands abandoned past 4096 combined texts, never trimmed
+    partway through a key, and the character by character
+    readings below cover the combinations past that bound."""
+    readings = list(_folded_base_readings(key))
     characters = _fold_characters(key)
     if any(
         len(_character_reading_options(character)) > 1
@@ -588,9 +678,27 @@ def _key_reads_as(key, folded_name):
             elif _key_reads_as(part, folded_name):
                 return True
         return False
-    return (
-        folded_name in _folded_readings(key)
-        or _key_matches_multi_reading(key, folded_name))
+    if folded_name in _folded_base_readings(key):
+        return True
+    low = 0
+    high = 0
+    for character in _fold_characters(key):
+        lengths = []
+        for option in _character_reading_options(character):
+            plain_option = "".join(
+                part for part in option if part.isalnum())
+            lengths.append(len(plain_option))
+            lengths.append(len("".join(
+                part for part in plain_option
+                if not part.isdigit())))
+        if lengths:
+            low += min(lengths)
+            high += max(lengths)
+    if len(folded_name) < low or len(folded_name) > high:
+        return False
+    if _key_matches_multi_reading(key, folded_name):
+        return True
+    return folded_name in _folded_readings(key)
 
 
 def _base_str_eq(first, second):
@@ -1039,11 +1147,19 @@ def _seg_formable(node, universe, prefixes, folded, _active=None):
         options.append(forms | ({""} if empty else set()))
         can_empty = can_empty and empty
     if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+        if any(not opts for opts in options):
+            return (set(), can_empty)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
         reached = {0: {""}}
         full = (1 << len(parts)) - 1
-        for mask in range(full + 1):
-            if mask not in reached:
-                continue
+        queue = [0]
+        cursor = 0
+        bounded = False
+        while cursor < len(queue):
+            mask = queue[cursor]
+            cursor += 1
             for index in range(len(parts)):
                 if (mask >> index) & 1:
                     continue
@@ -1052,9 +1168,28 @@ def _seg_formable(node, universe, prefixes, folded, _active=None):
                     for head in reached[mask]
                     for tail in options[index]
                     if head + tail == "" or head + tail in prefixes}
-                if joined:
-                    reached.setdefault(
-                        mask | (1 << index), set()).update(joined)
+                if not joined:
+                    continue
+                new_mask = mask | (1 << index)
+                if new_mask not in reached:
+                    if len(reached) >= bound:
+                        bounded = True
+                        break
+                    reached[new_mask] = set()
+                    queue.append(new_mask)
+                reached[new_mask].update(joined)
+            if bounded:
+                break
+        if bounded:
+            acc = {""}
+            for opts in options:
+                acc = {
+                    head + tail
+                    for head in acc for tail in opts
+                    if head + tail == "" or head + tail in prefixes}
+                if not acc:
+                    break
+            return (acc & universe, can_empty)
         return (reached.get(full, set()) & universe, can_empty)
     acc = {""}
     for opts in options:
@@ -1065,6 +1200,325 @@ def _seg_formable(node, universe, prefixes, folded, _active=None):
         if not acc:
             break
     return (acc & universe, can_empty)
+
+def _seg_part_readings(node, folded):
+    """The readings of one leaf part in one reading space: the
+    folded readings in folded space, the lowered stored text
+    in plain space."""
+    if folded:
+        return set(_folded_readings(node))
+    return {_stored_text(node).lower()}
+
+
+def _seg_part_can_equal(node, text, folded, _active=None):
+    """Whether some whole reading of one part stands exactly
+    as the text, judged through the formable computation, so
+    no joined candidate of the part stands listed."""
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return text in _seg_part_readings(node, folded)
+    if id(node) in _active:
+        return text == ""
+    universe = _seg_universe((text,), ()) if text else set()
+    try:
+        forms, can_empty = _seg_formable(
+            node, universe, _seg_prefixes(universe), folded)
+    except RecursionError:
+        return False
+    if not text:
+        return can_empty
+    return text in forms
+
+
+def _seg_part_can_start(node, text, folded, _active=None):
+    """Whether some whole reading of one part begins with the
+    text. The judgement walks the part structure: an ordered
+    part is consumed in its stored order and an unordered
+    part in any order of its subparts, each step either
+    placing one subpart as an exact piece of the text, letting
+    one subpart begin with the remainder, or passing a subpart
+    that can stand empty. The state count stands bounded by
+    the stated candidate cap of the reading space, in the
+    form settlement S-10 states, and a part past the bound
+    contributes no opening form through this act."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            reading.startswith(text)
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_start(parts[0], text, folded, _active)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0) if unordered else (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, pos = stack.pop()
+            if pos == len(text):
+                return True
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                indices = [mask] if mask < len(parts) else []
+            for index in indices:
+                part = parts[index]
+                if _seg_part_can_start(
+                        part, text[pos:], folded, _active):
+                    return True
+                new_mask = (
+                    mask | (1 << index) if unordered else index + 1)
+                for stop in range(pos + 1, len(text) + 1):
+                    if _seg_part_can_equal(
+                            part, text[pos:stop], folded, _active):
+                        state = (new_mask, stop)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                if _seg_part_can_equal(part, "", folded, _active):
+                    state = (new_mask, pos)
+                    if state not in seen:
+                        seen.add(state)
+                        stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_part_can_end(node, text, folded, _active=None):
+    """Whether some whole reading of one part ends with the
+    text, the mirror form of _seg_part_can_start, walked from
+    the closing subpart backwards under the same stated bound."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            reading.endswith(text)
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_end(parts[0], text, folded, _active)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, matched = stack.pop()
+            if matched == len(text):
+                return True
+            rest = text[:len(text) - matched]
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                index = len(parts) - 1 - mask
+                indices = [index] if index >= 0 else []
+            for index in indices:
+                part = parts[index]
+                if _seg_part_can_end(
+                        part, rest, folded, _active):
+                    return True
+                new_mask = (
+                    mask | (1 << index) if unordered else mask + 1)
+                for start_at in range(0, len(rest)):
+                    piece = rest[start_at:]
+                    if _seg_part_can_equal(
+                            part, piece, folded, _active):
+                        state = (new_mask, matched + len(piece))
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                if _seg_part_can_equal(part, "", folded, _active):
+                    state = (new_mask, matched)
+                    if state not in seen:
+                        seen.add(state)
+                        stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_part_can_contain(node, text, folded, _active=None):
+    """Whether some whole reading of one part carries the
+    text inside it: the text stands inside one subpart, or it
+    spans subpart boundaries, one subpart ending with its
+    opening, middle subparts standing as its exact pieces,
+    and one subpart beginning with its closing. The walk
+    stands bounded as _seg_part_can_start states."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            text in reading
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_contain(parts[0], text, folded, _active)
+        for part in parts:
+            if _seg_part_can_contain(part, text, folded, _active):
+                return True
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, pos = stack.pop()
+            if pos == len(text):
+                return True
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                indices = [mask] if mask < len(parts) else []
+            for index in indices:
+                part = parts[index]
+                new_mask = (
+                    mask | (1 << index) if unordered else index + 1)
+                if pos == 0:
+                    if _seg_part_can_end(part, text, folded, _active):
+                        return True
+                    for stop in range(1, len(text)):
+                        if _seg_part_can_end(
+                                part, text[:stop], folded, _active):
+                            state = (new_mask, stop)
+                            if state not in seen:
+                                seen.add(state)
+                                stack.append(state)
+                    if not unordered:
+                        state = (new_mask, 0)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                else:
+                    if _seg_part_can_start(
+                            part, text[pos:], folded, _active):
+                        return True
+                    for stop in range(pos + 1, len(text) + 1):
+                        if _seg_part_can_equal(
+                                part, text[pos:stop], folded, _active):
+                            if stop == len(text):
+                                return True
+                            state = (new_mask, stop)
+                            if state not in seen:
+                                seen.add(state)
+                                stack.append(state)
+                    if _seg_part_can_equal(part, "", folded, _active):
+                        state = (new_mask, pos)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_parts_carry_edge(parts, options, pattern, folded):
+    """Whether a barred part stands tiled over the direct
+    parts of one unordered container where one part
+    contributes only its edge: a part whose whole reading
+    carries the pattern inside it, or a first part whose
+    whole reading ends with the opening of the pattern,
+    middle parts standing as exact pieces of it through
+    their stated options, and a last part whose whole
+    reading begins with its closing. The edge forms stand
+    judged through the part predicates above, so a composite
+    part past the candidate caps contributes its edge as
+    settlement S-4 governs, in plain and folded spaces alike."""
+    if not any(
+            isinstance(part, (dict, list, tuple, set, frozenset))
+            for part in parts):
+        return False
+    for part in parts:
+        if not isinstance(part, (dict, list, tuple, set, frozenset)):
+            continue
+        try:
+            if _seg_part_can_contain(part, pattern, folded):
+                return True
+        except RecursionError:
+            continue
+    count = len(parts)
+    for first in range(count):
+        for cut in range(1, len(pattern)):
+            try:
+                if not _seg_part_can_end(
+                        parts[first], pattern[:cut], folded):
+                    continue
+            except RecursionError:
+                continue
+            failed = set()
+            stack = [(1 << first, cut)]
+            while stack:
+                mask, pos = stack.pop()
+                if pos >= len(pattern):
+                    return True
+                if (mask, pos) in failed:
+                    continue
+                for index in range(count):
+                    if (mask >> index) & 1:
+                        continue
+                    try:
+                        if _seg_part_can_start(
+                                parts[index], pattern[pos:], folded):
+                            return True
+                    except RecursionError:
+                        pass
+                    for option in options[index]:
+                        if option and pattern.startswith(option, pos):
+                            if pos + len(option) >= len(pattern):
+                                return True
+                            stack.append(
+                                (mask | (1 << index),
+                                 pos + len(option)))
+                failed.add((mask, pos))
+    return False
 
 def _seg_plain_options(parts, _universe=None, _prefixes=None):
     """The plain readings of the direct parts of one unordered
@@ -1216,6 +1670,127 @@ def _seg_multi_carrying(parts, pattern):
 
 
 
+def _payload_block_exact_options(block, universe, prefixes, folded):
+    """The exact pieces one block of a whole key reading can
+    contribute to a spanning judgement: for a leaf block its
+    stated options, and for a composite block the universe
+    texts it can join to exactly through the formable
+    computation, so no joined candidate of the block and no
+    folded variant of one stands listed."""
+    if not isinstance(block, (dict, list, tuple, set, frozenset)):
+        if folded:
+            return _seg_folded_options(
+                [block], universe, prefixes)[0]
+        return _seg_plain_options([block], universe, prefixes)[0]
+    try:
+        forms, can_empty = _seg_formable(
+            block, universe, prefixes, folded)
+    except RecursionError:
+        forms, can_empty = set(), False
+    options = set(forms)
+    if can_empty:
+        options.add("")
+    return options
+
+
+def _payload_spanning_barred(key, item_present):
+    """Whether a barred marker of the payload walk stands
+    spanned across the blocks of the whole key, in the form
+    settlement S-4 states and _seg_spanning_barred judges,
+    with the blocks judged through the part edge predicates
+    and their exact formable pieces, so the judgement stands
+    the same past the candidate caps as inside them and no
+    candidate of a composite block stands listed. An ordered
+    key keeps its stored order; an unordered key stands
+    judged over its direct parts in any order."""
+    found = _span_blocks(key)
+    if found is None:
+        return False
+    mode, blocks = found
+    if not blocks:
+        return False
+    spaces = []
+    plain_patterns = ("anchor_set",) + (
+        ("real_money",) if item_present else ())
+    folded_patterns = ("anchorset",) + (
+        ("realmoney", "realmani") if item_present else ())
+    spaces.append((plain_patterns, False))
+    spaces.append((folded_patterns, True))
+    for patterns, folded in spaces:
+        universe = _seg_universe((), patterns)
+        prefixes = _seg_prefixes(universe)
+        options = [
+            _payload_block_exact_options(
+                block, universe, prefixes, folded)
+            for block in blocks]
+        for pattern in patterns:
+            for block in blocks:
+                try:
+                    if _seg_part_can_contain(block, pattern, folded):
+                        return True
+                except RecursionError:
+                    continue
+            if mode == "unordered":
+                if _seg_parts_carry_edge(
+                        blocks, options, pattern, folded):
+                    return True
+                continue
+            seen = {(0, 0)}
+            stack = [(0, 0)]
+            while stack:
+                index, matched = stack.pop()
+                if matched == len(pattern):
+                    return True
+                if index >= len(blocks):
+                    continue
+                block = blocks[index]
+                if matched == 0:
+                    try:
+                        if _seg_part_can_end(block, pattern, folded):
+                            return True
+                    except RecursionError:
+                        pass
+                    for stop in range(1, len(pattern)):
+                        try:
+                            if _seg_part_can_end(
+                                    block, pattern[:stop], folded):
+                                state = (index + 1, stop)
+                                if state not in seen:
+                                    seen.add(state)
+                                    stack.append(state)
+                        except RecursionError:
+                            continue
+                    state = (index + 1, 0)
+                    if state not in seen:
+                        seen.add(state)
+                        stack.append(state)
+                else:
+                    try:
+                        if _seg_part_can_start(
+                                block, pattern[matched:], folded):
+                            return True
+                    except RecursionError:
+                        pass
+                    for option in options[index]:
+                        if option and pattern.startswith(
+                                option, matched):
+                            if matched + len(option) >= len(pattern):
+                                return True
+                            state = (index + 1, matched + len(option))
+                            if state not in seen:
+                                seen.add(state)
+                                stack.append(state)
+                    try:
+                        if _seg_part_can_equal(block, "", folded):
+                            state = (index + 1, matched)
+                            if state not in seen:
+                                seen.add(state)
+                                stack.append(state)
+                    except RecursionError:
+                        pass
+    return False
+
+
 def _seg_payload_key(key, item_present):
     """Whether a key carrying an unordered container stands
     barred at the payload walk on its joined reading past the
@@ -1225,12 +1800,7 @@ def _seg_payload_key(key, item_present):
     currency names tiled as two blocks over disjoint parts of
     the one container in either reading, in the joined pair
     form the walk states."""
-    if _seg_spanning_barred(
-            key, (), ("anchor_set",)
-            + (("real_money",) if item_present else ()),
-            (),
-            ("anchorset",)
-            + (("realmoney", "realmani") if item_present else ())):
+    if _payload_spanning_barred(key, item_present):
         return True
     for node, parts in _seg_unordered_nodes(key):
         if _seg_multi_carrying(parts, "anchorset"):
@@ -1463,7 +2033,13 @@ def _key_and_parts(key):
     joined in order with no separator added, so a name split
     across the parts of one container key stands judged as
     the name it spells, under limb 3 of the Round 10
-    settlement."""
+    settlement. The joined forms stand listed once per
+    container, in stored order: the readings of an unordered
+    container under its other orders stand judged by the
+    segmentation acts of _seg_payload_key over its parts, in
+    plain, folded, and multi reading spaces alike, and by
+    _key_reads_as over its candidates, so no order of the
+    parts stands listed here for the walk to enumerate."""
     forms = []
     seen = set()
     stack = [key]
@@ -1489,10 +2065,7 @@ def _key_and_parts(key):
     joined_seen = set()
     for form in list(forms):
         if isinstance(form, (dict, list, tuple, set, frozenset)):
-            if _has_unordered_split(form):
-                joined_forms = _joined_text_candidates(form)
-            else:
-                joined_forms = (_joined_stored_text(form),)
+            joined_forms = (_joined_stored_text(form),)
             for joined in joined_forms:
                 if joined and joined not in joined_seen:
                     joined_seen.add(joined)
@@ -1577,31 +2150,29 @@ def _payload_walk_barred(value, _depth=0, _seen=None, _walked=None):
                     "real_money" in lowered and item is not None
                 ):
                     return True
-                for reading in _folded_readings(key_form):
-                    if "anchorset" in reading or (
-                        "realmoney" in reading and item is not None
-                    ):
-                        return True
-                if _key_carries_multi_reading(key_form, "anchorset") or (
-                    _key_carries_multi_reading(key_form, "realmoney")
-                    and item is not None
-                ):
+                if _payload_folded_carries(
+                        key_form, "anchorset") or (
+                        item is not None
+                        and _payload_folded_carries(
+                            key_form, "realmoney")):
                     return True
             if isinstance(key, (dict, list, tuple, set, frozenset)):
                 if _has_unordered_split(key):
                     joined_forms = _joined_text_candidates(key)
                 else:
                     joined_forms = (_joined_stored_text(key),)
-                for joined in joined_forms:
-                    if joined:
-                        lowered_joined = joined.lower()
-                        if (
-                            "amount" in lowered_joined
-                            and "currency" in lowered_joined
-                        ):
-                            return True
-                        for reading in _folded_readings(joined):
-                            if "amount" in reading and "currency" in reading:
+                if not _has_unordered_split(key) or \
+                        _payload_pair_can_stand(key):
+                    for joined in joined_forms:
+                        if joined:
+                            lowered_joined = joined.lower()
+                            if (
+                                "amount" in lowered_joined
+                                and "currency" in lowered_joined
+                            ):
+                                return True
+                            if _payload_folded_carries_pair(
+                                    joined, "amount", "currency"):
                                 return True
             if _seg_payload_key(key, item is not None):
                 return True
@@ -1637,12 +2208,52 @@ def _payload_walk_barred(value, _depth=0, _seen=None, _walked=None):
     return False
 
 
+def _barred_payload_item(payload):
+    found = []
+    stack = [(payload, 0, frozenset())]
+    while stack:
+        value, depth, seen = stack.pop()
+        if depth > 110:
+            continue
+        if isinstance(value, dict):
+            if id(value) in seen:
+                continue
+            seen = seen | {id(value)}
+            keys = [str(key) for key in dict.keys(value)]
+            lowered = [key.lower() for key in keys]
+            if "amount" in lowered and "currency" in lowered:
+                found.append("an amount and currency pair")
+            for key, item in dict.items(value):
+                text = str(key).lower().replace(" ", "_")
+                if "anchor_set" in text:
+                    found.append("a supplied anchor set (anchor_set)")
+                if "real_money" in text and item is not None:
+                    found.append(
+                        "a real money value (real_money_value)")
+                stack.append((item, depth + 1, seen))
+                stack.append((key, depth + 1, seen))
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            if id(value) in seen:
+                continue
+            seen = seen | {id(value)}
+            for item in value:
+                stack.append((item, depth + 1, seen))
+    return found[0] if found else "a barred value"
+
+
 def escrow_result(kind, variant="B-4", payload=None, contract_state=None):
     """One escrow bearing result. Every such result carries the
     core only qualifier reading true, the K1 and L2 state carriage
     Shape 9 requires, and the verification limit statement."""
+    if not _base_member(variant, ("B-3", "B-4")):
+        raise ValueError(
+            "escrow_result stands refused: the escrow variant stands outside the B-3 and B-4 set: "
+            + str(variant) + ", and no escrow result stands returned")
     if _payload_carries_barred(payload):
-        raise ValueError("an escrow result payload carries no real money value and no supplied anchor set")
+        raise ValueError(
+            "escrow_result stands refused: the payload carries a barred value, "
+            + _barred_payload_item(payload)
+            + ", a payload carries no real money value and no supplied anchor set, and no escrow result stands returned")
     state = contract_state if isinstance(contract_state, dict) else {}
     return {
         "kind": kind,
@@ -1701,6 +2312,8 @@ def validate_escrow_result(result):
         return False
     if not _base_str_eq(
             dict.get(result, "verification_limit"), VERIFICATION_LIMIT):
+        return False
+    if not _base_member(dict.get(result, "variant", "B-4"), ("B-3", "B-4")):
         return False
     if not dict.get(result, "k1_and_l2_state"):
         return False
@@ -1776,11 +2389,22 @@ def _run_instruction_act(name, variant="B-4", context=None):
     if name == "open_request":
         additions = [key for key in ("countersigning", "bound", "verification") if context.get(key)]
         if additions:
-            raise ValueError("open_request runs with no countersigning, bound or verification added")
+            raise ValueError(
+                "open_request stands refused: the addition "
+                + " and ".join(additions)
+                + " stands added, open_request runs with no countersigning, bound or verification added, and no request stands opened")
         stated = context.get("stated_cost")
         true = context.get("true_cost")
         if stated is None or true is None:
-            raise ValueError("open_request carries its self declared estimated cost in accuracy form")
+            missing = []
+            if stated is None:
+                missing.append("the stated cost")
+            if true is None:
+                missing.append("the true cost")
+            raise ValueError(
+                "open_request stands refused: "
+                + " and ".join(missing)
+                + " stands missing, and no request stands opened")
         if true == 0:
             raise ValueError("open_request stands refused in named form: the true cost stands at zero, so no accuracy form stands")
         result_payload["lien_sized_from"] = "self declared estimated cost"
@@ -1794,9 +2418,14 @@ def _run_instruction_act(name, variant="B-4", context=None):
         result_payload["additions"] = []
     if name in ("check_in", "claim_lost_contact"):
         if not context.get("clause_on"):
-            raise ValueError("check_in and claim_lost_contact run for each contract that turns the clause on")
+            raise ValueError(
+                name + " stands refused: the clause_on context stands missing, "
+                + name + " runs only for a contract that turns the clause on, and no "
+                + name + " stands performed")
         if context.get("window_n") is None:
-            raise ValueError("the window value N stands set in the standard for that contract")
+            raise ValueError(
+                name + " stands refused: the window value N stands missing, no window value was handed for the contract, and no "
+                + name + " stands performed")
         result_payload["window_n"] = context["window_n"]
         result_payload["window_n_form"] = "labelled assumption in the standard for that contract"
         result_payload["contact_clocks_tracked"] = True

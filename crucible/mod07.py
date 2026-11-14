@@ -50,6 +50,26 @@ _TRACER_FIELDS = mod01.form_fields("29")
 COPY_DEPTH_BOUND = 100
 
 
+def _guard_path_part(value):
+    """One part of a copy guard path, read through the base
+    form of the value kind, never through a string reading
+    the value itself supplies. A value whose form stands in
+    no base readable kind stands in the path as an unreadable
+    part, so building the path itself raises no bare error
+    and states no reported text."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bool):
+        return bool.__str__(value)
+    if isinstance(value, int):
+        return int.__str__(value)
+    if isinstance(value, float):
+        return float.__str__(value)
+    if isinstance(value, bytes):
+        return bytes.__repr__(value)
+    return "unreadable part"
+
+
 def _copy_guard(value, _depth=0, _seen=None, _path="root",
                 _walked=None):
     """Walk a value the choice and seam copy surfaces are about
@@ -85,15 +105,17 @@ def _copy_guard(value, _depth=0, _seen=None, _path="root",
                 for key, item in dict.items(value):
                     _copy_guard(
                         key, _depth + 1, seen,
-                        _path + "/key:" + str(key), walked)
+                        _path + "/key:" + _guard_path_part(key),
+                        walked)
                     _copy_guard(
                         item, _depth + 1, seen,
-                        _path + "/" + str(key), walked)
+                        _path + "/" + _guard_path_part(key), walked)
             else:
                 for index, item in enumerate(value):
                     _copy_guard(
                         item, _depth + 1, seen,
-                        _path + "[" + str(index) + "]", walked)
+                        _path + "[" + int.__str__(index) + "]",
+                        walked)
         finally:
             seen.discard(id(value))
         walked[(id(value), _depth)] = True
@@ -113,7 +135,9 @@ def _stored_copy(value, _memo=None):
     only: dict parts through the base dict items reading, list,
     tuple, set, and frozenset parts through their base iteration
     readings, and text parts through the base string form, so
-    no reading a part itself supplies directs the copy."""
+    no reading a part itself supplies directs the copy. The
+    buffer forms stand carried as stored: a bytearray as a fresh
+    bytearray and a memoryview as a memoryview over fresh bytes."""
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):
@@ -155,6 +179,8 @@ def _stored_copy(value, _memo=None):
         return bytes(value)
     if isinstance(value, bytearray):
         return bytearray(value)
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
     return value
 
 
@@ -239,10 +265,13 @@ def validate_dependency_record(record):
     if not isinstance(record, dict):
         return False
     edges = []
-    for edge in record.get("edges") or []:
-        if not isinstance(edge, (list, tuple)) or len(edge) != 2:
+    for edge in _base_sequence(_bget(record, "edges")):
+        if not isinstance(edge, (list, tuple)):
             return False
-        edges.append(tuple(edge))
+        parts = _base_sequence(edge)
+        if len(parts) != 2:
+            return False
+        edges.append(tuple(_stored_copy(part) for part in parts))
     for source, target in edges:
         if {source, target} == {"MOD-05", "MOD-06"}:
             return False
@@ -250,7 +279,7 @@ def validate_dependency_record(record):
         module for module in ("MOD-05", "MOD-06", "MOD-07", "MOD-08")
         if ("MOD-05", module) in edges and ("MOD-06", module) in edges
     ]
-    if record.get("joint_dependent") != "MOD-07":
+    if not _stored_text_eq(_bget(record, "joint_dependent"), "MOD-07"):
         return False
     return joint in ([], ["MOD-07"])
 
@@ -282,7 +311,7 @@ def make_adapter_choice(choice_identifier, reading_applied,
         "dependence_marks": list(dependence_marks or []),
         "recorded_as": "adapter choice",
         "presented_as_rule_of": None,
-        "approval": copy.deepcopy(approval),
+        "approval": _stored_copy(approval),
         "drives": list(drives or []),
         "ruling_references": list(ruling_references or []),
         "seam_status": COMPUTED_NOT_SETTLED,
@@ -296,7 +325,7 @@ def interpretation_log_entry(choice):
     _copy_guard(choice)
     entry = {}
     for field in _LOG_FIELDS:
-        entry[field] = copy.deepcopy(choice.get(field))
+        entry[field] = _stored_copy(_bget(choice, field))
     entry["recorded_as"] = "adapter choice"
     return entry
 
@@ -308,9 +337,9 @@ def run_record_entry(choice):
     _copy_guard(choice)
     entry = {}
     for field in _LOG_FIELDS:
-        entry[field] = copy.deepcopy(choice.get(field))
+        entry[field] = _stored_copy(_bget(choice, field))
     entry["recorded_as"] = "adapter choice"
-    entry["approval"] = copy.deepcopy(choice.get("approval"))
+    entry["approval"] = _stored_copy(_bget(choice, "approval"))
     return entry
 
 
@@ -345,7 +374,17 @@ def append_reading(log, choice):
     """Append a later reading for a rule point as a new entry. No
     earlier entry stands edited in place."""
     _copy_guard(log)
-    updated = [copy.deepcopy(entry) for entry in log]
+    if isinstance(log, (list, tuple)):
+        entries = _base_sequence(log)
+    else:
+        entries = log
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError(
+                "append_reading stands refused: a log entry stands "
+                "in no record form, a log entry stands as a record, "
+                "and no reading stands appended")
+    updated = [_stored_copy(entry) for entry in entries]
     updated.append(interpretation_log_entry(choice))
     return updated
 
@@ -354,10 +393,15 @@ def reading_for_result(log, choice_identifier):
     """Return the entry a result carries, named by its choice
     identifier, and never the latest entry in the log for its rule
     point."""
-    for entry in log:
-        if entry.get("choice_identifier") == choice_identifier:
+    entries = _base_sequence(log) if isinstance(
+        log, (list, tuple, set, frozenset)) else log
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if _stored_copy(_bget(entry, "choice_identifier")) \
+                == _stored_copy(choice_identifier):
             _copy_guard(entry)
-            return copy.deepcopy(entry)
+            return _stored_copy(entry)
     return None
 
 
@@ -424,8 +468,12 @@ def make_tracer_passage_record(item, point_in_run, what_in_fact_passed,
                                result):
     """Build one TracerPassageRecord in the Form 29 field order
     MOD-01 states."""
-    if result not in TRACER_RESULTS:
-        raise ValueError("tracer result outside the stated set: " + str(result))
+    if not any(_stored_text_eq(result, stated)
+               for stated in TRACER_RESULTS):
+        raise ValueError(
+            "tracer result outside the stated set: " + str(result)
+            + "; a tracer result stands among "
+            + ", ".join(TRACER_RESULTS))
     return {
         "open_semantic_item": item,
         "point_in_run": point_in_run,
@@ -571,9 +619,10 @@ def validate_tracer_passage_set(records, positive_control=None):
                     return False
         if not isinstance(dict.get(record, "open_semantic_item"), str):
             return False
-        if dict.get(record, "result") not in TRACER_RESULTS:
+        if not any(_stored_text_eq(dict.get(record, "result"), stated)
+                   for stated in TRACER_RESULTS):
             return False
-        items.append(dict.get(record, "open_semantic_item"))
+        items.append(_stored_copy(dict.get(record, "open_semantic_item")))
     if tuple(sorted(items)) != tuple(sorted(OPEN_SEMANTIC_ITEMS)):
         return False
     control = positive_control
@@ -583,7 +632,8 @@ def validate_tracer_passage_set(records, positive_control=None):
         return False
     expected = positive_control_record()
     for field in ("fixture", "path", "result"):
-        if dict.get(control, field) != expected[field]:
+        if not _stored_text_eq(
+                dict.get(control, field), expected[field]):
             return False
     return dict.get(control, "recorded_as_passing") is True
 
@@ -678,7 +728,16 @@ def joint_run_failure(run):
     with run_status failed and complete False."""
     if not isinstance(run, dict):
         return mod01.failure_value("joint run record absent")
-    for choice in run.get("adapter_choices") or []:
+    choices = _bget(run, "adapter_choices")
+    if choices is None:
+        choices = []
+    if not isinstance(choices, (list, tuple)):
+        return mod01.failure_value(
+            "joint run adapter choices stand in no record list form fails")
+    for choice in _base_sequence(choices):
+        if not isinstance(choice, dict):
+            return mod01.failure_value(
+                "joint run adapter choice stands in no record form fails")
         if not choice_approval_stands(choice):
             return mod01.failure_value(
                 "run using an unapproved adapter choice fails")
@@ -688,14 +747,21 @@ def joint_run_failure(run):
         if not _stored_pair_stands(run, choice):
             return mod01.failure_value(
                 "joint run choice pair stands in disagreement")
-    records = run.get("tracer_passage_records") or []
-    if len(records) != len(OPEN_SEMANTIC_ITEMS):
+    records = _bget(run, "tracer_passage_records")
+    if isinstance(records, dict):
+        return mod01.failure_value(
+            "joint run tracer passage records stand in no list form fails")
+    if not isinstance(records, (list, tuple, set, frozenset)):
+        records = []
+    stored_records = _base_sequence(records)
+    if len(stored_records) != len(OPEN_SEMANTIC_ITEMS):
         return mod01.failure_value(
             "joint run missing a tracer passage record fails")
-    if not validate_tracer_passage_set(records, run.get("positive_control")):
+    if not validate_tracer_passage_set(
+            stored_records, _bget(run, "positive_control")):
         return mod01.failure_value(
             "joint run has no valid tracer passage record")
-    for effect in run.get("cross_seam_effects") or []:
+    for effect in _base_sequence(_bget(run, "cross_seam_effects")):
         if not validate_cross_seam_effect(effect):
             return mod01.failure_value(
                 "cross seam effect carries settled wording")
@@ -709,10 +775,13 @@ def seam_headline_claim_stands(run, items_touched):
     if joint_run_failure(run) is not None:
         return False
     by_item = {
-        record.get("open_semantic_item"): record
-        for record in run.get("tracer_passage_records") or []
+        _stored_copy(_bget(record, "open_semantic_item")): record
+        for record in _base_sequence(
+            _bget(run, "tracer_passage_records"))
     }
-    return all(item in by_item for item in items_touched)
+    touched = _base_sequence(items_touched) if isinstance(
+        items_touched, (list, tuple, set, frozenset)) else items_touched
+    return all(_stored_copy(item) in by_item for item in touched)
 
 
 def seam_effect_report(effect):
@@ -726,10 +795,10 @@ def seam_effect_report(effect):
         effect = {}
     _copy_guard(effect)
     return {
-        "effect": effect.get("kind"),
+        "effect": _stored_copy(_bget(effect, "kind")),
         "reporting": INTERIM_REPORTING,
         "lien_state": COMPUTED_NOT_SETTLED,
-        "value": copy.deepcopy(effect.get("value")),
+        "value": _stored_copy(_bget(effect, "value")),
         "seam_status": COMPUTED_NOT_SETTLED,
     }
 
@@ -807,11 +876,13 @@ def slash_outcome_report(outcome):
     that entry as a settled fact of this report, and no remainder
     destination stands named as settled."""
     _copy_guard(outcome)
+    if not isinstance(outcome, dict):
+        outcome = {}
     return {
         "effect": "slash",
         "reporting": INTERIM_REPORTING,
         "lien_state": COMPUTED_NOT_SETTLED,
-        "value": copy.deepcopy((outcome or {}).get("value")),
+        "value": _stored_copy(_bget(outcome, "value")),
         "c12_standings_carried": list(C12_STANDINGS),
         "cost_pool_account_named_as_settled": False,
         "remainder_destination": None,
@@ -824,11 +895,14 @@ def validate_slash_report(report):
     destination as settled and carries both standings of C-12."""
     if not isinstance(report, dict):
         return False
-    if report.get("remainder_named_as_settled"):
+    if _value_present(_bget(report, "remainder_named_as_settled")):
         return False
-    if report.get("remainder_destination") is not None:
+    if _bget(report, "remainder_destination") is not None:
         return False
-    return tuple(report.get("c12_standings_carried") or ()) == C12_STANDINGS
+    return tuple(
+        _stored_copy(part) for part in _base_sequence(
+            _bget(report, "c12_standings_carried"))
+    ) == C12_STANDINGS
 
 
 def record_folding(choice, rulings_touched):
@@ -837,8 +911,14 @@ def record_folding(choice, rulings_touched):
     under decision D-02 condition three read with D-20. The ten
     ruling text gaps stand carried open by name in the record,
     filled by no inference."""
+    if not isinstance(choice, dict):
+        raise ValueError(
+            "record_folding stands refused: the choice stands in no "
+            "record form, a choice stands as a record, and no folding "
+            "stands recorded")
     return {
-        "choice_identifier": choice.get("choice_identifier"),
+        "choice_identifier": _stored_copy(
+            _bget(choice, "choice_identifier")),
         "rulings_recorded": list(rulings_touched),
         "recorded_ruling_by_ruling": True,
         "gaps_carried_open": list(RULING_TEXT_GAPS),
@@ -872,20 +952,31 @@ def ruling_effect_reporting_stands(difference, folding_records):
     record stands behind every seam choice the difference rests
     on. Until that recording stands, no such difference stands
     reported as a ruling effect from this slice."""
-    choices = (difference or {}).get("seam_choice_identifiers") or []
+    if not isinstance(difference, dict):
+        return False
+    choices = [
+        _stored_copy(part) for part in _base_sequence(
+            _bget(difference, "seam_choice_identifiers"))]
     if not choices:
         return False
+    records = folding_records
+    if isinstance(records, (list, tuple, set, frozenset)):
+        records = _base_sequence(records)
     by_choice = {
-        record.get("choice_identifier"): record
-        for record in folding_records or []
+        _stored_copy(_bget(record, "choice_identifier")): record
+        for record in records or []
     }
+    claimed = {
+        _stored_copy(part) for part in _base_sequence(
+            _bget(difference, "rulings_claimed"))}
     for identifier in choices:
         record = by_choice.get(identifier)
         if record is None or not validate_folding_record(record):
             return False
-        if not set((difference or {}).get("rulings_claimed") or []).issubset(
-            set(record.get("rulings_recorded") or [])
-        ):
+        recorded = {
+            _stored_copy(part) for part in _base_sequence(
+                _bget(record, "rulings_recorded"))}
+        if not claimed.issubset(recorded):
             return False
     return True
 
@@ -896,12 +987,19 @@ def classify_seam_feedback(item, treatment_choice, standings):
     standings carried, the act stands priced per seam item, and
     one paired sensitivity run stands required per feeding item
     before any headline rests on it."""
+    if treatment_choice is not None and not isinstance(
+            treatment_choice, dict):
+        raise ValueError(
+            "classify_seam_feedback stands refused: the treatment "
+            "choice stands in no record form, a treatment choice "
+            "stands as a record, and no classification stands recorded")
     return {
         "open_semantic_item": item,
         "classification": "feeding seam item",
         "treatment_recorded_as": "adapter choice",
-        "treatment_choice_identifier": (
-            treatment_choice or {}).get("choice_identifier"),
+        "treatment_choice_identifier": _stored_copy(_bget(
+            treatment_choice, "choice_identifier")) if isinstance(
+            treatment_choice, dict) else None,
         "both_standings_carried": list(standings),
         "pricing": "priced per seam item",
         "paired_sensitivity_runs_required": 1,
@@ -914,11 +1012,16 @@ def validate_feedback_classification(record):
     standings and its paired sensitivity requirement."""
     if not isinstance(record, dict):
         return False
-    if len(record.get("both_standings_carried") or []) != 2:
+    if len(_base_sequence(
+            _bget(record, "both_standings_carried"))) != 2:
         return False
-    if record.get("treatment_recorded_as") != "adapter choice":
+    if not _stored_text_eq(
+            _bget(record, "treatment_recorded_as"), "adapter choice"):
         return False
-    return record.get("paired_sensitivity_runs_required") == 1
+    required = _bget(record, "paired_sensitivity_runs_required")
+    return isinstance(required, int) \
+        and not isinstance(required, bool) \
+        and int.__eq__(required, 1)
 
 
 __all__ = [

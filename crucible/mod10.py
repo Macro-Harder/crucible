@@ -70,16 +70,23 @@ class LookupFailure(KeyError):
     lookup. The failure value stands on the exception in the form
     MOD-01 states for a named failure."""
 
-    def __init__(self, run_id):
+    def __init__(self, run_id, record_kind=None):
         self.run_id = run_id
+        self.record_kind = record_kind
         self.failure = {
             "name": ONE_LOOKUP_FAILURE_NAME,
             "run_status": "failed",
             "complete": False,
             "run_identifier": run_id,
         }
-        super().__init__(
-            ONE_LOOKUP_FAILURE_NAME + ": " + str(run_id))
+        if record_kind is not None:
+            self.failure["record_kind"] = record_kind
+        text = ONE_LOOKUP_FAILURE_NAME + ": " + str(run_id)
+        if record_kind is not None:
+            text = (
+                ONE_LOOKUP_FAILURE_NAME + ": " + str(run_id)
+                + " for record kind " + str(record_kind))
+        super().__init__(text)
 
 
 # The canonicalised fold, in the one stated form the Round 5
@@ -119,11 +126,11 @@ _TRANSLITERATION_MAP = {
     "\u044a": "", "\u044b": "y", "\u044c": "", "\u044d": "e",
     "\u044e": "yu", "\u044f": "ya",
     "\u03b1": "a", "\u03b2": "b", "\u03b3": "g", "\u03b4": "d",
-    "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "t",
+    "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "th",
     "\u03b9": "i", "\u03ba": "k", "\u03bb": "l", "\u03bc": "m",
     "\u03bd": "n", "\u03bf": "o", "\u03c0": "p", "\u03c1": "r",
     "\u03c2": "s", "\u03c3": "s", "\u03c4": "t", "\u03c5": "u",
-    "\u03c6": "f", "\u03c7": "h", "\u03c8": "ps", "\u03c9": "o",
+    "\u03c6": "ph", "\u03c7": "h", "\u03c8": "ps", "\u03c9": "o",
     "\u0455": "s", "\u0405": "s", "\u04bb": "h", "\u04ba": "h",
     "\u13d2": "r", "\uaba2": "r", "\u13ac": "e", "\uab7c": "e",
     "\u13aa": "a", "\uab7a": "a", "\u13de": "l", "\uabae": "l",
@@ -184,7 +191,9 @@ _SYMBOL_LEET_READINGS = {
 # vo as n and as the pair un, Cyrillic en as n and as h, and
 # Cyrillic short i as y and as i, the second reading standing as
 # its decomposition reading, where the letter reduces to
-# Cyrillic i with its combining mark dropped. The folded
+# Cyrillic i with its combining mark dropped, and Greek theta
+# as t beside its governing reading th and Greek phi as f
+# beside its governing reading ph. The folded
 # variants of a name stand read under every combination of
 # these readings, position by position, beside the two whole map
 # readings.
@@ -196,6 +205,7 @@ _AMBIGUOUS_READINGS = {
     "\u043d": ("n", "h"),
     "\u0439": ("y", "i"),
     "\u03b8": ("t", "th"),
+    "\u03c6": ("f", "ph"),
     "\u03b7": ("e",),
 }
 
@@ -612,11 +622,19 @@ def _seg_formable(node, universe, prefixes, folded, _active=None):
         options.append(forms | ({""} if empty else set()))
         can_empty = can_empty and empty
     if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+        if any(not opts for opts in options):
+            return (set(), can_empty)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
         reached = {0: {""}}
         full = (1 << len(parts)) - 1
-        for mask in range(full + 1):
-            if mask not in reached:
-                continue
+        queue = [0]
+        cursor = 0
+        bounded = False
+        while cursor < len(queue):
+            mask = queue[cursor]
+            cursor += 1
             for index in range(len(parts)):
                 if (mask >> index) & 1:
                     continue
@@ -625,9 +643,28 @@ def _seg_formable(node, universe, prefixes, folded, _active=None):
                     for head in reached[mask]
                     for tail in options[index]
                     if head + tail == "" or head + tail in prefixes}
-                if joined:
-                    reached.setdefault(
-                        mask | (1 << index), set()).update(joined)
+                if not joined:
+                    continue
+                new_mask = mask | (1 << index)
+                if new_mask not in reached:
+                    if len(reached) >= bound:
+                        bounded = True
+                        break
+                    reached[new_mask] = set()
+                    queue.append(new_mask)
+                reached[new_mask].update(joined)
+            if bounded:
+                break
+        if bounded:
+            acc = {""}
+            for opts in options:
+                acc = {
+                    head + tail
+                    for head in acc for tail in opts
+                    if head + tail == "" or head + tail in prefixes}
+                if not acc:
+                    break
+            return (acc & universe, can_empty)
         return (reached.get(full, set()) & universe, can_empty)
     acc = {""}
     for opts in options:
@@ -638,6 +675,325 @@ def _seg_formable(node, universe, prefixes, folded, _active=None):
         if not acc:
             break
     return (acc & universe, can_empty)
+
+def _seg_part_readings(node, folded):
+    """The readings of one leaf part in one reading space: the
+    folded readings in folded space, the lowered stored text
+    in plain space."""
+    if folded:
+        return set(_fold_variants(node))
+    return {_stored_text(node).lower()}
+
+
+def _seg_part_can_equal(node, text, folded, _active=None):
+    """Whether some whole reading of one part stands exactly
+    as the text, judged through the formable computation, so
+    no joined candidate of the part stands listed."""
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return text in _seg_part_readings(node, folded)
+    if id(node) in _active:
+        return text == ""
+    universe = _seg_universe((text,), ()) if text else set()
+    try:
+        forms, can_empty = _seg_formable(
+            node, universe, _seg_prefixes(universe), folded)
+    except RecursionError:
+        return False
+    if not text:
+        return can_empty
+    return text in forms
+
+
+def _seg_part_can_start(node, text, folded, _active=None):
+    """Whether some whole reading of one part begins with the
+    text. The judgement walks the part structure: an ordered
+    part is consumed in its stored order and an unordered
+    part in any order of its subparts, each step either
+    placing one subpart as an exact piece of the text, letting
+    one subpart begin with the remainder, or passing a subpart
+    that can stand empty. The state count stands bounded by
+    the stated candidate cap of the reading space, in the
+    form settlement S-10 states, and a part past the bound
+    contributes no opening form through this act."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            reading.startswith(text)
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_start(parts[0], text, folded, _active)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0) if unordered else (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, pos = stack.pop()
+            if pos == len(text):
+                return True
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                indices = [mask] if mask < len(parts) else []
+            for index in indices:
+                part = parts[index]
+                if _seg_part_can_start(
+                        part, text[pos:], folded, _active):
+                    return True
+                new_mask = (
+                    mask | (1 << index) if unordered else index + 1)
+                for stop in range(pos + 1, len(text) + 1):
+                    if _seg_part_can_equal(
+                            part, text[pos:stop], folded, _active):
+                        state = (new_mask, stop)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                if _seg_part_can_equal(part, "", folded, _active):
+                    state = (new_mask, pos)
+                    if state not in seen:
+                        seen.add(state)
+                        stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_part_can_end(node, text, folded, _active=None):
+    """Whether some whole reading of one part ends with the
+    text, the mirror form of _seg_part_can_start, walked from
+    the closing subpart backwards under the same stated bound."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            reading.endswith(text)
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_end(parts[0], text, folded, _active)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, matched = stack.pop()
+            if matched == len(text):
+                return True
+            rest = text[:len(text) - matched]
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                index = len(parts) - 1 - mask
+                indices = [index] if index >= 0 else []
+            for index in indices:
+                part = parts[index]
+                if _seg_part_can_end(
+                        part, rest, folded, _active):
+                    return True
+                new_mask = (
+                    mask | (1 << index) if unordered else mask + 1)
+                for start_at in range(0, len(rest)):
+                    piece = rest[start_at:]
+                    if _seg_part_can_equal(
+                            part, piece, folded, _active):
+                        state = (new_mask, matched + len(piece))
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                if _seg_part_can_equal(part, "", folded, _active):
+                    state = (new_mask, matched)
+                    if state not in seen:
+                        seen.add(state)
+                        stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_part_can_contain(node, text, folded, _active=None):
+    """Whether some whole reading of one part carries the
+    text inside it: the text stands inside one subpart, or it
+    spans subpart boundaries, one subpart ending with its
+    opening, middle subparts standing as its exact pieces,
+    and one subpart beginning with its closing. The walk
+    stands bounded as _seg_part_can_start states."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            text in reading
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_contain(parts[0], text, folded, _active)
+        for part in parts:
+            if _seg_part_can_contain(part, text, folded, _active):
+                return True
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, pos = stack.pop()
+            if pos == len(text):
+                return True
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                indices = [mask] if mask < len(parts) else []
+            for index in indices:
+                part = parts[index]
+                new_mask = (
+                    mask | (1 << index) if unordered else index + 1)
+                if pos == 0:
+                    if _seg_part_can_end(part, text, folded, _active):
+                        return True
+                    for stop in range(1, len(text)):
+                        if _seg_part_can_end(
+                                part, text[:stop], folded, _active):
+                            state = (new_mask, stop)
+                            if state not in seen:
+                                seen.add(state)
+                                stack.append(state)
+                    if not unordered:
+                        state = (new_mask, 0)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                else:
+                    if _seg_part_can_start(
+                            part, text[pos:], folded, _active):
+                        return True
+                    for stop in range(pos + 1, len(text) + 1):
+                        if _seg_part_can_equal(
+                                part, text[pos:stop], folded, _active):
+                            if stop == len(text):
+                                return True
+                            state = (new_mask, stop)
+                            if state not in seen:
+                                seen.add(state)
+                                stack.append(state)
+                    if _seg_part_can_equal(part, "", folded, _active):
+                        state = (new_mask, pos)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_parts_carry_edge(parts, options, pattern, folded):
+    """Whether a barred part stands tiled over the direct
+    parts of one unordered container where one part
+    contributes only its edge: a part whose whole reading
+    carries the pattern inside it, or a first part whose
+    whole reading ends with the opening of the pattern,
+    middle parts standing as exact pieces of it through
+    their stated options, and a last part whose whole
+    reading begins with its closing. The edge forms stand
+    judged through the part predicates above, so a composite
+    part past the candidate caps contributes its edge as
+    settlement S-4 governs, in plain and folded spaces alike."""
+    if not any(
+            isinstance(part, (dict, list, tuple, set, frozenset))
+            for part in parts):
+        return False
+    for part in parts:
+        if not isinstance(part, (dict, list, tuple, set, frozenset)):
+            continue
+        try:
+            if _seg_part_can_contain(part, pattern, folded):
+                return True
+        except RecursionError:
+            continue
+    count = len(parts)
+    for first in range(count):
+        for cut in range(1, len(pattern)):
+            try:
+                if not _seg_part_can_end(
+                        parts[first], pattern[:cut], folded):
+                    continue
+            except RecursionError:
+                continue
+            failed = set()
+            stack = [(1 << first, cut)]
+            while stack:
+                mask, pos = stack.pop()
+                if pos >= len(pattern):
+                    return True
+                if (mask, pos) in failed:
+                    continue
+                for index in range(count):
+                    if (mask >> index) & 1:
+                        continue
+                    try:
+                        if _seg_part_can_start(
+                                parts[index], pattern[pos:], folded):
+                            return True
+                    except RecursionError:
+                        pass
+                    for option in options[index]:
+                        if option and pattern.startswith(option, pos):
+                            if pos + len(option) >= len(pattern):
+                                return True
+                            stack.append(
+                                (mask | (1 << index),
+                                 pos + len(option)))
+                failed.add((mask, pos))
+    return False
 
 def _seg_plain_options(parts, _universe=None, _prefixes=None):
     """The plain readings of the direct parts of one unordered
@@ -699,10 +1055,26 @@ def _seg_unordered_barred(key):
     """Whether an unordered container standing inside a key
     joins, in some order of its direct parts, to a barred name
     under the view barred judgement, judged by segmentation
-    beside the kept candidate readings. The folded exact names
-    and folded barred parts of the scalar judgement stand
-    tiled over the folded readings of the parts."""
+    beside the kept candidate readings. The plain exact names
+    and plain barred parts of the scalar judgement stand
+    tiled over the lowered joined texts of the parts, and the
+    folded exact names and folded barred parts stand tiled
+    over the folded readings of the parts, in the form
+    settlement S-4 states for both reading spaces."""
     for node, parts in _seg_unordered_nodes(key):
+        plain_universe = _seg_universe(
+            _VIEW_BARRED_KEYS, _VIEW_BARRED_KEY_PARTS)
+        plain = _seg_plain_options(
+            parts, plain_universe, _seg_prefixes(plain_universe))
+        for target in tuple(_VIEW_BARRED_KEYS):
+            if _seg_tiles_exact(plain, target):
+                return True
+        for pattern in tuple(_VIEW_BARRED_KEY_PARTS):
+            if _seg_tiles_carrying(plain, pattern) is not None:
+                return True
+        for pattern in tuple(_VIEW_BARRED_KEY_PARTS):
+            if _seg_parts_carry_edge(parts, plain, pattern, False):
+                return True
         folded_universe = _seg_universe(
             _VIEW_BARRED_KEYS_FOLDED, _VIEW_BARRED_KEY_PARTS_FOLDED)
         folded = _seg_folded_options(
@@ -712,6 +1084,9 @@ def _seg_unordered_barred(key):
                 return True
         for pattern in tuple(_VIEW_BARRED_KEY_PARTS_FOLDED):
             if _seg_tiles_carrying(folded, pattern) is not None:
+                return True
+        for pattern in tuple(_VIEW_BARRED_KEY_PARTS_FOLDED):
+            if _seg_parts_carry_edge(parts, folded, pattern, True):
                 return True
     return False
 
@@ -1436,10 +1811,12 @@ _DEEP_REFUSAL = (
     "carrying a cycle, stands refused at retention")
 
 
-def _retention_refusal(act, argument, cause):
+def _retention_refusal(act, argument, cause, consequence=None):
     where = ""
     if act is not None:
         where = " at " + act + " on the " + str(argument) + " argument"
+    if consequence is None:
+        consequence = "and no record stands retained"
     if cause == "cycle":
         return (
             "deep or cyclic record in named form: cause cycle: "
@@ -1447,17 +1824,18 @@ def _retention_refusal(act, argument, cause):
             + ": the retention bound is 100, counted with the "
             "handed value standing at depth 0 and every container "
             "standing around a part counting toward that bound, "
-            "and no record stands retained")
+            + consequence)
     return (
         "deep or cyclic record in named form: cause depth: "
         "a record standing deeper than the retention bound of "
         "100 stands refused" + where + ": the bound is 100, "
         "counted with the handed value standing at depth 0 and "
         "every container standing around a part counting toward "
-        "that bound, and no record stands retained")
+        "that bound, " + consequence)
 
 
-def _guard_retention_shape(value, act=None, argument=None):
+def _guard_retention_shape(value, act=None, argument=None,
+                           consequence=None):
     """Refuse a value standing deeper than the retention bound of
     100, or carrying a cycle, in the refusal form the cured
     retain_run_record surface states. The walk is iterative over
@@ -1483,9 +1861,9 @@ def _guard_retention_shape(value, act=None, argument=None):
         if not isinstance(node, (dict, list, tuple, set, frozenset)):
             continue
         if id(node) in path:
-            raise ValueError(_retention_refusal(act, argument, "cycle"))
+            raise ValueError(_retention_refusal(act, argument, "cycle", consequence))
         if depth > 100:
-            raise ValueError(_retention_refusal(act, argument, "depth"))
+            raise ValueError(_retention_refusal(act, argument, "depth", consequence))
         if id(node) in done and done[id(node)] >= depth:
             continue
         path.add(id(node))
@@ -1626,7 +2004,10 @@ class RecorderStore:
     def __init__(self, store_kind="sweep", path=None):
         if not (isinstance(store_kind, str) and any(
                 str.__eq__(store_kind, kind) for kind in STORE_KINDS)):
-            raise ValueError("unknown store kind: " + str(store_kind))
+            raise ValueError(
+                "unknown store kind: " + str(store_kind)
+                + "; a store kind stands among sweep, pilot, and "
+                "live, and no store stands created")
         self.store_kind = store_kind
         self.path = path
         self._records = {}
@@ -1637,7 +2018,18 @@ class RecorderStore:
                     data = json.load(handle)
                 stored_records = data["records"]
             except (json.JSONDecodeError, TypeError, KeyError) as exc:
-                raise LookupFailure(path) from exc
+                failure = LookupFailure(path)
+                failure.failure = {
+                    "name": ONE_LOOKUP_FAILURE_NAME,
+                    "run_status": "failed",
+                    "complete": False,
+                    "store_path": path,
+                }
+                failure.args = (
+                    ONE_LOOKUP_FAILURE_NAME
+                    + ": the store file at " + str(path)
+                    + " could not be read as a store",)
+                raise failure from exc
             for record in stored_records:
                 rid = record.get("run_id") or record.get("run_identifier")
                 self._records[rid] = record
@@ -1798,11 +2190,15 @@ def _canonical_store_kind(store_kind):
     stated kind, never through a reading the handed kind
     supplies."""
     if not _store_kind_stands(store_kind):
-        raise ValueError("unknown store kind: " + str(store_kind))
+        raise ValueError(
+            "unknown store kind: " + str(store_kind)
+            + "; a store kind stands among sweep, pilot, and live")
     for kind in STORE_KINDS:
         if str.__eq__(store_kind, kind):
             return kind
-    raise ValueError("unknown store kind: " + str(store_kind))
+    raise ValueError(
+        "unknown store kind: " + str(store_kind)
+        + "; a store kind stands among sweep, pilot, and live")
 
 
 def retain_run_record(record, store_kind="sweep"):
@@ -1886,12 +2282,27 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
         for field in ("joint_outcome_components",
                       "component_denominators"):
             values = delivery.get(field)
-            if isinstance(values, (list, tuple)) and not all(
-                    _numeric_component(value) for value in values):
-                raise ValueError(
-                    "daily aggregate delivery in named form: the "
-                    + field + " of a delivery stand in a non numeric "
-                    "form, and no delivery stands retained for it")
+            if isinstance(values, (list, tuple)):
+                for component in values:
+                    if _numeric_component(component):
+                        continue
+                    where = (
+                        " for viewer " + str(delivery.get("viewer_id"))
+                        + " at day " + str(delivery.get("simulated_day")))
+                    if isinstance(component, (int, float)) and not isinstance(
+                            component, bool):
+                        raise ValueError(
+                            "daily aggregate delivery in named form: "
+                            "the " + field + " of the delivery" + where
+                            + " stand in a non finite numeric form "
+                            "(component " + repr(component)
+                            + "), and that delivery stands not retained")
+                    raise ValueError(
+                        "daily aggregate delivery in named form: the "
+                        + field + " of the delivery" + where
+                        + " stand in a non numeric form (component "
+                        + repr(component)
+                        + "), and that delivery stands not retained")
     stored = _AGGREGATE_DELIVERIES.setdefault(run_id, {})
     for delivery in deliveries:
         key = (
@@ -2198,12 +2609,12 @@ def build_joint_outcome_vector(components=None, divergence_companion=None):
                 "joint outcome component in named form: component "
                 + field + " carries no " + ", ".join(missing))
         viewers.add(component.get("viewer_identifier"))
-        record[field] = copy.deepcopy(component)
+        record[field] = _safe_copy(component)
     if len(viewers) != 1:
         raise ValueError(
             "joint outcome component in named form: the components "
             "of one vector carry more than one viewer identifier")
-    record["divergence_companion"] = copy.deepcopy(
+    record["divergence_companion"] = _safe_copy(
         divergence_companion or {"nil_divergence_components": []})
     if not mod01.validate_record("15", record):
         raise ValueError(
@@ -2216,9 +2627,22 @@ def _gate_epoch_key(epoch):
     """The slot key of one epoch: a text epoch stands under its
     own text, and every other epoch form stands under its
     stored form, so the integer, bool, and float forms of one
-    epoch number never take one slot."""
+    epoch number never take one slot. One bound stands on the
+    text limb: a stored form is itself a text string, so a
+    text epoch that spells a stored form would land on the
+    slot of the non text epoch whose stored form it spells.
+    A text epoch carrying a colon, and the text epoch none,
+    which is the stored form of the None epoch, therefore
+    stand under their own stored form instead of under their
+    bare text, so no text epoch takes the slot of a non text
+    epoch and no recorded share stands silently overwritten.
+    A text epoch carrying no colon keeps its own text as its
+    key, exactly as the standing contract states."""
     if isinstance(epoch, str):
-        return str.__str__(epoch)
+        text = str.__str__(epoch)
+        if ":" in text or text == "none":
+            return _stored_form(epoch)
+        return text
     return _stored_form(epoch)
 
 
@@ -2335,13 +2759,16 @@ def _whole_day(value):
     such as a superscript digit, which the digit test accepts but
     the decimal test does not, is not read as a day number at all
     and stands as itself, as any other form stands as itself, and
-    no bare conversion error escapes this reading."""
+    no bare conversion error escapes this reading. A string
+    stands read through its stored text, taken through the base
+    class string form, never through a strip reading the handed
+    string itself supplies."""
     if isinstance(value, bool):
         return value
     if isinstance(value, int):
         return value
     if isinstance(value, str):
-        text = value.strip()
+        text = str.__str__(value).strip()
         if text.isdecimal():
             try:
                 return int(text)
@@ -2377,7 +2804,10 @@ def _timing_day(value):
     prefixed spelling (a hexadecimal, binary, or octal integer
     spelling, or a hexadecimal float spelling) stands read as
     the day it states on the same terms. Any other form stands
-    as itself and stands judged by no comparison."""
+    as itself and stands judged by no comparison. A string
+    stands read through its stored text, taken through the base
+    class string form, never through a strip or lower reading
+    the handed string itself supplies."""
     whole = _whole_day(value)
     if isinstance(whole, int) and not isinstance(whole, bool):
         return whole
@@ -2390,7 +2820,7 @@ def _timing_day(value):
             return int(value)
         return float(value)
     if isinstance(value, str):
-        text = value.strip()
+        text = str.__str__(value).strip()
         lowered = text.lower()
         if lowered in ("inf", "+inf", "infinity", "+infinity"):
             return math.inf
@@ -2453,9 +2883,12 @@ def retain_checkpoint(manifest, store_kind="sweep"):
             "manifest": _safe_copy(manifest),
             "recorded_as": "rejected write",
         })
+        judged_day = dict.get(manifest, "simulated_day")
+        judged_form = _day_match_form(judged_day)
+        named_day = judged_form[1] if judged_form[0] == "int" else judged_day
         raise ValueError(
             "second checkpoint for the same run and day is rejected: "
-            + str(run_id) + " day " + str(dict.get(manifest, "simulated_day")))
+            + str(run_id) + " day " + str(named_day))
     if len(bucket) >= 10000:
         raise ValueError("checkpoint cap in named form: a run stands at the ruled cap of 10,000 checkpoints per run under ruling Entry 18, and no further checkpoint stands retained")
     stored = _safe_copy(manifest)
@@ -2516,12 +2949,15 @@ def _normalised_form_text(value):
 
     A value that is not a string stands as no text, so a wrongly
     typed trigger or rule path names nothing. A string stands
-    lowered, with underscores and hyphens read as spaces and runs
+    judged on its stored text, taken through the base class
+    string form, and that stored text stands lowered, with
+    underscores and hyphens read as spaces and runs
     of whitespace read as one space, the reading form the standing
-    named forms are checked in."""
+    named forms are checked in. No lower reading the handed
+    string itself supplies stands honoured."""
     if not isinstance(value, str):
         return ""
-    text = value.lower().replace("_", " ").replace("-", " ")
+    text = str.__str__(value).lower().replace("_", " ").replace("-", " ")
     return " ".join(text.split())
 
 
@@ -2573,8 +3009,7 @@ def delete_checkpoint(run_id, checkpoint_day, store_kind="sweep",
             "checkpoint deletion refused: a clause C8 protection stands "
             "on the checkpoint, namely " + "; ".join(protections)
             + ", and no checkpoint stands deleted")
-    if _store_kind_stands(store_kind):
-        store_kind = _canonical_store_kind(store_kind)
+    store_kind = _canonical_store_kind(store_kind)
     bucket = _CHECKPOINTS.get((store_kind, run_id), [])
     kept = [
         item for item in bucket
@@ -2613,6 +3048,33 @@ def checkpoint_position_check(manifest, store_kind="sweep"):
     run_id = dict.get(manifest, "run_identifier") or dict.get(
         manifest, "run_id")
     position = dict.get(manifest, "journal_position")
+    if run_id is None:
+        return {
+            "check": "checkpoint position check",
+            "outcome": (
+                "not checked: no run identifier stands on the "
+                "manifest, and no position stands checked"),
+            "journal_position": position,
+            "retained_log_length": 0,
+            "reportable": False,
+        }
+    if not isinstance(position, int) or isinstance(position, bool):
+        if position is None:
+            wording = "the journal position stands missing"
+        else:
+            wording = (
+                "the journal position stands in no integer form: "
+                + repr(position))
+        return {
+            "check": "checkpoint position check",
+            "outcome": (
+                "not checked: " + wording
+                + ", and no retention failure stands reported"),
+            "journal_position": position,
+            "retained_log_length": len(
+                event_log_entries(run_id, store_kind)),
+            "reportable": False,
+        }
     entries = event_log_entries(run_id, store_kind)
     inside = (
         isinstance(position, int) and not isinstance(position, bool)
@@ -2643,12 +3105,20 @@ def _nondecimal_digit_text(value):
     test does not, such as a superscript digit character. Such a
     text is not a day under the decimal text reading at all, even
     though it stands as its own stored text form for sameness
-    under the day match form at every other act."""
+    under the day match form at every other act. The sign dress
+    stands read whole: any run of leading signs, a space standing
+    between a sign and the digit text, and one trailing sign all
+    stand peeled before the digit test, so a non decimal digit
+    behind a second sign, behind a space after its sign, or
+    carrying a trailing sign stands in this form as surely as
+    the plain and single signed forms do."""
     if not isinstance(value, str):
         return False
     text = str.__str__(value).strip()
-    if text[:1] in ("+", "-"):
-        text = text[1:]
+    while text[:1] in ("+", "-"):
+        text = text[1:].lstrip()
+    if text[-1:] in ("+", "-"):
+        text = text[:-1].rstrip()
     return bool(text) and text.isdigit() and not text.isdecimal()
 
 
@@ -2679,9 +3149,10 @@ def close_run_retention(run_id, tier, store_kind="sweep"):
     checkpoint and its state standing untouched by the close."""
     if tier not in ("Tier 0", "Tier 1", "Tier 2", "Tier 3"):
         raise ValueError(
-            "unknown retention tier for the close act: " + str(tier))
-    if _store_kind_stands(store_kind):
-        store_kind = _canonical_store_kind(store_kind)
+            "unknown retention tier for the close act: " + str(tier)
+            + "; a retention tier stands among Tier 0, Tier 1, "
+            "Tier 2, and Tier 3, and no close stands performed")
+    store_kind = _canonical_store_kind(store_kind)
     bucket = _CHECKPOINTS.get((store_kind, run_id), [])
     groups = []
     seen_forms = []
@@ -2693,6 +3164,9 @@ def close_run_retention(run_id, tier, store_kind="sweep"):
             groups.append((form, day))
     excluded_forms = [
         form for form, day in groups if _nondecimal_digit_text(day)]
+    excluded_days = [
+        _close_day_output(group) for group in groups
+        if group[0] in excluded_forms]
     groups = [
         group for group in groups
         if group[0] not in excluded_forms]
@@ -2740,6 +3214,11 @@ def close_run_retention(run_id, tier, store_kind="sweep"):
         "retention_tier": tier,
         "kept_days": kept_days,
         "released_days": released_days,
+        "excluded_days": excluded_days,
+        "excluded_statement": (
+            "the days in excluded_days stand outside the close "
+            "day set: their checkpoints and states stand untouched "
+            "by the close"),
         "trigger": "clause C3 retained set at run close",
         "actor": "Recorder",
         "release_recorded": True,
@@ -2787,16 +3266,34 @@ def portable_checkpoint_manifest(manifest):
 
 def restore_check(portable, present_identifiers):
     """Return whether a portable manifest restores: its relative
-    identifier stands among the identifiers present."""
-    return portable.get("relative_identifier") in set(present_identifiers)
+    identifier stands among the identifiers present. The portable
+    manifest stands read through the base class dict reading, on
+    the identifier it stores, never through a get reading the
+    handed manifest itself supplies, as at the cured portable
+    manifest and resume acts beside this one."""
+    identifier = (
+        dict.get(portable, "relative_identifier")
+        if isinstance(portable, dict) else None)
+    return identifier in set(present_identifiers)
 
 
 def replay_check(original, resumed):
     """The exact replay check after resume, at record level and
     verdict level only. No state hash equality stands claimed
-    while OP-24 stands partial."""
-    record_equal = original.get("record") == resumed.get("record")
-    verdict_equal = original.get("verdict") == resumed.get("verdict")
+    while OP-24 stands partial. Each record stands read through
+    the base class dict reading, on the record and verdict it
+    stores, never through a get reading the handed record itself
+    supplies."""
+    record_equal = (
+        (dict.get(original, "record") if isinstance(original, dict)
+         else None)
+        == (dict.get(resumed, "record") if isinstance(resumed, dict)
+            else None))
+    verdict_equal = (
+        (dict.get(original, "verdict") if isinstance(original, dict)
+         else None)
+        == (dict.get(resumed, "verdict") if isinstance(resumed, dict)
+            else None))
     return {
         "record_level_equal": bool(record_equal),
         "verdict_level_equal": bool(verdict_equal),
@@ -2809,7 +3306,11 @@ def retain_gc08_record(kind, record, owner_id):
     or the process and network call log of a run, with its outside
     call check outcome carried in the record itself."""
     if kind not in ("dependency_manifest", "call_log"):
-        raise ValueError("unknown GC-08 record kind: " + str(kind))
+        raise ValueError(
+            "unknown GC-08 record kind: " + str(kind)
+            + "; a GC-08 record kind stands among "
+            "dependency_manifest and call_log, and no record "
+            "stands retained")
     _GC08_RECORDS[(kind, owner_id)] = _safe_copy(record)
     return _safe_copy(record)
 
@@ -2820,7 +3321,7 @@ def gc08_record(kind, owner_id):
     identifier carried under the agreed key run_identifier and
     the record kind sought stated in the failure."""
     if (kind, owner_id) not in _GC08_RECORDS:
-        failure = LookupFailure(owner_id)
+        failure = LookupFailure(owner_id, record_kind=kind)
         failure.failure = {
             "name": ONE_LOOKUP_FAILURE_NAME,
             "run_status": "failed",
@@ -2985,6 +3486,11 @@ def validate_storage_claim(claim):
 def write_summary_record(record):
     """Retain the summary record of a run, as written at run close
     or as amended by a deferred evaluation written into it."""
+    if not isinstance(record, dict):
+        raise ValueError(
+            "write_summary_record stands refused: the record stands "
+            "in no record form, a summary record stands as a record, "
+            "and no summary record stands retained")
     _guard_retention_shape(record, "write_summary_record", "record")
     run_id = record.get("run_id") or record.get("run_identifier")
     _SUMMARY_RECORDS[run_id] = _safe_copy(record)
@@ -3034,7 +3540,7 @@ def summary_record_for_run(run_id="run-under-test"):
         "written_at": "run_close",
         "content_computed_at": "run_close",
         "source": "RunRecord",
-        "flag_conditions_fired": copy.deepcopy(
+        "flag_conditions_fired": _safe_copy(
             record.get("flag_conditions_fired")
             or outcome.get("flag_conditions_fired") or []),
         "carriage": "computed from the retained RunRecord",
@@ -3043,7 +3549,7 @@ def summary_record_for_run(run_id="run-under-test"):
         computed["retention_tier"] = tier
     for field in ("week", "headline_unit_identifiers"):
         if field in record:
-            computed[field] = copy.deepcopy(record[field])
+            computed[field] = _safe_copy(record[field])
     return computed
 
 
@@ -3704,7 +4210,9 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
         raise ValueError(
             "flag evaluation in named form: the evaluation stands on a "
             "summary record, and no other form stands evaluated")
-    _guard_retention_shape(record)
+    _guard_retention_shape(
+        record, "apply_flag_evaluation", "record",
+        consequence="and no flag evaluation stands performed")
     actor = _normalised_actor(actor)
     if actor == "person":
         raise ValueError("promotion by a person after close is barred")
@@ -3748,7 +4256,11 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
         if current in _TIER_RANKS and _TIER_RANKS[tier] <= _TIER_RANKS[current]:
             raise ValueError(
                 "a promote outcome with no effected promotion stands "
-                "refused")
+                "refused: the stated tier " + str(tier)
+                + " does not rise above the standing tier "
+                + str(current)
+                + ", a promotion must rise above the standing tier, "
+                "and no promotion stands effected by it")
     updated = _safe_copy(record)
     if outcome == "promote" and tier is not None:
         updated["retention_tier"] = tier
@@ -3784,7 +4296,7 @@ def place_reserve_hold(run_id, family_states_headlines=True, start_day=0):
         "cut_short_by_cost_warden": False,
     }
     _RESERVE_HOLDS[run_id] = hold
-    return copy.deepcopy(hold)
+    return _safe_copy(hold)
 
 
 def reserve_hold_for_run(run_id, current_day=None):
@@ -3800,7 +4312,7 @@ def reserve_hold_for_run(run_id, current_day=None):
         hold["state"] = "expired"
     if hold.get("state") == "released":
         return None
-    return copy.deepcopy(hold)
+    return _safe_copy(hold)
 
 
 def apply_deferred_evaluation(summary_record, firing, inputs=None,
@@ -3814,8 +4326,12 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
     if not isinstance(summary_record, dict):
         raise ValueError("no evaluation stands written in named form: no summary record stands for the run, and no detached evaluation stands returned")
     if firing not in (1, 2):
-        raise ValueError("a run receives two firings and no third")
-    updated = copy.deepcopy(summary_record)
+        raise ValueError(
+            "apply_deferred_evaluation stands refused: the firing "
+            + repr(firing) + " stands outside the stated firings "
+            "1 and 2, a run receives two firings (firings 1 and 2) "
+            "and no other firing, and no evaluation stands written")
+    updated = _safe_copy(summary_record)
     evaluations = updated.setdefault("deferred_evaluations", [])
     if any(item.get("firing") == firing for item in evaluations):
         raise ValueError("this firing already stands written")
@@ -3840,7 +4356,7 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
                 "firing stands with no first firing on the record, and "
                 "no hold stands released by it")
         if not evaluations and stored_evaluations:
-            evaluations.extend(copy.deepcopy(stored_evaluations))
+            evaluations.extend(_safe_copy(stored_evaluations))
     evaluations.append({
         "firing": firing,
         "inputs": inputs,
@@ -3901,7 +4417,7 @@ def retention_record_for_run(run_id, store_kind="sweep"):
             + str(len(not_retained)) + " of " + str(len(tier_forms))
             + " forms the tier names stand not retained",
         },
-        "later_evaluation": copy.deepcopy(later),
+        "later_evaluation": _safe_copy(later),
         "pointers": {
             "checkpoints": len(checkpoints_for_run(run_id, store_kind)),
             "event_log_entries": len(event_log_entries(run_id, store_kind)),
@@ -4310,7 +4826,7 @@ def retained_version_set(record_id="record-under-test"):
         for field in ("rule_version_set", "record_version_set",
                       "version_set"):
             if record.get(field) is not None:
-                return copy.deepcopy(record[field])
+                return _safe_copy(record[field])
     return {"record_id": record_id, "form": FORM_ONLY}
 
 
@@ -4458,10 +4974,31 @@ def _is_barred_view_key(key):
     read on its decoded stored bytes, as a bare bytes key
     stands read."""
     if isinstance(key, _CONTAINER_KEY_FORMS):
-        if any(
-                _is_barred_view_key(part)
-                for part in _container_parts(key)):
-            return True
+        stack = [key]
+        seen = set()
+        containers = []
+        while stack:
+            part = stack.pop()
+            if isinstance(part, _CONTAINER_KEY_FORMS):
+                if id(part) in seen:
+                    continue
+                seen.add(id(part))
+                parts = _container_parts(part)
+                containers.append((part, len(parts)))
+                stack.extend(parts)
+            elif _is_barred_view_key(part):
+                return True
+        joined_standings = {}
+        for container, part_count in containers:
+            if part_count == 1:
+                continue
+            joined = _joined_stored_text(container)
+            if not joined:
+                continue
+            if joined not in joined_standings:
+                joined_standings[joined] = _is_barred_view_key(joined)
+            if joined_standings[joined]:
+                return True
         if _has_unordered_split(key):
             for candidate in _joined_text_candidates(key):
                 if candidate and _is_barred_view_key(candidate):
@@ -4469,7 +5006,9 @@ def _is_barred_view_key(key):
         if _seg_unordered_barred(key):
             return True
         if _seg_spanning_barred(
-                key, (), (), tuple(_VIEW_BARRED_KEYS_FOLDED),
+                key, tuple(_VIEW_BARRED_KEYS),
+                tuple(_VIEW_BARRED_KEY_PARTS),
+                tuple(_VIEW_BARRED_KEYS_FOLDED),
                 tuple(_VIEW_BARRED_KEY_PARTS_FOLDED)):
             return True
         joined = _joined_stored_text(key)
@@ -4525,42 +5064,57 @@ def run_view_leak_check(view_record):
     failure naming the view, the field, and the check form that
     failed, and the run stands not reportable on that record. A
     record passing all three forms returns the run record of the
-    check."""
+    check. The record stands read through the base class dict
+    readings, on the values it stores, never through a get
+    reading the handed record itself supplies, at the view name,
+    the group list, the barred carriage test, the field
+    validation, and the timing reading alike. The timing form
+    reads the first seen day per record only in mapping form: a
+    record carrying that field in a non mapping form stands
+    refused in the named timing failure form, naming the view,
+    the field, and the check form, and no bare error escapes."""
     if not isinstance(view_record, dict):
         raise ValueError(
             "view leak check failure: form field_validation, the "
             "record stands as no ViewRecord")
     view_name = (
-        str(view_record.get("run_identifier")
-            or view_record.get("run_id"))
-        + "/" + str(view_record.get("viewer_identifier")
-                    or view_record.get("viewer_id")))
+        str(dict.get(view_record, "run_identifier")
+            or dict.get(view_record, "run_id"))
+        + "/" + str(dict.get(view_record, "viewer_identifier")
+                    or dict.get(view_record, "viewer_id")))
     groups = [
         name for name in (
             "view_contents", "reputation_and_band_values",
             "graph_position_as_seen")
-        if name in view_record
+        if dict.__contains__(view_record, name)
     ]
     groups.extend(
-        name for name in view_record if name not in groups)
+        name for name in dict.keys(view_record) if name not in groups)
     for field in groups:
         if _is_barred_view_key(field) or _carries_barred_key(
-                view_record.get(field)):
+                dict.get(view_record, field)):
             raise ValueError(
                 "view leak check failure: form canary, view "
                 + view_name + ", field " + str(field)
                 + " carries a barred key")
     for field in mod01.ViewRecord.FIELDS:
         if field in ("scheduling_position_identifier",
-                     "rule_version_set") and field in view_record:
+                     "rule_version_set") and dict.__contains__(
+                         view_record, field):
             continue
-        if view_record.get(field) is None:
+        if dict.get(view_record, field) is None:
             raise ValueError(
                 "view leak check failure: form field_validation, view "
                 + view_name + ", field " + field + " stands absent")
-    day = _timing_day(view_record.get("simulated_day"))
-    first_seen = view_record.get("first_seen_day_per_record") or {}
-    for item, seen_day in first_seen.items():
+    day = _timing_day(dict.get(view_record, "simulated_day"))
+    first_seen = dict.get(view_record, "first_seen_day_per_record") or {}
+    if not isinstance(first_seen, dict):
+        raise ValueError(
+            "view leak check failure: form timing, view "
+            + view_name + ", field first_seen_day_per_record: "
+            "the first seen day per record stands in a non mapping "
+            "form the timing form cannot read")
+    for item, seen_day in dict.items(first_seen):
         seen_day = _timing_day(seen_day)
         if (isinstance(seen_day, (int, float))
                 and not isinstance(seen_day, bool)
@@ -4594,30 +5148,34 @@ def retain_view_record(record, tier=None):
     record stands retained only where the runner passes it. The
     retention split stands by tier: at Tier 1 the divergence
     companion stands retained in place of the full record, and at
-    Tier 2 and Tier 3 the full record stands retained."""
+    Tier 2 and Tier 3 the full record stands retained. The record
+    stands read through the base class dict readings, on the
+    values it stores, never through a get reading the handed
+    record itself supplies."""
     if not isinstance(record, dict):
         raise ValueError(
             "identity less view record: a ViewRecord stands as a "
             "record carrying a run identifier, and no other form "
             "stands retained")
-    run_id = record.get("run_identifier") or record.get("run_id")
+    run_id = dict.get(record, "run_identifier") or dict.get(
+        record, "run_id")
     if run_id is None:
         raise ValueError(
             "identity less view record: no run identifier stands on "
             "the record, and no view record stands retained under "
             "no identifier")
     run_view_leak_check(record)
-    tier = tier or record.get("retention_tier") or "Tier 2"
+    tier = tier or dict.get(record, "retention_tier") or "Tier 2"
     if tier == "Tier 1":
         stored = {
             "run_identifier": run_id,
             "viewer_identifier": (
-                record.get("viewer_identifier")
-                or record.get("viewer_id")),
-            "simulated_day": record.get("simulated_day"),
+                dict.get(record, "viewer_identifier")
+                or dict.get(record, "viewer_id")),
+            "simulated_day": dict.get(record, "simulated_day"),
             "retention_tier": "Tier 1",
             "divergence_companion": _safe_copy(
-                record.get("divergence_companion")
+                dict.get(record, "divergence_companion")
                 or {"nil_divergence_components": []}),
             "form": "divergence companion in place of the full view record",
         }
@@ -4625,7 +5183,7 @@ def retain_view_record(record, tier=None):
         stored = _safe_copy(record)
         stored["retention_tier"] = tier
     _VIEW_RECORDS.setdefault(run_id, []).append(stored)
-    return copy.deepcopy(stored)
+    return _safe_copy(stored)
 
 
 def view_records_for_run(run_id):

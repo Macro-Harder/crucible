@@ -15,6 +15,8 @@ run produces, and again at run close. No third comparison point
 stands in this module.
 """
 
+import itertools
+
 from crucible import mod01 as _mod01
 
 DETECTION_COMPARISON_POINTS = (
@@ -234,8 +236,56 @@ def _stored_key_text(value):
         for part in _base_container_items(value):
             part_text = _stored_key_text(part)
             parts.append(part_text if part_text is not None else "")
+        if isinstance(value, (set, frozenset)):
+            # An unordered container stores no part order, so
+            # its single joined text stands in the sorted order
+            # of its part texts, the same at every hash seed.
+            # The full set of joins it can stand in stands at
+            # _stored_key_texts, which the field readings use.
+            parts.sort()
         return "".join(parts)
     return None
+
+
+def _stored_key_texts(value):
+    """Every joined stored text a key can stand in. An ordered
+    container contributes the joins of its parts in their
+    stored order, each part contributing every text of its
+    own. An unordered container stores no order, so it
+    contributes the joins under every ordering of its direct
+    parts, in the form the sister modules state for their
+    joined candidates: complete for an unordered container
+    holding at most seven direct parts and while the distinct
+    joins stand at or under 5040. Past either bound the
+    unordered container contributes its sorted join alone,
+    as _stored_key_text states it."""
+    if isinstance(value, (tuple, list)):
+        joined = {""}
+        for part in _base_container_items(value):
+            joined = {
+                head + (tail if tail is not None else "")
+                for head in joined
+                for tail in _stored_key_texts(part)}
+        return joined
+    if isinstance(value, (set, frozenset)):
+        parts = _base_container_items(value)
+        if len(parts) <= 7:
+            part_texts = [_stored_key_texts(part) for part in parts]
+            out = set()
+            for order in itertools.permutations(range(len(parts))):
+                combos = {""}
+                for index in order:
+                    combos = {
+                        head + (tail if tail is not None else "")
+                        for head in combos
+                        for tail in part_texts[index]}
+                out.update(combos)
+                if len(out) > 5040:
+                    break
+            if len(out) <= 5040:
+                return out
+        return {_stored_key_text(value)}
+    return {_stored_key_text(value)}
 
 
 def _stored_text(value):
@@ -276,8 +326,9 @@ def _stored_get(record, field):
     if not isinstance(record, dict):
         return None
     for key, item in dict.items(record):
-        if _stored_key_text(key) is not None and str.__eq__(
-                _stored_key_text(key), field):
+        if any(
+                text is not None and str.__eq__(text, field)
+                for text in _stored_key_texts(key)):
             return item
     return None
 
@@ -290,9 +341,10 @@ def _all_stored_values(record, fields):
     if not isinstance(record, dict):
         return values
     for key, item in dict.items(record):
-        key_text = _stored_key_text(key)
-        if key_text is not None and any(
-                str.__eq__(key_text, field) for field in fields):
+        key_texts = _stored_key_texts(key)
+        if any(
+                text is not None and str.__eq__(text, field)
+                for text in key_texts for field in fields):
             if item is not None:
                 values.append(item)
     return values
@@ -310,6 +362,21 @@ def _norm_identifier(value):
     return stored if stored is not None else value
 
 
+def _result_field_value(value):
+    """A field value as a delivered comparison result carries
+    it: in its stored text where it carries one, so a bytes,
+    bytearray, memoryview, or single part container dress
+    stands named as the plain text it stores, in the same
+    form the result names its bearing and entry run
+    identifiers, and otherwise as a frozen copy of itself,
+    so no field of a delivered result stands shared with a
+    mutable value the caller handed in."""
+    stored = _stored_text(value)
+    if stored is not None:
+        return stored
+    return _freeze(value)
+
+
 def _identifiers_agree(first, second):
     """Whether two identifier values state the same identifier,
     judged on their stored texts where either carries one."""
@@ -318,7 +385,16 @@ def _identifiers_agree(first, second):
     if first_text is not None or second_text is not None:
         return (first_text is not None and second_text is not None
                 and str.__eq__(first_text, second_text))
-    return first is second or type(first) is type(second) and first == second
+    # Neither identifier carries a stored text, so the
+    # judgement stands on the strict base reading of this
+    # module, which judges every part through base class
+    # comparisons and a value in no stated form by identity
+    # alone, never through an equality reading a handed
+    # value supplies.
+    try:
+        return _strict_eq(first, second)
+    except NamedReplicationFailure:
+        return False
 
 
 def _base_set_items(value):
@@ -529,6 +605,18 @@ def _strict_eq(first, second, _seen=None, _depth=0, _walked=None):
             result = complex.__eq__(first, second)
         else:
             result = complex.__eq__(second, first)
+        return result if result is not NotImplemented else False
+    if isinstance(first, memoryview) or isinstance(second, memoryview):
+        if not (isinstance(first, memoryview)
+                and isinstance(second, memoryview)):
+            return False
+        # A memoryview part stands judged by the bytes it
+        # views, as the bytearray limb below judges by
+        # content and as the neighbouring acts of this
+        # module read memoryview by its bytes as one buffer
+        # family, never by the identity of the buffer.
+        result = bytes.__eq__(
+            memoryview.tobytes(first), memoryview.tobytes(second))
         return result if result is not NotImplemented else False
     if isinstance(first, bytearray) or isinstance(second, bytearray):
         if not (isinstance(first, bytearray)
@@ -1008,6 +1096,196 @@ def verdict_record(claim_id, standard="exact replay alone", outcome="rests"):
     return record
 
 
+def verdict_record_validation_failures(record):
+    failures = []
+    if not isinstance(record, dict):
+        return ["the verdict record stands in no record form"]
+    claim_identifier = dict.get(record, "claim_identifier")
+    if isinstance(claim_identifier, str):
+        if str.__len__(claim_identifier) == 0:
+            failures.append("claim_identifier stands empty")
+    elif not claim_identifier:
+        failures.append("claim_identifier stands absent")
+    if not _base_str_member(
+            dict.get(record, "outcome"), ("rests", "does not rest")):
+        failures.append(
+            "outcome stands outside the stated outcomes "
+            "(rests, does not rest): " + repr(dict.get(record, "outcome")))
+    if _base_str_eq(
+            dict.get(record, "standard_applied"),
+            "distributional equivalence"):
+        failures.append(
+            "standard_applied names the distributional equivalence "
+            "standard, which stands barred while the OP-20 "
+            "quantities stand unfixed")
+    elif not _base_str_eq(
+            dict.get(record, "standard_applied"), "exact replay alone"):
+        failures.append(
+            "standard_applied stands outside the stated standard "
+            "(exact replay alone): "
+            + repr(dict.get(record, "standard_applied")))
+    if not _base_str_eq(
+            dict.get(record, "replication_statement"),
+            REPLICATION_STATEMENT):
+        failures.append(
+            "replication_statement does not stand as the stated "
+            "replication statement")
+    if not _replication_sentences_ok(record):
+        failures.append(
+            "replication_statement_sentences stand empty or "
+            "contradict the joined statement (sentence form)")
+    return failures
+
+
+def replay_claim_validation_failures(claim):
+    if not isinstance(claim, dict):
+        return ["the replay claim stands in no record form"]
+    failures = []
+    if _stored_present(_base_get(claim, "hash_equality_claimed")):
+        failures.append(
+            "hash_equality_claimed stands asserted: a replay claim "
+            "asserting byte level hash equality stands refused "
+            "while OP-24 stands open in part")
+    if _stored_present(_base_get(
+            claim, "detection_state_completeness_claimed")):
+        failures.append(
+            "detection_state_completeness_claimed stands asserted: "
+            "completeness over the detection state stands refused")
+    return failures
+
+
+def resume_claim_validation_failures(claim):
+    if not isinstance(claim, dict):
+        return ["the resume claim stands in no record form"]
+    failures = []
+    scope = _base_get(claim, "detection_scope")
+    if scope is not None and not _base_str_eq(
+            scope, "verdict level only"):
+        failures.append(
+            "detection_scope stands wider than verdict level only: "
+            + repr(scope) + " (scope form)")
+    points = _base_get(claim, "detection_comparison_points")
+    if points is not None:
+        if not isinstance(points, (list, tuple)):
+            failures.append(
+                "detection_comparison_points stand in no list form")
+        elif _base_sequence_length(points) != len(
+                DETECTION_COMPARISON_POINTS):
+            failures.append(
+                "detection_comparison_points stand at a count other "
+                "than the two named points")
+        else:
+            for stored_point, named_point in zip(
+                    _base_sequence_items(points),
+                    DETECTION_COMPARISON_POINTS):
+                if not _base_str_eq(stored_point, named_point):
+                    failures.append(
+                        "detection_comparison_points name a point "
+                        "outside the two named points: "
+                        + repr(stored_point))
+                    break
+    return failures
+
+
+def probe_claim_validation_failures(claim):
+    if not isinstance(claim, dict):
+        return ["the probe claim stands in no record form"]
+    failures = []
+    if _stored_present(_base_get(
+            claim, "margin_or_method_presented_as_settled")):
+        failures.append(
+            "margin_or_method_presented_as_settled stands asserted: "
+            "a margin or method presented as settled before the "
+            "family record fixes it stands refused")
+    if _stored_present(_base_get(
+            claim, "catalogue_presented_as_settled")):
+        failures.append(
+            "catalogue_presented_as_settled stands asserted: a "
+            "catalogue presented as a delivered form with a settled "
+            "field list stands refused")
+    return failures
+
+
+def scoring_record_validation_failures(record):
+    if not isinstance(record, dict):
+        return ["the scoring record stands in no record form"]
+    failures = []
+    if _base_get(record, "inside_run_boundary"):
+        failures.append(
+            "inside_run_boundary stands asserted: a scoring record "
+            "stands outside the run boundary")
+    if _base_get(record, "value_returned_into_run") is not None:
+        failures.append(
+            "value_returned_into_run stands stated: no value stands "
+            "returned into the run")
+    if not _base_str_eq(
+            _base_get(record, "profile_bound_label"),
+            PROFILE_BOUND_LABEL):
+        failures.append(
+            "profile_bound_label does not stand as the stated "
+            "carriage value")
+    separations = _base_get(record, "separations")
+    if not isinstance(separations, dict):
+        failures.append("separations stand in no record form")
+    else:
+        for name in SCORING_SEPARATIONS:
+            if not _base_get(separations, name):
+                failures.append(
+                    "separations name no standing for: " + name)
+    return failures
+
+
+def aggregate_form_validation_failures(form):
+    if not isinstance(form, (list, tuple)):
+        return ["the aggregate form stands in no list form"]
+    failures = []
+    stored_form = _base_sequence_items(form)
+    if any(_base_str_eq(item, "horizon") for item in stored_form):
+        failures.append(
+            "the aggregate form carries a horizon field, and an "
+            "aggregate form changes no meaning with the horizon")
+    daily = daily_aggregate_form()
+    if _base_sequence_length(form) != len(daily):
+        failures.append(
+            "the aggregate form stands at a length other than the "
+            "daily aggregate form")
+    elif not all(
+            _base_str_eq(stored_item, daily_item)
+            for stored_item, daily_item in zip(stored_form, daily)):
+        failures.append(
+            "the aggregate form names a field outside the daily "
+            "aggregate form")
+    return failures
+
+
+def publishable_on_replication_failures(claim, verdict):
+    if not isinstance(verdict, dict):
+        return ["the verdict stands in no record form"]
+    failures = []
+    verdict_claim = dict.get(verdict, "claim_identifier")
+    handed_claim = (
+        _base_get(claim, "claim_identifier")
+        if isinstance(claim, dict) else None)
+    if isinstance(verdict_claim, str) or isinstance(handed_claim, str):
+        if not _base_str_eq(verdict_claim, handed_claim):
+            failures.append(
+                "the verdict names a different claim than the claim "
+                "handed: claim mismatch")
+    elif not _strict_eq(verdict_claim, handed_claim):
+        failures.append(
+            "the verdict names a different claim than the claim "
+            "handed: claim mismatch")
+    for item in verdict_record_validation_failures(verdict):
+        failures.append("verdict record: " + item)
+    if not failures and not _base_str_eq(
+            dict.get(verdict, "outcome"), "rests"):
+        failures.append(
+            "the verdict outcome does not rest: outcome stands as "
+            + repr(dict.get(verdict, "outcome"))
+            + ", and publication requires the outcome rests")
+    return failures
+
+
 def validate_verdict_record(record):
     """Return True only for a lawful verdict record. While the
     OP-20 quantities stand unfixed, no record naming the
@@ -1359,8 +1637,17 @@ def extend_history(history, segment):
     shared memo, so a part shared across items, or between
     the history and the appended segment, stands in the
     returned history as one copy and the sharing stands."""
-    if not isinstance(history, (list, tuple)) or not history:
-        raise NamedReplicationFailure("a history extension extends an existing segment")
+    if not isinstance(history, (list, tuple)):
+        raise NamedReplicationFailure(
+            "a history extension stands refused: the handed history "
+            "stands in no list form: " + repr(history)
+            + "; a history stands as a non empty list of segments, "
+            "and no extension stands made")
+    if not _history_base_items(history):
+        raise NamedReplicationFailure(
+            "a history extension stands refused: the handed history "
+            "stands empty, no existing segment stands to extend, "
+            "and no extension stands made")
     if not isinstance(segment, dict):
         raise NamedReplicationFailure(
             "a history extension appends a segment record: the appended value stands in no record form"
@@ -1534,12 +1821,33 @@ def _entry_run_identifiers(entry):
                   "held_out_confirmation_run_identifiers"):
         value = _stored_get(entry, field)
         if isinstance(value, (list, tuple, set, frozenset)):
-            identifiers.extend(
+            named = [
                 _norm_identifier(item)
-                for item in _base_container_items(value))
+                for item in _base_container_items(value)]
+            if isinstance(value, (set, frozenset)):
+                # An unordered identifier field stores no
+                # order, so its identifiers stand delivered
+                # in the sorted order of the stored text
+                # they carry, the same at every hash seed.
+                # An identifier carrying no stored text keeps
+                # its base reading place after the text
+                # forms, as the bound at this act states.
+                named.sort(key=_identifier_order_key)
+            identifiers.extend(named)
         elif value is not None:
             identifiers.append(_norm_identifier(value))
     return identifiers
+
+
+def _identifier_order_key(identifier):
+    """The stated order key for one identifier drawn from an
+    unordered identifier field: its stored text where it
+    carries one, and its kind name after the text forms
+    where it carries none."""
+    text = _stored_text(identifier)
+    if text is not None:
+        return (0, text, "")
+    return (1, type(identifier).__name__, "")
 
 
 def _record_status_failed(record):
@@ -1724,7 +2032,19 @@ def _amended_form_failures(entry):
         return failures
     for field, stated_set in _AMENDED_VALUE_SETS:
         value = _stored_get(entry, field)
-        if value is not None and not any(
+        stated_values = [
+            item for key, item in dict.items(entry)
+            if any(
+                text is not None and str.__eq__(text, field)
+                for text in _stored_key_texts(key))]
+        if any(item is None for item in stated_values):
+            # A field standing present with the value None
+            # carries a value in no stated set, None standing
+            # in none of them, so it fails in every outcome
+            # form, as the other two registry acts judge it.
+            failures.append(
+                "value outside its stated set: " + field)
+        elif value is not None and not any(
                 _stored_text_eq(value, stated) for stated in stated_set):
             failures.append(
                 "value outside its stated set: " + field)
@@ -1808,8 +2128,10 @@ def compare_registry_against_run_log(entry, run_log=None,
     its absence never reads as a pass of that limb."""
     claim_id = None
     if isinstance(entry, dict):
-        claim_id = _first_stored_value(
+        claim_raw = _first_stored_value(
             entry, ("claim_identifier", "claim_id"))
+        if claim_raw is not None:
+            claim_id = _result_field_value(claim_raw)
     if not isinstance(entry, dict):
         return {
             "performed": False,
@@ -1824,7 +2146,9 @@ def compare_registry_against_run_log(entry, run_log=None,
             "absent_from_log_run_identifiers": [],
             "failed_run_identifiers": [],
             "shortfall_limb_performed": False,
-            "shortfall_status": "not run: no run log stands handed",
+            "shortfall_status": (
+                "not run: the registry entry stands in no record "
+                "form, and no comparison stands performed on it"),
         }
     source = retained_records if retained_records is not None else run_log
     if source is None:
@@ -1887,10 +2211,11 @@ def compare_registry_against_run_log(entry, run_log=None,
         result["amended_form_failures"] = amended_failures
     confirmation_outcome = _stored_get(entry, "confirmation_outcome")
     if confirmation_outcome is not None:
-        result["confirmation_outcome"] = confirmation_outcome
+        result["confirmation_outcome"] = _result_field_value(
+            confirmation_outcome)
     gate_failure = _stored_get(entry, "gate_failure")
     if gate_failure is not None:
-        result["gate_failure"] = gate_failure
+        result["gate_failure"] = _result_field_value(gate_failure)
     expected, expected_source = _expected_count_and_source(
         entry, source, family_manifest)
     if expected is not None:

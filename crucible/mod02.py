@@ -16,6 +16,7 @@ entry point returns the gated refusal stated in this module. Order and
 schedule independence stands as a stated invariant of this interface.
 """
 
+import datetime
 from decimal import Decimal
 from fractions import Fraction
 
@@ -397,6 +398,37 @@ def _base_value_eq(left, right):
                 if close(value):
                     return value
                 continue
+            if isinstance(held, (bytearray, memoryview)) or isinstance(
+                    other, (bytearray, memoryview)):
+                if not isinstance(
+                        held, (bytes, bytearray, memoryview)) or not (
+                        isinstance(
+                            other, (bytes, bytearray, memoryview))):
+                    if close(False):
+                        return False
+                    continue
+                value = bytes(held) == bytes(other)
+                if close(value):
+                    return value
+                continue
+            if type(held) is datetime.date and type(
+                    other) is datetime.date:
+                value = datetime.date.__eq__(held, other) is True
+                if close(value):
+                    return value
+                continue
+            if type(held) is datetime.datetime and type(
+                    other) is datetime.datetime:
+                value = datetime.datetime.__eq__(held, other) is True
+                if close(value):
+                    return value
+                continue
+            if type(held) is datetime.time and type(
+                    other) is datetime.time:
+                value = datetime.time.__eq__(held, other) is True
+                if close(value):
+                    return value
+                continue
             value = held is other
             if close(value):
                 return value
@@ -504,13 +536,11 @@ def _stream_set_classes(stream_set):
         if isinstance(stored, dict):
             values = stored
             typed = True
-        elif isinstance(getattr(stream_set, "values", None), dict):
-            values = stream_set.values
-            typed = True
         else:
             raise ValueError(
-                "stream set stands in no stated form: "
-                + repr(stream_set))
+                "stream set stands in no stated form: the handed "
+                "value stands as a " + type(stream_set).__name__
+                + ", in no stated stream set form")
     inventory = None
     inventory_found = False
     if isinstance(values, dict):
@@ -556,7 +586,7 @@ def _stream_set_classes(stream_set):
     for name in classes:
         try:
             hash(name)
-        except TypeError:
+        except (TypeError, RuntimeError):
             raise ValueError(
                 "stream class entry stands in no stated form: "
                 + repr(name)) from None
@@ -720,7 +750,7 @@ def derivation_text_refusal(text):
             "failure": "INVALID-TEXT",
             "gate": None,
         }
-    lowered = text.lower()
+    lowered = str.lower(str.__str__(text))
     for barred in _BARRED_DERIVATION_TEXTS:
         if barred in lowered:
             return {
@@ -768,7 +798,10 @@ def make_derivation_input(derivation_version=None, domain=None,
     binary float rendering, is refused at this boundary.
     """
     if not validate_domain(domain):
-        raise ValueError("domain outside the two value vocabulary")
+        raise ValueError(
+            "domain outside the two value vocabulary: " + str(domain)
+            + "; a domain stands among screening and held out "
+            "confirmation")
     if parameter_values is None:
         params = {}
     elif isinstance(parameter_values, dict):
@@ -776,8 +809,24 @@ def make_derivation_input(derivation_version=None, domain=None,
             key: dict.__getitem__(parameter_values, key)
             for key in dict.__iter__(parameter_values)
         }
+    elif isinstance(parameter_values, (list, tuple)):
+        params = {}
+        for pair in _base_iter(parameter_values):
+            if not isinstance(pair, (list, tuple)):
+                raise ValueError(
+                    "parameter values stand in no stated form: "
+                    "each entry stands as a name and value pair")
+            pair_items = list(_base_iter(pair))
+            if len(pair_items) != 2:
+                raise ValueError(
+                    "parameter values stand in no stated form: "
+                    "each entry stands as a name and value pair")
+            params[pair_items[0]] = pair_items[1]
     else:
-        params = dict(parameter_values)
+        raise ValueError(
+            "parameter values stand in no stated form: supply "
+            "the parameter values as a mapping or as a list of "
+            "name and value pairs")
     for key, value in params.items():
         if not isinstance(value, str):
             raise ValueError(
@@ -825,10 +874,26 @@ def derivation_input_fields():
 def _stored_name(value):
     """The stored text of a name or recorded value, read through
     the base string form where the value stands in text form,
-    never through a string reading the value itself supplies."""
+    never through a string reading the value itself supplies.
+    A plain number stands as the plain digits of the number it
+    stores, built through base class operations. A value in
+    no text form and no plain number form stores no name, and
+    stands rendered as no name rather than through a string
+    reading it supplies."""
     if isinstance(value, str):
         return str.__str__(value)
-    return str(value)
+    plain = _plain_number(value)
+    if plain is not None:
+        if isinstance(plain, int):
+            return int.__str__(plain)
+        if isinstance(plain, float):
+            return float.__str__(plain)
+        if isinstance(plain, Decimal):
+            return Decimal.__str__(plain)
+        if isinstance(plain, Fraction):
+            return Fraction.__str__(plain)
+        return complex.__str__(plain)
+    return ""
 
 
 def derivation_input_record(value):
@@ -983,11 +1048,28 @@ def draw_from_stream(stream_class=None, position=None,
         raise ValueError(
             "stream state lacks its carried positions: supply the "
             "carried positions of the stream")
-    if _position_value(position) >= _position_value(carried_positions):
+    try:
+        position_value = _position_value(position)
+    except (ValueError, TypeError):
+        raise ValueError(
+            "draw_from_stream stands refused: the position argument "
+            "stands in no numeric form: " + repr(position)
+            + "; a position stands as a number, and no draw "
+            "stands made") from None
+    try:
+        carried_value = _position_value(carried_positions)
+    except (ValueError, TypeError):
+        raise ValueError(
+            "draw_from_stream stands refused: the carried positions "
+            "argument stands in no numeric form: "
+            + repr(carried_positions)
+            + "; carried positions stand as a number, and no draw "
+            "stands made") from None
+    if position_value >= carried_value:
         return {
             "failure": STREAM_EXHAUSTED_FAILURE,
             "stream_class": stream_class,
-            "position": _position_value(position),
+            "position": position_value,
             "run_status": "failed",
             "partial_records_marked": True,
             "supports_claim": False,
@@ -995,7 +1077,7 @@ def draw_from_stream(stream_class=None, position=None,
         }
     refusal = gated_refusal("draw from stream")
     refusal["stream_class"] = stream_class
-    refusal["position"] = _position_value(position)
+    refusal["position"] = position_value
     return refusal
 
 
@@ -1121,7 +1203,10 @@ def _position_value(value):
     plain = _plain_number(value)
     if plain is not None:
         return int(plain)
-    return int(value)
+    raise ValueError(
+        "position stands in no stated form: a position stands "
+        "as a plain number or as a text of plain digits, and a "
+        "value in no such form carries no position")
 
 
 def _held_sort_key(item):

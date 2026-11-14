@@ -700,11 +700,19 @@ def _seg_formable(node, universe, prefixes, folded, _active=None):
         options.append(forms | ({""} if empty else set()))
         can_empty = can_empty and empty
     if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+        if any(not opts for opts in options):
+            return (set(), can_empty)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
         reached = {0: {""}}
         full = (1 << len(parts)) - 1
-        for mask in range(full + 1):
-            if mask not in reached:
-                continue
+        queue = [0]
+        cursor = 0
+        bounded = False
+        while cursor < len(queue):
+            mask = queue[cursor]
+            cursor += 1
             for index in range(len(parts)):
                 if (mask >> index) & 1:
                     continue
@@ -713,9 +721,28 @@ def _seg_formable(node, universe, prefixes, folded, _active=None):
                     for head in reached[mask]
                     for tail in options[index]
                     if head + tail == "" or head + tail in prefixes}
-                if joined:
-                    reached.setdefault(
-                        mask | (1 << index), set()).update(joined)
+                if not joined:
+                    continue
+                new_mask = mask | (1 << index)
+                if new_mask not in reached:
+                    if len(reached) >= bound:
+                        bounded = True
+                        break
+                    reached[new_mask] = set()
+                    queue.append(new_mask)
+                reached[new_mask].update(joined)
+            if bounded:
+                break
+        if bounded:
+            acc = {""}
+            for opts in options:
+                acc = {
+                    head + tail
+                    for head in acc for tail in opts
+                    if head + tail == "" or head + tail in prefixes}
+                if not acc:
+                    break
+            return (acc & universe, can_empty)
         return (reached.get(full, set()) & universe, can_empty)
     acc = {""}
     for opts in options:
@@ -726,6 +753,325 @@ def _seg_formable(node, universe, prefixes, folded, _active=None):
         if not acc:
             break
     return (acc & universe, can_empty)
+
+def _seg_part_readings(node, folded):
+    """The readings of one leaf part in one reading space: the
+    folded readings in folded space, the lowered stored text
+    in plain space."""
+    if folded:
+        return set(_folded_readings(node))
+    return {_stored_text(node).lower()}
+
+
+def _seg_part_can_equal(node, text, folded, _active=None):
+    """Whether some whole reading of one part stands exactly
+    as the text, judged through the formable computation, so
+    no joined candidate of the part stands listed."""
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return text in _seg_part_readings(node, folded)
+    if id(node) in _active:
+        return text == ""
+    universe = _seg_universe((text,), ()) if text else set()
+    try:
+        forms, can_empty = _seg_formable(
+            node, universe, _seg_prefixes(universe), folded)
+    except RecursionError:
+        return False
+    if not text:
+        return can_empty
+    return text in forms
+
+
+def _seg_part_can_start(node, text, folded, _active=None):
+    """Whether some whole reading of one part begins with the
+    text. The judgement walks the part structure: an ordered
+    part is consumed in its stored order and an unordered
+    part in any order of its subparts, each step either
+    placing one subpart as an exact piece of the text, letting
+    one subpart begin with the remainder, or passing a subpart
+    that can stand empty. The state count stands bounded by
+    the stated candidate cap of the reading space, in the
+    form settlement S-10 states, and a part past the bound
+    contributes no opening form through this act."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            reading.startswith(text)
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_start(parts[0], text, folded, _active)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0) if unordered else (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, pos = stack.pop()
+            if pos == len(text):
+                return True
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                indices = [mask] if mask < len(parts) else []
+            for index in indices:
+                part = parts[index]
+                if _seg_part_can_start(
+                        part, text[pos:], folded, _active):
+                    return True
+                new_mask = (
+                    mask | (1 << index) if unordered else index + 1)
+                for stop in range(pos + 1, len(text) + 1):
+                    if _seg_part_can_equal(
+                            part, text[pos:stop], folded, _active):
+                        state = (new_mask, stop)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                if _seg_part_can_equal(part, "", folded, _active):
+                    state = (new_mask, pos)
+                    if state not in seen:
+                        seen.add(state)
+                        stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_part_can_end(node, text, folded, _active=None):
+    """Whether some whole reading of one part ends with the
+    text, the mirror form of _seg_part_can_start, walked from
+    the closing subpart backwards under the same stated bound."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            reading.endswith(text)
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_end(parts[0], text, folded, _active)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, matched = stack.pop()
+            if matched == len(text):
+                return True
+            rest = text[:len(text) - matched]
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                index = len(parts) - 1 - mask
+                indices = [index] if index >= 0 else []
+            for index in indices:
+                part = parts[index]
+                if _seg_part_can_end(
+                        part, rest, folded, _active):
+                    return True
+                new_mask = (
+                    mask | (1 << index) if unordered else mask + 1)
+                for start_at in range(0, len(rest)):
+                    piece = rest[start_at:]
+                    if _seg_part_can_equal(
+                            part, piece, folded, _active):
+                        state = (new_mask, matched + len(piece))
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                if _seg_part_can_equal(part, "", folded, _active):
+                    state = (new_mask, matched)
+                    if state not in seen:
+                        seen.add(state)
+                        stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_part_can_contain(node, text, folded, _active=None):
+    """Whether some whole reading of one part carries the
+    text inside it: the text stands inside one subpart, or it
+    spans subpart boundaries, one subpart ending with its
+    opening, middle subparts standing as its exact pieces,
+    and one subpart beginning with its closing. The walk
+    stands bounded as _seg_part_can_start states."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            text in reading
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_contain(parts[0], text, folded, _active)
+        for part in parts:
+            if _seg_part_can_contain(part, text, folded, _active):
+                return True
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, pos = stack.pop()
+            if pos == len(text):
+                return True
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                indices = [mask] if mask < len(parts) else []
+            for index in indices:
+                part = parts[index]
+                new_mask = (
+                    mask | (1 << index) if unordered else index + 1)
+                if pos == 0:
+                    if _seg_part_can_end(part, text, folded, _active):
+                        return True
+                    for stop in range(1, len(text)):
+                        if _seg_part_can_end(
+                                part, text[:stop], folded, _active):
+                            state = (new_mask, stop)
+                            if state not in seen:
+                                seen.add(state)
+                                stack.append(state)
+                    if not unordered:
+                        state = (new_mask, 0)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                else:
+                    if _seg_part_can_start(
+                            part, text[pos:], folded, _active):
+                        return True
+                    for stop in range(pos + 1, len(text) + 1):
+                        if _seg_part_can_equal(
+                                part, text[pos:stop], folded, _active):
+                            if stop == len(text):
+                                return True
+                            state = (new_mask, stop)
+                            if state not in seen:
+                                seen.add(state)
+                                stack.append(state)
+                    if _seg_part_can_equal(part, "", folded, _active):
+                        state = (new_mask, pos)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_parts_carry_edge(parts, options, pattern, folded):
+    """Whether a barred part stands tiled over the direct
+    parts of one unordered container where one part
+    contributes only its edge: a part whose whole reading
+    carries the pattern inside it, or a first part whose
+    whole reading ends with the opening of the pattern,
+    middle parts standing as exact pieces of it through
+    their stated options, and a last part whose whole
+    reading begins with its closing. The edge forms stand
+    judged through the part predicates above, so a composite
+    part past the candidate caps contributes its edge as
+    settlement S-4 governs, in plain and folded spaces alike."""
+    if not any(
+            isinstance(part, (dict, list, tuple, set, frozenset))
+            for part in parts):
+        return False
+    for part in parts:
+        if not isinstance(part, (dict, list, tuple, set, frozenset)):
+            continue
+        try:
+            if _seg_part_can_contain(part, pattern, folded):
+                return True
+        except RecursionError:
+            continue
+    count = len(parts)
+    for first in range(count):
+        for cut in range(1, len(pattern)):
+            try:
+                if not _seg_part_can_end(
+                        parts[first], pattern[:cut], folded):
+                    continue
+            except RecursionError:
+                continue
+            failed = set()
+            stack = [(1 << first, cut)]
+            while stack:
+                mask, pos = stack.pop()
+                if pos >= len(pattern):
+                    return True
+                if (mask, pos) in failed:
+                    continue
+                for index in range(count):
+                    if (mask >> index) & 1:
+                        continue
+                    try:
+                        if _seg_part_can_start(
+                                parts[index], pattern[pos:], folded):
+                            return True
+                    except RecursionError:
+                        pass
+                    for option in options[index]:
+                        if option and pattern.startswith(option, pos):
+                            if pos + len(option) >= len(pattern):
+                                return True
+                            stack.append(
+                                (mask | (1 << index),
+                                 pos + len(option)))
+                failed.add((mask, pos))
+    return False
 
 def _seg_plain_options(parts, _universe=None, _prefixes=None):
     """The plain readings of the direct parts of one unordered
@@ -806,6 +1152,9 @@ def _seg_unordered_barred(key):
         for pattern in tuple(_BARRED_KEY_PARTS):
             if _seg_tiles_carrying(plain, pattern) is not None:
                 return True
+        for pattern in tuple(_BARRED_KEY_PARTS):
+            if _seg_parts_carry_edge(parts, plain, pattern, False):
+                return True
         folded_universe = _seg_universe(
             _BARRED_EXACT_FOLDED, _BARRED_PARTS_FOLDED)
         folded = _seg_folded_options(
@@ -815,6 +1164,9 @@ def _seg_unordered_barred(key):
                 return True
         for pattern in tuple(_BARRED_PARTS_FOLDED):
             if _seg_tiles_carrying(folded, pattern) is not None:
+                return True
+        for pattern in tuple(_BARRED_PARTS_FOLDED):
+            if _seg_parts_carry_edge(parts, folded, pattern, True):
                 return True
     return False
 
@@ -1176,8 +1528,11 @@ def _guarded_copy(value, _memo=None):
     through their base iteration readings, built as plain containers
     of their kind, so no copy protocol a part supplies is ever
     invoked and a part supplying a lying deepcopy protocol cannot
-    materialise as another value inside the copy. A part in no
-    container form stands copied as itself. One memo stands shared
+    materialise as another value inside the copy. The buffer
+    forms stand carried as stored: a bytearray as a fresh
+    bytearray and a memoryview as a memoryview over fresh bytes.
+    A part in no container form and no buffer form stands copied
+    as itself. One memo stands shared
     across the values of one act where the act hands one in, so a
     part shared between those values stands as one copy."""
     if _memo is None:
@@ -1225,7 +1580,54 @@ def _guarded_copy(value, _memo=None):
         for item in set.__iter__(value):
             copied.add(_guarded_copy(item, _memo))
         return copied
+    if isinstance(value, bytearray):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = bytearray(bytes(value))
+        _memo[id(value)] = copied
+        return copied
+    if isinstance(value, memoryview):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = memoryview(bytes(value))
+        _memo[id(value)] = copied
+        return copied
     return value
+
+
+def _base_get(record, key, default=None):
+    """Read one field of a handed record through the base dict
+    get, never through a get reading the record itself
+    supplies, so a record stands judged and built from the
+    contents it stores. A value in no record form stores
+    nothing under any key and reads as the default."""
+    if isinstance(record, dict):
+        return dict.get(record, key, default)
+    return default
+
+
+def _record_sequence(records):
+    """The records a handed record set stores, read through
+    the base iteration of its form where it stands in a
+    container form, never through a truth or iteration
+    reading the set itself supplies, so stored records stand
+    counted and read whole."""
+    if records is None:
+        return []
+    if isinstance(records, (list, tuple, set, frozenset)):
+        return list(_base_iter(records))
+    return list(records)
+
+
+def _stored_rows(value):
+    """The parameter rows a record stores, as a new outer list
+    holding the stored rows, read through the base iteration
+    of the rows value where it stands in a sequence form."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(_base_iter(value))
+    return list(value)
 
 
 def make_archetype_record(archetype_id=None, behaviour=None,
@@ -1262,8 +1664,17 @@ def archetype_catalogue(records=None):
     typed catalogue.
     """
     entries = {}
-    for record in records or ():
-        identifier = record.get("archetype_id")
+    if records is not None and isinstance(records, (str, bytes)):
+        raise ValueError(
+            "catalogue rejected: the record set stands in no record "
+            "list form, a record set stands as records, and no "
+            "catalogue stands delivered")
+    for record in _record_sequence(records):
+        if not isinstance(record, dict):
+            raise ValueError(
+                "catalogue rejected: an archetype record stands in "
+                "no record form: " + repr(record))
+        identifier = _base_get(record, "archetype_id")
         if identifier is None:
             raise ValueError(
                 "catalogue rejected: an archetype record carries no "
@@ -1274,9 +1685,14 @@ def archetype_catalogue(records=None):
                 "catalogue rejected: a duplicate archetype identifier "
                 "stands in the record set: " + str(identifier)
             )
+        rows = _guarded_copy(
+            _base_get(record, "parameter_rows") or ())
+        if not isinstance(rows, list):
+            rows = list(rows)
         entries[identifier] = {
-            "generator_signature": record.get("generator_signature"),
-            "parameter_rows": list(record.get("parameter_rows") or ()),
+            "generator_signature": _base_get(
+                record, "generator_signature"),
+            "parameter_rows": rows,
         }
     return {
         "standing": CATALOGUE_STANDING,
@@ -1382,8 +1798,8 @@ def _guard_farm_size(farm_size, form):
 
 def _records_by_id(archetype_records):
     by_id = {}
-    for record in archetype_records or ():
-        by_id[record.get("archetype_id")] = record
+    for record in _record_sequence(archetype_records):
+        by_id[_base_get(record, "archetype_id")] = record
     return by_id
 
 
@@ -1401,62 +1817,83 @@ def build_cast(point, archetype_records, stream_state=None,
     broken by agent identifier.
     """
     if not strategy_class or not isinstance(strategy_class, str):
-        raise ValueError("the strategy class for a run is fixed in "
-                         "advance and must be stated before the run")
+        raise NamedGeneratorFailure(
+            "cast rejected: the strategy class for a run is fixed "
+            "in advance and must be stated before the run: the "
+            "strategy class stands absent or empty")
     if not isinstance(point, dict):
-        raise ValueError("the point for a cast is not a record")
-    population = point.get("population_size", point.get("population"))
-    mix = point.get("archetype_mix") or {}
+        raise NamedGeneratorFailure(
+            "cast rejected: the point for a cast is not a record: "
+            + repr(point))
+    population = _base_get(
+        point, "population_size", _base_get(point, "population"))
+    mix_value = _base_get(point, "archetype_mix")
+    if mix_value is not None and not isinstance(mix_value, dict):
+        raise NamedGeneratorFailure(
+            "cast rejected: the archetype mix stands in no record "
+            "form: " + repr(mix_value))
+    mix_items = (
+        list(dict.items(mix_value)) if isinstance(mix_value, dict)
+        else [])
     if population is None:
-        raise ValueError("the point states no population")
+        raise NamedGeneratorFailure(
+            "cast rejected: the point states no population")
     if isinstance(population, bool) or not isinstance(
             population, int) or population < 0:
         raise NamedGeneratorFailure(
             "cast rejected: the population the point states is not "
             "a non negative whole count: " + repr(population))
-    for mix_identifier, mix_count in mix.items():
+    for mix_identifier, mix_count in mix_items:
         if isinstance(mix_count, bool) or not isinstance(
                 mix_count, int) or mix_count < 0:
             raise NamedGeneratorFailure(
                 "cast rejected: the mix count for "
                 + str(mix_identifier) + " is not a non negative "
                 "whole count: " + repr(mix_count))
-    if sum(mix.values()) != population:
-        raise ValueError("archetype mix counts do not sum to the "
-                         "population the point names")
+    if sum(count for _identifier, count in mix_items) != population:
+        raise NamedGeneratorFailure(
+            "cast rejected: archetype mix counts sum to "
+            + str(sum(
+                count for _identifier, count in mix_items))
+            + ", not to the population "
+            "the point names: " + str(population))
     by_id = _records_by_id(archetype_records)
-    for identifier in mix:
+    for identifier, _count in mix_items:
         if identifier not in by_id:
-            raise ValueError("archetype in the mix stands outside "
-                             "the records supplied: " + str(identifier))
+            raise NamedGeneratorFailure(
+                "cast rejected: archetype in the mix stands outside "
+                "the records supplied: " + str(identifier))
     agent_ids = ["agent-%04d" % index for index in range(population)]
     order = list(agent_ids)
     cast_values = _stream_values(stream_state, "cast")
     if cast_values:
         if len(cast_values) != population:
-            raise ValueError("cast stream values do not cover the "
-                             "population")
+            raise NamedGeneratorFailure(
+                "cast rejected: cast stream values cover "
+                + str(len(cast_values)) + " agents, not the "
+                "population: " + str(population))
         order = [agent for _value, agent in sorted(
             zip(cast_values, agent_ids),
             key=lambda pair: (pair[0], pair[1]))]
     assignment = []
-    for identifier, count in mix.items():
+    for identifier, count in mix_items:
         assignment.extend([identifier] * count)
-    farm_size = _guard_farm_size(point.get("farm_size"), "cast rejected")
+    farm_size = _guard_farm_size(
+        _base_get(point, "farm_size"), "cast rejected")
     farm_members = []
     agents = []
     farm_of = {}
     for agent_id, archetype_id in zip(order, assignment):
         record = by_id[archetype_id]
         farm_id = None
-        if record.get("farm_member") and farm_size:
+        if _base_get(record, "farm_member") and farm_size:
             farm_members.append(agent_id)
             farm_id = "farm-%d" % ((len(farm_members) - 1) // farm_size)
         farm_of[agent_id] = farm_id
         agents.append({
             "agent_id": agent_id,
             "archetype_id": archetype_id,
-            "ground_truth": record.get("ground_truth_label"),
+            "ground_truth": _base_get(record, "ground_truth_label"),
             "farm_id": farm_id,
         })
     agents.sort(key=lambda agent: agent["agent_id"])
@@ -1473,7 +1910,7 @@ def build_cast(point, archetype_records, stream_state=None,
     edges = []
     edge_source = initial_edges
     if edge_source is None:
-        edge_source = point.get("initial_edges")
+        edge_source = _base_get(point, "initial_edges")
     for edge in edge_source or ():
         if isinstance(edge, dict):
             edges.append({
@@ -1505,10 +1942,11 @@ def build_cast(point, archetype_records, stream_state=None,
             internal_counts[first] += 1
     cast_record = {
         "delivery_point": "before day one",
-        "point_id": point.get("point_id", point.get("point_identifier")),
+        "point_id": _base_get(
+            point, "point_id", _base_get(point, "point_identifier")),
         "strategy_class": strategy_class,
         "population": population,
-        "archetype_counts": dict(mix),
+        "archetype_counts": dict(mix_items),
         "cast": agents,
         "farms": farms,
         "initial_graph": {"edges": edges},
@@ -1517,7 +1955,7 @@ def build_cast(point, archetype_records, stream_state=None,
             "behaviour through the behaviour streams only"),
     }
     if not farm_size and any(
-            by_id[agent["archetype_id"]].get("farm_member")
+            _base_get(by_id[agent["archetype_id"]], "farm_member")
             for agent in agents):
         cast_record["farm_construction"] = (
             "not built: no farm size stands stated in the point, "
@@ -1613,7 +2051,16 @@ def _member_order_key(name):
         return (0, key, "")
     if isinstance(key, bytes) or isinstance(
             name, (bytearray, memoryview)):
-        return (1, _stored_text(name), type(name).__name__)
+        # The decoded text alone does not order this group:
+        # distinct stored bytes that decode, with undecodable
+        # bytes dropped, to the same text would tie on it and
+        # fall back to the iteration order of the handed set,
+        # which the hash seed governs. The raw stored bytes
+        # stand as the tie break after the decoded text, so
+        # two members of this group tie only where their
+        # stored bytes stand identical as well.
+        return (1, _stored_text(name), type(name).__name__,
+                bytes(name))
     if type(key) in (bool, int, float, complex):
         return (2, type(name).__name__, repr(key))
     return (3, type(name).__name__, str(key[1]))
@@ -1760,9 +2207,11 @@ def archetype_behaviour(archetype_record, stream_state=None,
     proposals on every call. Proposals carry no rule state: no
     reputation, stake, band, or contract effect stands in a proposal.
     """
-    record = archetype_record or {}
-    behaviour = record.get("behaviour") or {}
-    action = behaviour.get("action", "propose")
+    record = archetype_record if archetype_record is not None else {}
+    behaviour_value = _base_get(record, "behaviour")
+    behaviour = (
+        behaviour_value if isinstance(behaviour_value, dict) else {})
+    action = _base_get(behaviour, "action", "propose")
     if isinstance(stream_state, (int, float)):
         values = [stream_state]
     else:
@@ -1771,10 +2220,12 @@ def archetype_behaviour(archetype_record, stream_state=None,
     for value in values:
         proposals.append({
             "agent_id": agent_id,
-            "archetype_id": record.get("archetype_id"),
+            "archetype_id": _base_get(record, "archetype_id"),
             "action": action,
             "draw": value,
-            "assumptions": _guarded_copy(assumption_values or {}),
+            "assumptions": _guarded_copy(
+                assumption_values if assumption_values is not None
+                else {}),
         })
     return proposals
 
@@ -2195,7 +2646,13 @@ def cold_society_degree(day, envelope=None, gate_passing_share=None):
         raise NamedGeneratorFailure(
             "cold society degree rejected: the stated day is not "
             "a whole count day in its stated form: " + repr(day))
-    if int.__le__(int.__new__(int, day), COLD_SOCIETY_FIRST_DAYS):
+    # The day and the operands stand read by the numbers they
+    # store, through the base class conversion of their kind,
+    # never through a reconstruction by the type constructor,
+    # which dispatches to a conversion reading a subclass
+    # instance supplies, in the cured form of row R11-066 at
+    # MOD-02 for plain conversion readings.
+    if int.__le__(int.__int__(day), COLD_SOCIETY_FIRST_DAYS):
         return 0
     for operand, naming in ((envelope, "envelope"),
                             (gate_passing_share, "gate passing share")):
@@ -2213,14 +2670,18 @@ def cold_society_degree(day, envelope=None, gate_passing_share=None):
             "provenance_label": COLD_SOCIETY_PROVENANCE,
         }
     plain_envelope = (
-        float.__new__(float, envelope) if isinstance(envelope, float)
-        else int.__new__(int, envelope))
+        float.__float__(envelope) if isinstance(envelope, float)
+        else int.__int__(envelope))
     plain_share = (
-        float.__new__(float, gate_passing_share)
+        float.__float__(gate_passing_share)
         if isinstance(gate_passing_share, float)
-        else int.__new__(int, gate_passing_share))
+        else int.__int__(gate_passing_share))
     if isinstance(plain_envelope, float) or isinstance(
             plain_share, float):
+        # Both operands stand plain here, exact int or exact
+        # float as the conversions above return them, so the
+        # constructor form on them dispatches to no reading a
+        # handed value supplied.
         return float.__mul__(
             plain_envelope if isinstance(plain_envelope, float)
             else float.__new__(float, plain_envelope),
@@ -2241,12 +2702,22 @@ def extend_catalogue(records, new_record, strategy_class=None):
     for a run. The record carries the family labelling from before
     and after the addition, as entry counts over the entries.
     """
-    if not strategy_class:
-        raise ValueError("a new archetype enters only under the "
-                         "fixed strategy class for a run")
+    if strategy_class is None or (
+            isinstance(strategy_class, str)
+            and str.__len__(str.__str__(strategy_class)) == 0) or (
+            not isinstance(strategy_class, str)
+            and not strategy_class):
+        raise ValueError(
+            "catalogue rejected: a new archetype enters only under "
+            "the fixed strategy class for a run: the strategy class "
+            "stands absent or empty")
     before = archetype_catalogue(records)
-    after = archetype_catalogue(list(records or ()) + [new_record])
-    added = new_record.get("archetype_id")
+    after = archetype_catalogue(_record_sequence(records) + [new_record])
+    added = _base_get(new_record, "archetype_id")
+    generated_rows = _guarded_copy(
+        _base_get(new_record, "parameter_rows") or ())
+    if not isinstance(generated_rows, list):
+        generated_rows = list(generated_rows)
     return {
         "catalogue": after,
         "entries_before": len(before["entries"]),
@@ -2263,9 +2734,9 @@ def extend_catalogue(records, new_record, strategy_class=None):
         "family_labelling_after": list(after["entries"].keys()),
         "generator_code_entry": {
             "archetype_id": added,
-            "generator_signature": new_record.get("generator_signature"),
-            "parameter_rows": list(
-                new_record.get("parameter_rows") or ()),
+            "generator_signature": _base_get(
+                new_record, "generator_signature"),
+            "parameter_rows": generated_rows,
             "entry_form": "data and generator code at the edge",
         },
         "pricing_record": {

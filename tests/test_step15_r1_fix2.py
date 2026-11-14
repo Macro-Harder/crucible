@@ -372,7 +372,7 @@ class TestControllerValidators(unittest.TestCase):
             status = mod12.readout_status(broken)
             self.assertNotEqual(status["form"], "established", key)
             self.assertEqual(status["named_condition"], condition, key)
-        legacy = {"search_complete": False, "material_failure_found": True,
+        legacy = {"claim_in_bounding_form": True, "search_complete": False, "material_failure_found": True,
                   "bound_fixed_in_advance": True}
         status = mod12.readout_status(legacy)
         self.assertEqual(status["form"], "lower_bound")

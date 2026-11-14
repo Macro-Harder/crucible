@@ -98,17 +98,19 @@ def validate_publication_record(record):
     checks, and every failure that run recorded."""
     if not isinstance(record, dict):
         return False
-    if not record.get("test_run") or not record.get("version"):
+    if not dict.get(record, "test_run") \
+            or not dict.get(record, "version"):
         return False
-    verdicts = record.get("verdicts")
+    verdicts = dict.get(record, "verdicts")
     if not isinstance(verdicts, dict):
         return False
     if tuple(sorted(verdicts)) != tuple(sorted(RETIREMENT_CHECKS)):
         return False
-    recorded_failures = list(record.get("failures_recorded") or [])
+    recorded_failures = list(
+        dict.get(record, "failures_recorded") or [])
     expected = [
         check for check in RETIREMENT_CHECKS
-        if verdicts.get(check) == "failed"
+        if dict.get(verdicts, check) == "failed"
     ]
     return recorded_failures == expected
 
@@ -119,7 +121,8 @@ def unit_is_publishable(unit):
     with an unrecorded failure, is not published."""
     if not isinstance(unit, dict):
         return False
-    return validate_publication_record(unit.get("publication_record"))
+    return validate_publication_record(
+        dict.get(unit, "publication_record"))
 
 
 _AMENDED_REGISTRY_FIELDS = ("confirmation_outcome", "gate_failure")
@@ -854,7 +857,15 @@ def _readable_stem(word):
     er limbs carry the same doubled consonant undoing as the
     ing, ed, and est limbs. The er, est, ly, and ed limbs each
     carry the y to i stem change the ies limb carries, so a form
-    built on a y final base counts with that base."""
+    built on a y final base counts with that base. The dom and
+    hood limbs, the tion and sion limbs, the ance and ence
+    limbs, the ity limb, the ize and ify limbs, and the ist
+    and ism limbs stand as derivation limbs beside those, each
+    yielding the base the derivation stands on, with the ation
+    limb yielding its ate base and the ibility limb yielding
+    its ible base. The s limb refuses the bases whose plural
+    stands in no s form, and the ed limb refuses the bases
+    whose past form stands in no ed form."""
     stems = []
 
     def undoubled(stem):
@@ -887,7 +898,13 @@ def _readable_stem(word):
         ("book", "chair", "house", "window"))
     # Bases whose plural stands in no s form at all.
     no_s_plural = frozenset(
-        ("child", "man", "woman", "sheep", "tooth"))
+        ("child", "man", "woman", "sheep", "tooth", "wife",
+         "mouse", "foot"))
+    # Bases whose past form stands in no ed form at all, and
+    # the past form went, which stands in the lexicon as a
+    # form of go and so yields itself as an ed stem.
+    no_ed_past = frozenset(
+        ("went", "teach", "bring", "run", "swim"))
 
     if word.startswith("un") and len(word) > 4:
         stems.append(word[2:])
@@ -929,14 +946,55 @@ def _readable_stem(word):
         stems.append(word[:-3] + "e")
         if word[:-3].endswith("i"):
             stems.append(word[:-4] + "y")
+    if word.endswith("dom") and len(word) > 6:
+        stems.append(word[:-3])
+    if word.endswith("hood") and len(word) > 6:
+        stems.append(word[:-4])
+    if word.endswith("ation") and len(word) > 6:
+        stems.append(word[:-5])
+        stems.append(word[:-5] + "ate")
+        stems.append(word[:-4])
+        stems.append(word[:-4] + "e")
+    elif word.endswith("tion") and len(word) > 6:
+        stems.append(word[:-4])
+        stems.append(word[:-4] + "e")
+        stems.append(word[:-3])
+    if word.endswith("sion") and len(word) > 6:
+        stems.append(word[:-4])
+        stems.append(word[:-4] + "e")
+    if word.endswith("ance") and len(word) > 6:
+        stems.append(word[:-4])
+        stems.append(word[:-4] + "e")
+    if word.endswith("ence") and len(word) > 6:
+        stems.append(word[:-4])
+        stems.append(word[:-4] + "e")
+    if word.endswith("ibility") and len(word) > 8:
+        stems.append(word[:-7] + "ible")
+    if word.endswith("ity") and len(word) > 5:
+        stems.append(word[:-3])
+        stems.append(word[:-3] + "e")
+        if word[:-3].endswith("i"):
+            stems.append(word[:-4] + "y")
+    if word.endswith("ize") and len(word) > 5:
+        stems.append(word[:-3])
+        stems.append(word[:-3] + "e")
+    if word.endswith("ify") and len(word) > 5:
+        stems.append(word[:-3])
+        stems.append(word[:-3] + "e")
+    if word.endswith("ist") and len(word) > 5:
+        stems.append(word[:-3])
+    if word.endswith("ism") and len(word) > 5:
+        stems.append(word[:-3])
     if word.endswith("ed") and len(word) > 3:
-        stems.append(word[:-2])
-        stems.append(word[:-1])
+        ed_stems = [word[:-2], word[:-1]]
         plain = undoubled(word[:-2])
         if plain is not None:
-            stems.append(plain)
+            ed_stems.append(plain)
         if word[:-2].endswith("i"):
-            stems.append(word[:-3] + "y")
+            ed_stems.append(word[:-3] + "y")
+        for ed_stem in ed_stems:
+            if ed_stem not in no_ed_past:
+                stems.append(ed_stem)
     if word.endswith("ing") and len(word) > 4:
         stems.append(word[:-3])
         stems.append(word[:-3] + "e")
@@ -1029,9 +1087,29 @@ def _is_readable_word(word):
                         return part in _READABLE_LEXICON
                     return readable(part)
 
-                for split in range(2, len(candidate) - 1):
-                    if compound_part(candidate[:split]) \
-                            and compound_part(candidate[split:]):
+                # The split search runs as a segmentation over
+                # the candidate positions, each part standing at
+                # most forty letters, so a long token no split
+                # fits is answered from the positions table in
+                # time that grows with the token length and the
+                # part bound, and not by re-reading every split
+                # of every part. A part longer than the bound
+                # counts only where it itself segments into
+                # parts inside the bound, which the table states.
+                part_bound = 40
+                size = len(candidate)
+                can = [False] * (size + 1)
+                can[size] = True
+                for start in range(size - 2, -1, -1):
+                    for end in range(
+                            start + 2,
+                            min(size, start + part_bound) + 1):
+                        if can[end] and compound_part(
+                                candidate[start:end]):
+                            can[start] = True
+                            break
+                for end in range(2, size - 1):
+                    if can[end] and compound_part(candidate[:end]):
                         result = True
                         break
         memo[candidate] = result
@@ -1209,7 +1287,13 @@ def _parley_grounds_stated(other):
     read beside those forms. The Parley name the number
     before q limbs require stands counted where it stands
     inside a joined token of the statement, not only where
-    a standalone parley token stands among the tokens."""
+    a standalone parley token stands among the tokens. The
+    spaced q limb stands read beside a Parley name token
+    that is plural or larger, the joined suffixed ordinal
+    stands read after the q limb, the joined ordinal stands
+    read before the Parley name with the q limb after the
+    name, and the numbered wording stands read with no
+    question or q limb in the statement."""
     tokens = _ground_tokens(other)
     grounds = set()
     ordinal_numbers = {
@@ -1308,6 +1392,7 @@ def _parley_grounds_stated(other):
                 r"parley" + ordinal_word + r"q",
                 r"parleyq" + ordinal_word,
                 ordinal_word + r"qparley",
+                ordinal_word + r"parleyq",
                 r"q" + ordinal_word + r"parley"):
             ordinal_joined = re.fullmatch(ordinal_pattern, token)
             if ordinal_joined is not None:
@@ -1334,6 +1419,11 @@ def _parley_grounds_stated(other):
             if q_number_token is not None:
                 grounds.add(_PARLEY_GROUND_NUMBERS[
                     q_number_token.group(1)])
+            q_ordinal_token = re.fullmatch(
+                r"q(1st|2nd|5th)", token)
+            if q_ordinal_token is not None:
+                grounds.add(ordinal_numbers[
+                    q_ordinal_token.group(1)])
     if "parley" in tokens:
         for index, token in enumerate(tokens):
             if token in _PARLEY_GROUND_NUMBERS \
@@ -1430,11 +1520,31 @@ def _parley_grounds_stated(other):
             if widened_q_number is not None:
                 grounds.add(_PARLEY_GROUND_NUMBERS[
                     widened_q_number.group(1)])
+            widened_q_ordinal = re.fullmatch(
+                r"q(1st|2nd|5th)", token)
+            if widened_q_ordinal is not None:
+                grounds.add(ordinal_numbers[
+                    widened_q_ordinal.group(1)])
         for index, token in enumerate(tokens):
             if token in _PARLEY_GROUND_NUMBERS \
                     and index + 1 < len(tokens) \
                     and tokens[index + 1] == "q":
                 grounds.add(_PARLEY_GROUND_NUMBERS[token])
+        for index, token in enumerate(tokens):
+            if token == "q" and index + 1 < len(tokens):
+                following = tokens[index + 1]
+                if following in _PARLEY_GROUND_NUMBERS:
+                    grounds.add(
+                        _PARLEY_GROUND_NUMBERS[following])
+                if following in ordinal_numbers:
+                    grounds.add(ordinal_numbers[following])
+            if token == "numbered" and index + 1 < len(tokens):
+                following = tokens[index + 1]
+                if following in _PARLEY_GROUND_NUMBERS:
+                    grounds.add(
+                        _PARLEY_GROUND_NUMBERS[following])
+                if following in ordinal_numbers:
+                    grounds.add(ordinal_numbers[following])
     for index, token in enumerate(tokens):
         if token in _PARLEY_GROUND_NUMBERS \
                 and index + 1 < len(tokens) \
@@ -1657,6 +1767,33 @@ def _quoted_copy(value, _memo=None, _depth=0):
     return value
 
 
+def _headline_unit_refusal(unit):
+    if not isinstance(unit, dict):
+        return (
+            "quote_headline_unit stands refused: the headline unit stands "
+            "in no record form, a headline unit stands as a field mapping, "
+            "and no unit stands quoted")
+    keys = list(dict.keys(unit))
+    extra = [key for key in keys if key not in HEADLINE_UNIT_FIELDS]
+    if extra:
+        return (
+            "quote_headline_unit stands refused: fields beyond the closed "
+            "unit: " + ", ".join(str(key) for key in extra)
+            + ", and no unit stands quoted")
+    for field in HEADLINE_UNIT_FIELDS:
+        if field not in keys or dict.get(unit, field) is None:
+            return (
+                "quote_headline_unit stands refused: headline unit field "
+                "absent: " + field + ", and no unit stands quoted")
+    if tuple(keys) != HEADLINE_UNIT_FIELDS:
+        return (
+            "quote_headline_unit stands refused: the headline unit fields "
+            "stand out of the closed unit order, and no unit stands quoted")
+    return (
+        "quote_headline_unit stands refused: the headline unit does not "
+        "validate as a quotable unit whole, and no unit stands quoted")
+
+
 def quote_headline_unit(unit):
     """Quote a headline unit whole. A unit that does not validate
     is not quoted at all. The quotation copies the validated unit
@@ -1666,7 +1803,7 @@ def quote_headline_unit(unit):
     quotation of a standing unit never fails in the copy act
     itself."""
     if not validate_headline_unit(unit):
-        raise ValueError("a headline unit is quotable whole or not at all")
+        raise ValueError(_headline_unit_refusal(unit))
     return _quoted_copy(unit)
 
 
@@ -1883,12 +2020,28 @@ def validate_observation_time(record):
     return isinstance(interval, (list, tuple)) and len(interval) == 2
 
 
+def _grid_pair(location, act):
+    try:
+        if isinstance(location, (str, bytes, dict)):
+            raise TypeError("a location stands in no pair form")
+        first = location[0]
+        second = location[1]
+        return (int(str(first)), int(str(second)))
+    except Exception:
+        raise ValueError(
+            act + " stands refused: a location must stand as a pair of "
+            "grid numbers, and the handed location "
+            + repr(location) + " stands in no such form") from None
+
+
 def region_shift_steps(location_a, location_b):
     """Return the shift of a region location between two points,
     in grid steps on each axis."""
+    pair_a = _grid_pair(location_a, "region_shift_steps")
+    pair_b = _grid_pair(location_b, "region_shift_steps")
     return (
-        abs(int(location_a[0]) - int(location_b[0])),
-        abs(int(location_a[1]) - int(location_b[1])),
+        abs(pair_a[0] - pair_b[0]),
+        abs(pair_a[1] - pair_b[1]),
     )
 
 
@@ -1907,7 +2060,12 @@ def transition_wording(location_a, location_b, location_reported=None):
             "wording": "censored form",
             "holding_statement": False,
         }
-    shift = region_shift_steps(location_a, location_b)
+    try:
+        shift = region_shift_steps(location_a, location_b)
+    except ValueError:
+        pair_a = _grid_pair(location_a, "transition_wording")
+        pair_b = _grid_pair(location_b, "transition_wording")
+        shift = (abs(pair_a[0] - pair_b[0]), abs(pair_a[1] - pair_b[1]))
     if shift[0] <= 1 and shift[1] <= 1:
         return {"wording": "holding", "holding_statement": True}
     return {
@@ -1925,21 +2083,26 @@ def validate_transition_report(report):
     where a screening point lands within the closed bounds."""
     if not isinstance(report, dict):
         return False
-    if not report.get("distribution_near_threshold"):
-        return False
-    counts = report.get("regime_class_counts") or {}
-    if len(counts) != 3:
-        return False
-    rate = report.get("honest_loss_rate") or {}
-    if rate.get("form") != "H1":
-        return False
-    for point in report.get("points") or []:
-        if point.get("near_threshold") and int(point.get("replicates", 0)) < 30:
+    try:
+        if not report.get("distribution_near_threshold"):
             return False
-        probability = point.get("winning_probability")
-        if probability is not None and top_up_applies(probability):
-            if not point.get("top_up_recorded"):
+        counts = report.get("regime_class_counts") or {}
+        if len(counts) != 3:
+            return False
+        rate = report.get("honest_loss_rate") or {}
+        if rate.get("form") != "H1":
+            return False
+        for point in report.get("points") or []:
+            if not isinstance(point, dict):
                 return False
+            if point.get("near_threshold") and int(point.get("replicates", 0)) < 30:
+                return False
+            probability = point.get("winning_probability")
+            if probability is not None and top_up_applies(probability):
+                if not point.get("top_up_recorded"):
+                    return False
+    except (ValueError, TypeError, AttributeError, KeyError):
+        return False
     return True
 
 

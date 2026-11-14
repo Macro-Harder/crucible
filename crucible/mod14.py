@@ -33,7 +33,6 @@ class NamedShellFailure(Exception):
         self.failure = {
             "name": type(self).__name__,
             "message": str(message),
-            "failure": str(message),
         }
 
 
@@ -279,7 +278,18 @@ def error_carriage(failure, run_id=None, stage=None):
     its stage. No failure is swallowed and none is converted into
     an empty result, and no command exits cleanly over a failed
     run."""
-    name = failure if isinstance(failure, str) else type(failure).__name__ + ": " + str(failure)
+    if isinstance(failure, str):
+        raw_message = failure
+        class_name = None
+    else:
+        raw_message = str(failure)
+        class_name = type(failure).__name__
+    if (
+            len(raw_message) >= 2 and raw_message.startswith("'")
+            and raw_message.endswith("'")):
+        raw_message = raw_message[1:-1]
+    name = raw_message if class_name is None else (
+        class_name + ": " + raw_message)
     fields = {}
     if not isinstance(failure, str):
         carried = getattr(failure, "failure", None)
@@ -293,12 +303,13 @@ def error_carriage(failure, run_id=None, stage=None):
         for key, value in vars(failure).items():
             if key not in fields and key != "failure":
                 fields[key] = _freeze(value)
-        class_name = type(failure).__name__
         if class_name in _NAMED_FAILURE_CLASS_NAMES or class_name.startswith("Named"):
             fields.setdefault("name", class_name)
-            fields.setdefault("message", str(failure))
+            fields.setdefault("message", raw_message)
             if not fields:
-                fields["failure"] = str(failure)
+                fields["failure"] = raw_message
+        elif isinstance(carried, dict) and "name" in fields:
+            fields.setdefault("message", raw_message)
     carriage = {
         "failure": name,
         "failure_value": fields,
@@ -309,7 +320,7 @@ def error_carriage(failure, run_id=None, stage=None):
         "operator_sees_failure": True,
     }
     for key, value in fields.items():
-        if key not in carriage:
+        if key not in carriage and key != "message":
             carriage[key] = value
     return carriage
 
@@ -404,6 +415,33 @@ def _stored_text(value):
     if isinstance(value, (bytes, bytearray, memoryview)):
         return bytes.decode(bytes(value), "utf-8", "ignore")
     return ""
+
+
+def _base_get(record, key):
+    """Read one field through the base dict get, never through
+    a get reading the record itself supplies. A handed value in
+    no mapping form stores nothing under any key."""
+    if isinstance(record, dict):
+        return dict.get(record, key)
+    return None
+
+
+def _base_contains(record, key):
+    """Test one key through the base dict contains, never
+    through a contains reading the record itself supplies."""
+    return isinstance(record, dict) and dict.__contains__(
+        record, key)
+
+
+def _plain_stored_copy(record):
+    """A plain dict holding exactly the stored pairs of a handed
+    record, built through the base dict items reading, so an act
+    this act delegates to judges the stored contents and not a
+    reading the handed record supplies. A value in no mapping
+    form stands as itself."""
+    if isinstance(record, dict):
+        return {key: item for key, item in dict.items(record)}
+    return record
 
 
 def _container_parts(value):
@@ -864,15 +902,17 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
                 "flag promotion with no inputs supplied")
         fired = []
         if isinstance(inputs, dict):
-            fired = inputs.get("flag_conditions_fired") or []
+            fired = _base_get(inputs, "flag_conditions_fired") or []
         if not fired:
-            fired = summary_record.get("flag_conditions_fired") or []
+            fired = _base_get(
+                summary_record, "flag_conditions_fired") or []
         if not _has_stated_condition(fired):
             raise NamedShellFailure(
                 "flag promotion with no stated flag condition fired")
     return _mod10.apply_flag_evaluation(
-        summary_record, outcome=outcome, tier=tier,
-        actor=_normalise_actor(actor), inputs=inputs,
+        _plain_stored_copy(summary_record), outcome=outcome, tier=tier,
+        actor=_normalise_actor(actor),
+        inputs=_plain_stored_copy(inputs),
     )
 
 
@@ -890,17 +930,17 @@ def weekly_headline_count(summary_records, week):
     never as its characters."""
     seen = []
     for record in summary_records or ():
-        if not isinstance(record, dict) or "week" not in record:
+        if not isinstance(record, dict) or not _base_contains(record, "week"):
             raise NamedShellFailure(
                 "summary record carries no week field, so its weekly "
                 "headline count cannot stand read")
-        if record.get("week") != week:
+        if _base_get(record, "week") != week:
             continue
-        if "headline_unit_identifiers" not in record:
+        if not _base_contains(record, "headline_unit_identifiers"):
             raise NamedShellFailure(
                 "summary record for the week carries no "
                 "headline_unit_identifiers field")
-        identifiers = record.get("headline_unit_identifiers")
+        identifiers = _base_get(record, "headline_unit_identifiers")
         if identifiers is None:
             raise NamedShellFailure(
                 "summary record for the week carries a "
@@ -937,18 +977,22 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
         )
     calls = []
     if isinstance(call_log, dict):
-        calls = call_log.get("calls") or call_log.get("entries") or []
+        calls = _base_get(call_log, "calls") or _base_get(
+            call_log, "entries") or []
     outside = [
         call for call in calls
-        if isinstance(call, dict) and call.get("outside_call")
+        if isinstance(call, dict) and _base_get(call, "outside_call")
     ]
     outcome = "outside calls present" if outside else "no outside calls read"
+    manifest_entries = ()
+    if isinstance(dependency_manifest, dict):
+        manifest_entries = _base_get(dependency_manifest, "entries") or ()
     return {
         "field": "outside_call_check",
         "outcome": outcome,
         "sources": ["dependency manifest", "process and network call log"],
         "certifies": "only the absence the check reads",
-        "manifest_entries": len((dependency_manifest or {}).get("entries") or ()),
+        "manifest_entries": len(manifest_entries),
     }
 
 

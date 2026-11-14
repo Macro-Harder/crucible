@@ -192,15 +192,19 @@ def sweep_manifest(record):
     seal = dict.get(record, "seal")
     if not isinstance(seal, dict):
         seal = {}
+    sealed_hash = None
+    for candidate in (dict.get(record, "family_manifest_hash"),
+                      dict.get(record, "seal_hash"),
+                      dict.get(seal, "hash")):
+        if _stored_value_present(candidate):
+            sealed_hash = candidate
+            break
     return {
         "family_identifier": _freeze(dict.get(
             record, "family_identifier",
             dict.get(record, "family_id"))),
         "family_version": _freeze(dict.get(record, "family_version")),
-        "sealed_family_record_hash": _freeze(
-            dict.get(record, "family_manifest_hash")
-            or dict.get(record, "seal_hash")
-            or dict.get(seal, "hash")),
+        "sealed_family_record_hash": _freeze(sealed_hash),
     }
 
 
@@ -210,6 +214,47 @@ def retained_run_record(run_id, store_kind="sweep"):
     A record that does not resolve stands raised as the MOD-10
     named lookup failure, and no record is fabricated here."""
     return _mod10.read_run_record(run_id, store_kind=store_kind)
+
+
+def _shape_cause(value):
+    stack = [(value, "root", 0, frozenset())]
+    while stack:
+        node, path, depth, seen = stack.pop()
+        if not isinstance(node, _CONTAINER_TYPES):
+            continue
+        if id(node) in seen:
+            return ("cycle", path)
+        if depth > _MAX_BARRED_READ_DEPTH:
+            return ("depth", path)
+        seen = seen | {id(node)}
+        if isinstance(node, dict):
+            children = []
+            for key in dict.keys(node):
+                children.append((key, path + "/" + str(key)))
+                children.append((dict.get(node, key), path + "/" + str(key)))
+        else:
+            base_iter = (list.__iter__ if isinstance(node, list)
+                         else tuple.__iter__ if isinstance(node, tuple)
+                         else set.__iter__ if isinstance(node, set)
+                         else frozenset.__iter__)
+            children = [(item, path + "[" + str(index) + "]")
+                        for index, item in enumerate(base_iter(node))]
+        for child, child_path in children:
+            stack.append((child, child_path, depth + 1, seen))
+    return (None, "root")
+
+
+def _shape_refusal(subject, value, act_wording):
+    cause, path = _shape_cause(value)
+    if cause == "cycle":
+        return (
+            act_wording + ": the " + subject + " carries a cycle at "
+            + path + ", and no act stands performed on it")
+    return (
+        act_wording + ": the " + subject + " stands deeper than the "
+        "stated bound of " + str(_MAX_BARRED_READ_DEPTH)
+        + " (depth past the bound) at " + path
+        + ", and no act stands performed on it")
 
 
 def seal_family_record(record):
@@ -235,11 +280,8 @@ def seal_family_record(record):
     and copied under the guard before sealing, so nothing the
     handed record reports seals unguarded or by identity."""
     if _shape_exceeds_bounds(record):
-        raise NamedControllerFailure(
-            "family record cannot seal: the record stands "
-            "deeper than the stated bound of "
-            + str(_MAX_BARRED_READ_DEPTH)
-            + " or carries a cycle")
+        raise NamedControllerFailure(_shape_refusal(
+            "record", record, "family record cannot seal"))
     missing = [
         item for item in FAMILY_COMPLETENESS_ITEMS
         if not isinstance(record, dict)
@@ -251,13 +293,12 @@ def seal_family_record(record):
             + ", ".join(missing))
     version_value = dict.get(record, "family_version")
     hash_value = dict.get(record, "family_manifest_hash")
-    for seal_value in (version_value, hash_value):
+    for seal_name, seal_value in (
+            ("version", version_value), ("hash", hash_value)):
         if _shape_exceeds_bounds(seal_value):
-            raise NamedControllerFailure(
-                "family record cannot seal: the version or hash "
-                "value stands deeper than the stated bound of "
-                + str(_MAX_BARRED_READ_DEPTH)
-                + " or carries a cycle")
+            raise NamedControllerFailure(_shape_refusal(
+                seal_name + " value", seal_value,
+                "family record cannot seal"))
     sealed = _freeze(record)
     sealed["sealed"] = True
     sealed["seal"] = {
@@ -287,13 +328,12 @@ def apply_family_edit(record, change=None):
     is refused in the named form. A claims value that does not
     stand in list or tuple form is refused in the named form,
     never read character by character or part by part."""
-    if _shape_exceeds_bounds(record) or (
-            change is not None and _shape_exceeds_bounds(change)):
-        raise NamedControllerFailure(
-            "family edit refused: the record or the change stands "
-            "deeper than the stated bound of "
-            + str(_MAX_BARRED_READ_DEPTH)
-            + " or carries a cycle")
+    if _shape_exceeds_bounds(record):
+        raise NamedControllerFailure(_shape_refusal(
+            "record", record, "family edit refused"))
+    if change is not None and _shape_exceeds_bounds(change):
+        raise NamedControllerFailure(_shape_refusal(
+            "change", change, "family edit refused"))
     edited = _freeze(record)
     frozen_change = _freeze(change) if isinstance(change, dict) else None
     if frozen_change is not None:
@@ -463,11 +503,8 @@ def admit_claim(family, claim=None):
     copied whole, preserved in its cycle, or raised as a bare
     RecursionError."""
     if _shape_exceeds_bounds(claim):
-        raise NamedControllerFailure(
-            "claim cannot be admitted: the claim stands "
-            "deeper than the stated bound of "
-            + str(_MAX_BARRED_READ_DEPTH)
-            + " or carries a cycle")
+        raise NamedControllerFailure(_shape_refusal(
+            "claim", claim, "claim cannot be admitted"))
     if isinstance(family, dict) and _stored_value_present(
             dict.get(family, "results_seen")):
         raise NamedControllerFailure(
@@ -1174,6 +1211,141 @@ def _text_eq(value, stated):
     return result if result is not NotImplemented else False
 
 
+def _stored_eq(value, stated):
+    """Judge a handed value against a stated text by the text it
+    stores, in the stored text form of this module: a text value
+    by its stored characters, and a bytes, bytearray, or
+    memoryview value by its stored bytes decoded in that form,
+    never through an equality reading the value itself supplies.
+    A value storing no text stands apart from every stated text."""
+    text = _stored_text(value)
+    if text is None:
+        return False
+    result = str.__eq__(text, stated)
+    return result if result is not NotImplemented else False
+
+
+def _dress_text(value):
+    """The text a handed value stores under the container form as
+    well: a scalar value by its stored text, and a single or
+    multi part container by the stored text of its parts joined
+    in order, through the key stored text reading of this module,
+    so a value in bytes, buffer, or container dress stands judged
+    as the text it stores."""
+    return _key_stored_text(value)
+
+
+def _dress_eq(value, stated):
+    """Judge a handed value against a stated text by the text it
+    stores in scalar or container dress, through the base string
+    equality on that stored text."""
+    result = str.__eq__(_dress_text(value), stated)
+    return result if result is not NotImplemented else False
+
+
+def _stored_values_equal(first, second):
+    """Whether two handed values store the same value, judged on
+    their stored forms: text storing values by their stored text,
+    and every other value by its frozen stored copy, never
+    through an equality reading either value itself supplies."""
+    first_text = _stored_text(first)
+    second_text = _stored_text(second)
+    if first_text is not None or second_text is not None:
+        if first_text is None or second_text is None:
+            return False
+        result = str.__eq__(first_text, second_text)
+        return result if result is not NotImplemented else False
+    return _freeze(first) == _freeze(second)
+
+
+def _base_sequence(value):
+    """The stored parts of a handed sequence, read through the
+    base iteration of its form, as a list. A value in no sequence
+    form stands as no parts."""
+    if isinstance(value, list):
+        return list(list.__iter__(value))
+    if isinstance(value, tuple):
+        return list(tuple.__iter__(value))
+    if isinstance(value, frozenset):
+        return list(frozenset.__iter__(value))
+    if isinstance(value, set):
+        return list(set.__iter__(value))
+    return []
+
+
+def _run_field(run, name):
+    """The value a run record stores under a field name, found by
+    scanning its stored pairs and judging each stored key by its
+    stored text, so a key whose hash or equality reading names
+    another field still stands found under the name it stores,
+    in the stored pairs scan form of the sister modules. A field
+    the record does not store stands as None."""
+    for key, item in dict.items(run):
+        key_text = _stored_text(key)
+        if key_text is None:
+            key_text = _key_stored_text(key)
+        if key_text is not None and str.__eq__(key_text, name):
+            return item
+    return None
+
+
+def run_record_validation_failures(run):
+    if not isinstance(run, dict) or dict.__len__(run) == 0:
+        return [
+            "the run record stands empty or in no record form: "
+            "no run_class stands stated on an empty record"]
+    run_class = _run_field(run, "run_class")
+    seed_domain = _run_field(run, "seed_domain")
+    if not any(_dress_eq(run_class, stated) for stated in RUN_CLASSES):
+        return [
+            "run_class stands outside the stated run classes "
+            "(screening, confirmation, headline, validation): "
+            + repr(run_class)]
+    if not _stored_value_present(seed_domain):
+        return ["seed_domain stands missing on the run record"]
+    if _dress_eq(
+            _run_field(run, "relabelled_from"),
+            "screening") and (
+            not _dress_eq(run_class, "screening")):
+        return [
+            "the relabelling gate: a run relabelled from screening "
+            "into a non screening class stands refused "
+            "(relabelled_from screening)"]
+    if any(_dress_eq(run_class, stated)
+           for stated in ("confirmation", "headline")) \
+            and _dress_eq(seed_domain, "screening"):
+        return [
+            "the reporting on screening gate: a confirmation or "
+            "headline run on the screening seed_domain stands refused"]
+    if _shape_exceeds_bounds(run):
+        return [
+            "the depth and cycle gate: the record stands deeper "
+            "than the stated bound of "
+            + str(_MAX_BARRED_READ_DEPTH)
+            + " or carries a cycle (depth or cycle past the bound)"]
+    if _carries_barred_money_value(run):
+        return [
+            "a barred money pair stands in the record: an amount "
+            "and currency pair (barred money value)"]
+    for key, values in dict.items(run):
+        if _ANCHOR_VALUES_FIELD_FOLDED not in _folded_money_variants(key) \
+                and not _folded_name_matches(
+                    key, _ANCHOR_VALUES_FIELD_FOLDED):
+            continue
+        try:
+            count = _base_count(values)
+        except TypeError:
+            return [
+                "the anchor_scenario_values count stands in no "
+                "countable form, not the three stated values"]
+        if count != 3:
+            return [
+                "the anchor_scenario_values count stands at "
+                + str(count)
+                + ", not the three stated values (anchor count)"]
+    return []
+
+
 def validate_run_record(run):
     """Return True only where a run record stands in its class,
     with its class fields stated: an empty record fails, a record
@@ -1186,21 +1358,21 @@ def validate_run_record(run):
     than the three stated values fails."""
     if not isinstance(run, dict) or dict.__len__(run) == 0:
         return False
-    run_class = _freeze(dict.get(run, "run_class"))
-    seed_domain = _freeze(dict.get(run, "seed_domain"))
-    if not any(_text_eq(run_class, stated)
+    run_class = _run_field(run, "run_class")
+    seed_domain = _run_field(run, "seed_domain")
+    if not any(_dress_eq(run_class, stated)
                for stated in RUN_CLASSES):
         return False
-    if not _stored_value_present(dict.get(run, "seed_domain")):
+    if not _stored_value_present(seed_domain):
         return False
-    if _text_eq(
-            _freeze(dict.get(run, "relabelled_from")),
+    if _dress_eq(
+            _run_field(run, "relabelled_from"),
             "screening") and (
-            not _text_eq(run_class, "screening")):
+            not _dress_eq(run_class, "screening")):
         return False
-    if any(_text_eq(run_class, stated)
+    if any(_dress_eq(run_class, stated)
            for stated in ("confirmation", "headline")) \
-            and _text_eq(seed_domain, "screening"):
+            and _dress_eq(seed_domain, "screening"):
         return False
     if _shape_exceeds_bounds(run):
         return False
@@ -1223,7 +1395,8 @@ def validate_run_record(run):
 def claim_label(claim=None):
     """The label of one claim: a claim without a settings lineage
     is labelled a screening finding only."""
-    if not isinstance(claim, dict) or not claim.get("settings_lineage"):
+    if not isinstance(claim, dict) or not _stored_value_present(
+            dict.get(claim, "settings_lineage")):
         return "screening finding only"
     return "claim with settings lineage"
 
@@ -1241,40 +1414,73 @@ def readout_status(readout):
     Established stands only where all six hold. Every lower form
     names the first unmet condition, and names every unmet
     condition beside it."""
-    readout = readout or {}
-    battery = readout.get("check_artefact_battery")
+    if not isinstance(readout, dict):
+        readout = {}
+    battery = dict.get(readout, "check_artefact_battery")
     if isinstance(battery, dict):
-        passed = battery.get("passed") or ()
+        passed = _base_sequence(dict.get(battery, "passed"))
         battery_ok = all(
-            mark in passed
+            any(_stored_eq(part, mark) for part in passed)
             for mark in ("A-04", "A-05", "A-09", "A-10", "A-11")
         ) and len(passed) >= 11
     else:
         battery_ok = battery is True
+    rung = dict.get(readout, "search_completed_at_rung", 6)
+    rung_ok = isinstance(rung, int) \
+        and not isinstance(rung, bool) and int.__eq__(rung, 6)
     conditions = {
-        1: bool(readout.get("claim_in_bounding_form")),
+        1: _stored_value_present(
+            dict.get(readout, "claim_in_bounding_form")),
         2: bool(
-            readout.get("bound_fixed_in_advance")
-            and readout.get("search_complete")
-            and not readout.get("material_failure_found")
-            and readout.get("search_completed_at_rung", 6) == 6
+            _stored_value_present(
+                dict.get(readout, "bound_fixed_in_advance"))
+            and _stored_value_present(
+                dict.get(readout, "search_complete"))
+            and not _stored_value_present(
+                dict.get(readout, "material_failure_found"))
+            and rung_ok
         ),
-        3: bool(readout.get("tolerance_and_replication_rule")),
-        4: bool(readout.get("confirmation_under_family_discipline")),
+        3: _stored_value_present(
+            dict.get(readout, "tolerance_and_replication_rule")),
+        4: _stored_value_present(
+            dict.get(readout, "confirmation_under_family_discipline")),
         5: bool(battery_ok),
-        6: bool(readout.get("assumption_set_and_rows_inside_result")),
+        6: _stored_value_present(
+            dict.get(readout, "assumption_set_and_rows_inside_result")),
     }
     unmet = [number for number in sorted(conditions) if not conditions[number]]
+    condition_texts = {
+        1: "condition 1, the claim in bounding form",
+        2: ("condition 2, the search completed at rung 6 under a "
+            "materiality bound fixed in advance, with no material "
+            "failure found"),
+        3: "condition 3, the tolerance and replication rule stated",
+        4: "condition 4, confirmation under the family discipline",
+        5: ("condition 5, the eleven check artefact battery with "
+            "A-04, A-05, A-09, A-10, and A-11 passed"),
+        6: ("condition 6, the assumption set and row identifiers "
+            "inside the result"),
+    }
     if not unmet:
         return {
             "form": "established",
             "named_condition": None,
+            "named_condition_text": None,
+            "condition_texts": {
+                str(number): text
+                for number, text in condition_texts.items()},
             "unmet_conditions": [],
         }
     return {
         "form": "lower_bound",
-        "named_condition": 2 if 2 in unmet else unmet[0],
+        "named_condition": unmet[0],
+        "named_condition_text": condition_texts[unmet[0]],
+        "condition_texts": {
+            str(number): text
+            for number, text in condition_texts.items()},
         "unmet_conditions": unmet,
+        "unmet_condition_texts": [
+            condition_texts[number] for number in unmet],
     }
 
 
@@ -1306,9 +1512,10 @@ def validate_look_decision(decision):
     after the decision it would judge does not cure it."""
     if not isinstance(decision, dict):
         return False
-    if not decision.get("registered"):
+    if not _stored_value_present(dict.get(decision, "registered")):
         return False
-    if decision.get("entry_written_after_decision"):
+    if _stored_value_present(
+            dict.get(decision, "entry_written_after_decision")):
         return False
     return True
 
@@ -1347,7 +1554,9 @@ def validate_grid_claim(claim):
     affordable before the timing pilot lands."""
     if not isinstance(claim, dict):
         return False
-    if claim.get("claim") == "affordable" and not claim.get("pilot_landed"):
+    if _stored_eq(dict.get(claim, "claim"), "affordable") \
+            and not _stored_value_present(
+                dict.get(claim, "pilot_landed")):
         return False
     return True
 
@@ -1360,11 +1569,26 @@ def sample_statement(runs=None):
     words with no count invented."""
     counts = {run_class: 0 for run_class in RUN_CLASSES}
     named = []
-    for run in runs or ():
-        if isinstance(run, dict) and run.get("run_class") in counts:
-            counts[run["run_class"]] += 1
-            named.append(run.get("run_id") or run.get("run_identifier")
-                         or run["run_class"])
+    handed = _base_sequence(runs) if isinstance(
+        runs, (list, tuple, set, frozenset)) else runs
+    for run in handed or ():
+        if not isinstance(run, dict):
+            continue
+        class_text = _dress_text(dict.get(run, "run_class"))
+        matched = None
+        for stated in RUN_CLASSES:
+            if str.__eq__(class_text, stated):
+                matched = stated
+                break
+        if matched is None:
+            continue
+        counts[matched] += 1
+        name = dict.get(run, "run_id")
+        if not _stored_value_present(name):
+            name = dict.get(run, "run_identifier")
+        if not _stored_value_present(name):
+            name = matched
+        named.append(name)
     total = sum(counts.values())
     if not total:
         return {
@@ -1379,7 +1603,7 @@ def sample_statement(runs=None):
         "n": total,
         "runs_completed_by_class": counts,
         "sample": "the runs named in this statement: " + ", ".join(
-            str(name) for name in named),
+            _stored_id_text(name) for name in named),
         "bound": "counts taken from the runs this result rests on only",
     }
 
@@ -1407,12 +1631,23 @@ def winning_regime(daily_shares):
     simulated day; each entry is an attacker and honest pair. An
     entry that is not a pair of numbers fails in the named form,
     never as a bare unpacking or comparison error."""
-    shares = list(daily_shares or ())
+    if isinstance(daily_shares, (list, tuple, set, frozenset)):
+        shares = _base_sequence(daily_shares)
+    elif daily_shares is None:
+        shares = []
+    else:
+        shares = list(daily_shares)
     if len(shares) < 30:
         return False
     for entry in shares[-30:]:
         try:
-            attacker, honest = entry
+            if isinstance(entry, (list, tuple, set, frozenset)):
+                pair = _base_sequence(entry)
+                if len(pair) != 2:
+                    raise ValueError("entry is not a pair")
+                attacker, honest = pair
+            else:
+                attacker, honest = entry
         except (TypeError, ValueError):
             raise NamedControllerFailure(
                 "winning regime entry is not an attacker and honest pair: "
@@ -1434,7 +1669,9 @@ def validate_screening_claim(claim):
     scope."""
     if not isinstance(claim, dict):
         return False
-    if claim.get("fixture") == "F-17" and claim.get("standing") == "adopted scope":
+    if _stored_eq(dict.get(claim, "fixture"), "F-17") \
+            and _stored_eq(
+                dict.get(claim, "standing"), "adopted scope"):
         return False
     return True
 
@@ -1506,8 +1743,11 @@ def validate_decay_readout(readout):
     no companion table in the same readout."""
     if not isinstance(readout, dict):
         return False
-    for plane in readout.get("planes") or ():
-        if not plane.get("companion_table"):
+    planes = dict.get(readout, "planes")
+    for plane in _base_sequence(planes) if isinstance(
+            planes, (list, tuple, set, frozenset)) else (planes or ()):
+        if not isinstance(plane, dict) or not _stored_value_present(
+                dict.get(plane, "companion_table")):
             return False
     return True
 
@@ -1533,16 +1773,23 @@ def validate_sweep_programme(programme):
     a programme has not run as required."""
     if not isinstance(programme, dict):
         return False
-    for family in programme.get("families") or ():
-        if isinstance(family, dict) and family.get("name") == "hostile":
-            if family.get("standing") != "required":
+    families = dict.get(programme, "families")
+    if isinstance(families, (list, tuple, set, frozenset)):
+        families = _base_sequence(families)
+    for family in families or ():
+        if isinstance(family, dict) and _stored_eq(
+                dict.get(family, "name"), "hostile"):
+            if not _stored_eq(
+                    dict.get(family, "standing"), "required"):
                 return False
-            magnitudes = (
-                family.get("magnitudes")
-                or family.get("fixed_magnitudes")
-                or family.get("magnitude_fields")
-            )
-            return bool(magnitudes)
+            magnitudes = None
+            for field in ("magnitudes", "fixed_magnitudes",
+                          "magnitude_fields"):
+                candidate = dict.get(family, field)
+                if _stored_value_present(candidate):
+                    magnitudes = candidate
+                    break
+            return _stored_value_present(magnitudes)
     return False
 
 
@@ -1575,9 +1822,11 @@ def validate_cost_claim(claim):
     F-19 composite form worded as a measured cost."""
     if not isinstance(claim, dict):
         return False
-    if claim.get("basis_fixture") == "F-20":
+    if _stored_eq(dict.get(claim, "basis_fixture"), "F-20"):
         return False
-    if claim.get("basis_fixture") == "F-19" and claim.get("wording") == "measured cost":
+    if _stored_eq(dict.get(claim, "basis_fixture"), "F-19") \
+            and _stored_eq(
+                dict.get(claim, "wording"), "measured cost"):
         return False
     return True
 
@@ -1588,9 +1837,12 @@ def validate_seed_placement(placement):
     the screening family."""
     if not isinstance(placement, dict):
         return False
-    if placement.get("replicates_inside_base_design"):
+    if _stored_value_present(
+            dict.get(placement, "replicates_inside_base_design")):
         return False
-    return placement.get("confirmation_family") != placement.get("screening_family")
+    return not _stored_values_equal(
+        dict.get(placement, "confirmation_family"),
+        dict.get(placement, "screening_family"))
 
 
 # ---------------------------------------------------------------------------
@@ -1612,7 +1864,13 @@ def validate_record_version(record):
     version set it was not produced under."""
     if not isinstance(record, dict):
         return False
-    return record.get("produced_under") == record.get("presented_under")
+    if not _stored_value_present(dict.get(record, "produced_under")) \
+            or not _stored_value_present(
+                dict.get(record, "presented_under")):
+        return False
+    return _stored_values_equal(
+        dict.get(record, "produced_under"),
+        dict.get(record, "presented_under"))
 
 
 def family_version_parts(family_id="family-under-test"):
@@ -1631,13 +1889,24 @@ def validate_family_pooling(pooling):
     ground for pooling them, stands in the recorded form."""
     if not isinstance(pooling, dict):
         return False
-    pooled = pooling.get("pooled_version_sets") or ()
-    if len(pooled) <= 1:
+    pooled = dict.get(pooling, "pooled_version_sets")
+    if isinstance(pooled, (list, tuple, set, frozenset)):
+        pooled_count = len(_base_sequence(pooled))
+    elif pooled is None:
+        pooled_count = 0
+    else:
+        try:
+            pooled_count = _base_count(pooled)
+        except TypeError:
+            return False
+    if pooled_count <= 1:
         return True
-    bound = pooling.get("bound_recorded")
+    bound = dict.get(pooling, "bound_recorded")
     if not isinstance(bound, dict):
         return False
-    return bool(bound.get("version_sets") and bound.get("ground"))
+    return bool(
+        _stored_value_present(dict.get(bound, "version_sets"))
+        and _stored_value_present(dict.get(bound, "ground")))
 
 
 # ---------------------------------------------------------------------------
@@ -1681,11 +1950,14 @@ def start_run(run_class=None, family_id=None):
     across MOD-02 and MOD-04, with its ground and its next step
     stated in words beside its codes and its sample statement
     inside the result."""
-    if run_class not in RUN_CLASSES:
+    if not any(_text_eq(run_class, stated)
+               for stated in RUN_CLASSES):
+        stated_text = _stored_text(run_class)
         return _input_failure(
             "start run", "run class missing or outside the stated classes: "
-            + str(run_class))
-    if not family_id:
+            + (stated_text if stated_text is not None
+               else "not a text value"))
+    if not _stored_value_present(family_id):
         return _input_failure("start run", "family identifier missing")
     return _gated_start("start run", run_class=run_class, family_id=family_id)
 
@@ -1694,7 +1966,7 @@ def start_sweep(family_id=None):
     """Start one sweep. A missing family identifier returns a named
     input failure. Gated on DQ7-02 in the same form as a run
     start."""
-    if not family_id:
+    if not _stored_value_present(family_id):
         return _input_failure("start sweep", "family identifier missing")
     return _gated_start("start sweep", family_id=family_id)
 

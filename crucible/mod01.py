@@ -2259,9 +2259,22 @@ def _validate_record_inner(form_id, instance):
                 ("gate_failure", (
                     "procedure gate", "confirmation gate",
                     "both gates", "none"))):
-            _value = _registry_text(_field)
-            if _value is not None and _value not in _stated_set:
-                return False
+            _matches = [
+                item for key, item in stored_pairs
+                if _stored_key_text(key) is not None
+                and str.__eq__(_stored_key_text(key), _field)
+            ]
+            if _matches:
+                # A field standing present whose value yields
+                # no text dress, a dict dress or an integer
+                # form, carries a value in none of its stated
+                # set, so it fails here as it fails at the
+                # MOD-13 comparison and the MOD-11 gate, and
+                # not only a value whose text dress stands
+                # outside the set.
+                _value = _stored_text_dress(_matches[0])
+                if _value is None or _value not in _stated_set:
+                    return False
 
         if _registry_text("outcome") == "reported":
             if _registry_text("confirmation_outcome") in (

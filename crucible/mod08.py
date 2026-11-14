@@ -881,11 +881,19 @@ def _seg_formable(node, universe, prefixes, folded, _active=None):
         options.append(forms | ({""} if empty else set()))
         can_empty = can_empty and empty
     if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+        if any(not opts for opts in options):
+            return (set(), can_empty)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
         reached = {0: {""}}
         full = (1 << len(parts)) - 1
-        for mask in range(full + 1):
-            if mask not in reached:
-                continue
+        queue = [0]
+        cursor = 0
+        bounded = False
+        while cursor < len(queue):
+            mask = queue[cursor]
+            cursor += 1
             for index in range(len(parts)):
                 if (mask >> index) & 1:
                     continue
@@ -894,9 +902,28 @@ def _seg_formable(node, universe, prefixes, folded, _active=None):
                     for head in reached[mask]
                     for tail in options[index]
                     if head + tail == "" or head + tail in prefixes}
-                if joined:
-                    reached.setdefault(
-                        mask | (1 << index), set()).update(joined)
+                if not joined:
+                    continue
+                new_mask = mask | (1 << index)
+                if new_mask not in reached:
+                    if len(reached) >= bound:
+                        bounded = True
+                        break
+                    reached[new_mask] = set()
+                    queue.append(new_mask)
+                reached[new_mask].update(joined)
+            if bounded:
+                break
+        if bounded:
+            acc = {""}
+            for opts in options:
+                acc = {
+                    head + tail
+                    for head in acc for tail in opts
+                    if head + tail == "" or head + tail in prefixes}
+                if not acc:
+                    break
+            return (acc & universe, can_empty)
         return (reached.get(full, set()) & universe, can_empty)
     acc = {""}
     for opts in options:
@@ -907,6 +934,325 @@ def _seg_formable(node, universe, prefixes, folded, _active=None):
         if not acc:
             break
     return (acc & universe, can_empty)
+
+def _seg_part_readings(node, folded):
+    """The readings of one leaf part in one reading space: the
+    folded readings in folded space, the lowered stored text
+    in plain space."""
+    if folded:
+        return set(_folded_readings(node))
+    return {_stored_text(node).lower()}
+
+
+def _seg_part_can_equal(node, text, folded, _active=None):
+    """Whether some whole reading of one part stands exactly
+    as the text, judged through the formable computation, so
+    no joined candidate of the part stands listed."""
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return text in _seg_part_readings(node, folded)
+    if id(node) in _active:
+        return text == ""
+    universe = _seg_universe((text,), ()) if text else set()
+    try:
+        forms, can_empty = _seg_formable(
+            node, universe, _seg_prefixes(universe), folded)
+    except RecursionError:
+        return False
+    if not text:
+        return can_empty
+    return text in forms
+
+
+def _seg_part_can_start(node, text, folded, _active=None):
+    """Whether some whole reading of one part begins with the
+    text. The judgement walks the part structure: an ordered
+    part is consumed in its stored order and an unordered
+    part in any order of its subparts, each step either
+    placing one subpart as an exact piece of the text, letting
+    one subpart begin with the remainder, or passing a subpart
+    that can stand empty. The state count stands bounded by
+    the stated candidate cap of the reading space, in the
+    form settlement S-10 states, and a part past the bound
+    contributes no opening form through this act."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            reading.startswith(text)
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_start(parts[0], text, folded, _active)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0) if unordered else (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, pos = stack.pop()
+            if pos == len(text):
+                return True
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                indices = [mask] if mask < len(parts) else []
+            for index in indices:
+                part = parts[index]
+                if _seg_part_can_start(
+                        part, text[pos:], folded, _active):
+                    return True
+                new_mask = (
+                    mask | (1 << index) if unordered else index + 1)
+                for stop in range(pos + 1, len(text) + 1):
+                    if _seg_part_can_equal(
+                            part, text[pos:stop], folded, _active):
+                        state = (new_mask, stop)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                if _seg_part_can_equal(part, "", folded, _active):
+                    state = (new_mask, pos)
+                    if state not in seen:
+                        seen.add(state)
+                        stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_part_can_end(node, text, folded, _active=None):
+    """Whether some whole reading of one part ends with the
+    text, the mirror form of _seg_part_can_start, walked from
+    the closing subpart backwards under the same stated bound."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            reading.endswith(text)
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_end(parts[0], text, folded, _active)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, matched = stack.pop()
+            if matched == len(text):
+                return True
+            rest = text[:len(text) - matched]
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                index = len(parts) - 1 - mask
+                indices = [index] if index >= 0 else []
+            for index in indices:
+                part = parts[index]
+                if _seg_part_can_end(
+                        part, rest, folded, _active):
+                    return True
+                new_mask = (
+                    mask | (1 << index) if unordered else mask + 1)
+                for start_at in range(0, len(rest)):
+                    piece = rest[start_at:]
+                    if _seg_part_can_equal(
+                            part, piece, folded, _active):
+                        state = (new_mask, matched + len(piece))
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                if _seg_part_can_equal(part, "", folded, _active):
+                    state = (new_mask, matched)
+                    if state not in seen:
+                        seen.add(state)
+                        stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_part_can_contain(node, text, folded, _active=None):
+    """Whether some whole reading of one part carries the
+    text inside it: the text stands inside one subpart, or it
+    spans subpart boundaries, one subpart ending with its
+    opening, middle subparts standing as its exact pieces,
+    and one subpart beginning with its closing. The walk
+    stands bounded as _seg_part_can_start states."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            text in reading
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_contain(parts[0], text, folded, _active)
+        for part in parts:
+            if _seg_part_can_contain(part, text, folded, _active):
+                return True
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, pos = stack.pop()
+            if pos == len(text):
+                return True
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                indices = [mask] if mask < len(parts) else []
+            for index in indices:
+                part = parts[index]
+                new_mask = (
+                    mask | (1 << index) if unordered else index + 1)
+                if pos == 0:
+                    if _seg_part_can_end(part, text, folded, _active):
+                        return True
+                    for stop in range(1, len(text)):
+                        if _seg_part_can_end(
+                                part, text[:stop], folded, _active):
+                            state = (new_mask, stop)
+                            if state not in seen:
+                                seen.add(state)
+                                stack.append(state)
+                    if not unordered:
+                        state = (new_mask, 0)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                else:
+                    if _seg_part_can_start(
+                            part, text[pos:], folded, _active):
+                        return True
+                    for stop in range(pos + 1, len(text) + 1):
+                        if _seg_part_can_equal(
+                                part, text[pos:stop], folded, _active):
+                            if stop == len(text):
+                                return True
+                            state = (new_mask, stop)
+                            if state not in seen:
+                                seen.add(state)
+                                stack.append(state)
+                    if _seg_part_can_equal(part, "", folded, _active):
+                        state = (new_mask, pos)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_parts_carry_edge(parts, options, pattern, folded):
+    """Whether a barred part stands tiled over the direct
+    parts of one unordered container where one part
+    contributes only its edge: a part whose whole reading
+    carries the pattern inside it, or a first part whose
+    whole reading ends with the opening of the pattern,
+    middle parts standing as exact pieces of it through
+    their stated options, and a last part whose whole
+    reading begins with its closing. The edge forms stand
+    judged through the part predicates above, so a composite
+    part past the candidate caps contributes its edge as
+    settlement S-4 governs, in plain and folded spaces alike."""
+    if not any(
+            isinstance(part, (dict, list, tuple, set, frozenset))
+            for part in parts):
+        return False
+    for part in parts:
+        if not isinstance(part, (dict, list, tuple, set, frozenset)):
+            continue
+        try:
+            if _seg_part_can_contain(part, pattern, folded):
+                return True
+        except RecursionError:
+            continue
+    count = len(parts)
+    for first in range(count):
+        for cut in range(1, len(pattern)):
+            try:
+                if not _seg_part_can_end(
+                        parts[first], pattern[:cut], folded):
+                    continue
+            except RecursionError:
+                continue
+            failed = set()
+            stack = [(1 << first, cut)]
+            while stack:
+                mask, pos = stack.pop()
+                if pos >= len(pattern):
+                    return True
+                if (mask, pos) in failed:
+                    continue
+                for index in range(count):
+                    if (mask >> index) & 1:
+                        continue
+                    try:
+                        if _seg_part_can_start(
+                                parts[index], pattern[pos:], folded):
+                            return True
+                    except RecursionError:
+                        pass
+                    for option in options[index]:
+                        if option and pattern.startswith(option, pos):
+                            if pos + len(option) >= len(pattern):
+                                return True
+                            stack.append(
+                                (mask | (1 << index),
+                                 pos + len(option)))
+                failed.add((mask, pos))
+    return False
 
 def _seg_plain_options(parts, _universe=None, _prefixes=None):
     """The plain readings of the direct parts of one unordered
@@ -986,6 +1332,9 @@ def _seg_unordered_barred(key):
         for pattern in tuple(_BARRED_KEY_PARTS):
             if _seg_tiles_carrying(plain, pattern) is not None:
                 return True
+        for pattern in tuple(_BARRED_KEY_PARTS):
+            if _seg_parts_carry_edge(parts, plain, pattern, False):
+                return True
         folded_universe = _seg_universe(
             _BARRED_FOLDED_EXACT, _BARRED_FOLDED_PARTS)
         folded = _seg_folded_options(
@@ -995,6 +1344,9 @@ def _seg_unordered_barred(key):
                 return True
         for pattern in tuple(_BARRED_FOLDED_PARTS):
             if _seg_tiles_carrying(folded, pattern) is not None:
+                return True
+        for pattern in tuple(_BARRED_FOLDED_PARTS):
+            if _seg_parts_carry_edge(parts, folded, pattern, True):
                 return True
     return False
 
@@ -1313,8 +1665,11 @@ def _undirected_copy(value, _memo=None, _depth=0):
     Dict parts stand read through the base dict items reading,
     and list, tuple, set and frozenset parts through their base
     iteration readings, so no copy protocol a part supplies is
-    ever invoked. A part in no container form and no plain scalar
-    form stands copied as itself. A value nested past the barred
+    ever invoked. The buffer forms stand carried as stored: a
+    bytearray as a fresh bytearray and a memoryview as a
+    memoryview over fresh bytes. A part in no container form and
+    no plain scalar form stands copied as itself. A value nested
+    past the barred
     search bound stands refused in the module named form. The
     bound test stands on containers only, on the stated basis
     of R3-056, so the scalar leaf of a container chain is never
@@ -1374,7 +1729,11 @@ def _undirected_copy(value, _memo=None, _depth=0):
             return _memo[id(value)]
         _memo[id(value)] = copied
         return copied
-    if isinstance(value, (str, bytes, bytearray, int, float,
+    if isinstance(value, bytearray):
+        return bytearray(bytes(value))
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
+    if isinstance(value, (str, bytes, int, float,
                           complex, bool)) or value is None:
         return value
     return value
@@ -1592,7 +1951,7 @@ def score_day(records, society_state=None, mode="conformance",
             raise NamedDetectionFailure(
                 "scoring use stands unnamed: " + str(use)
             )
-    before = copy.deepcopy(society_state)
+    before = _undirected_copy(society_state)
     accepted = [accept_detection_input(record) for record in records]
     states = []
     outputs = []
@@ -1804,12 +2163,18 @@ def score_profiles(profile_set=None):
     that differs is rejected rather than rescored.
     """
     if profile_set is not None:
-        names = tuple(profile_set.get("profiles", ()))
+        profiles_value = _base_get(profile_set, "profiles")
+        if isinstance(profiles_value, (list, tuple, set, frozenset)):
+            names = tuple(_base_iter(profiles_value))
+        elif profiles_value is None:
+            names = ()
+        else:
+            names = tuple(profiles_value)
         if names != F06_PROFILES:
             raise NamedDetectionFailure(
                 "profile set differs from the recorded F-06 set"
             )
-        streams = profile_set.get("streams_per_profile", 0)
+        streams = dict.get(profile_set, "streams_per_profile", 0)
         if isinstance(streams, bool) or not isinstance(
                 streams, (int, float)):
             raise NamedDetectionFailure(
@@ -1903,7 +2268,13 @@ def validate_use_naming(artefact, run_record_uses=None):
         raise SilentUseMovement(
             "use naming check: the artefact stands in no record form"
         )
-    named = list(artefact.get("uses_named", []))
+    uses_value = _base_get(artefact, "uses_named")
+    if isinstance(uses_value, (list, tuple, set, frozenset)):
+        named = list(_base_iter(uses_value))
+    elif uses_value is None:
+        named = []
+    else:
+        named = list(uses_value)
     for use in named:
         if use not in USES:
             raise SilentUseMovement(
@@ -1933,13 +2304,25 @@ def report(figures=None):
     without its label is rejected before the report stands.
     """
     carried = []
-    for figure in figures or []:
+    for position, figure in enumerate(figures or []):
         if not validate_output(figure):
+            if not isinstance(figure, dict):
+                ground = (
+                    "the figure stands in no record form (no dict form)")
+            elif dict.get(figure, PROFILE_BOUND_LABEL_FIELD) != (
+                    PROFILE_LABEL_CARRIAGE):
+                ground = (
+                    "the figure stands without its profile bound label "
+                    "in the stated carriage form (its profile bound "
+                    "label stands missing or carries another value)")
+            else:
+                ground = (
+                    "the figure carries a barred pass or fail verdict "
+                    "(score_verdict), which stands not reported")
             raise NamedDetectionFailure(
-                "a figure reported without its profile bound label "
-                "stands rejected"
-            )
-        carried.append(copy.deepcopy(figure))
+                "report stands refused: a figure at position "
+                + str(position) + " stands rejected: " + ground)
+        carried.append(_undirected_copy(figure))
     return {
         "report_kind": "bounded self consistency report",
         "figures": carried,
@@ -2003,7 +2386,10 @@ def author_sealed_class(sealed_set, kind, identifier,
         raise NamedDetectionFailure(
             "sealed set rejected: authoring after scoring has closed"
         )
-    if kind not in ("sleeper class", "honest challenge variant"):
+    if not (isinstance(kind, str) and any(
+            str.__eq__(str.__str__(kind), named_kind) is True
+            for named_kind in (
+                "sleeper class", "honest challenge variant"))):
         raise NamedDetectionFailure(
             "sealed set rejected: authored kind stands unnamed: "
             + str(kind)
@@ -2028,15 +2414,29 @@ def author_sealed_class(sealed_set, kind, identifier,
 
 def seal_sealed_set(sealed_set):
     """Seal the authored set until scoring closes."""
-    kinds = [entry["kind"] for entry in sealed_set.get("authored", [])]
+    authored_value = _base_get(sealed_set, "authored")
+    if isinstance(authored_value, (list, tuple, set, frozenset)):
+        authored_entries = list(_base_iter(authored_value))
+    elif authored_value is None:
+        authored_entries = []
+    else:
+        authored_entries = list(authored_value)
+    kinds = [
+        _base_get(entry, "kind") if isinstance(entry, dict)
+        else entry["kind"]
+        for entry in authored_entries]
     if "sleeper class" not in kinds or (
             "honest challenge variant" not in kinds):
         raise NamedDetectionFailure(
             "sealed set rejected: sealing needs at least one "
             "sleeper class and one honest challenge variant"
         )
-    sealed_set["sealed"] = True
-    sealed_set["stage"] = "sealed"
+    if isinstance(sealed_set, dict):
+        dict.__setitem__(sealed_set, "sealed", True)
+        dict.__setitem__(sealed_set, "stage", "sealed")
+    else:
+        sealed_set["sealed"] = True
+        sealed_set["stage"] = "sealed"
     return sealed_set
 
 
@@ -2059,7 +2459,7 @@ def score_sealed(sealed_set):
     No score from the recorded profile set states or implies a
     result on the sealed classes.
     """
-    if sealed_set.get("sealed"):
+    if _base_get(sealed_set, "sealed"):
         return {
             "fixture": "F-08",
             "standing": "sealed until scoring closes",
