@@ -607,13 +607,27 @@ def _carries_reserved_matter(value):
     return False
 
 
+def _folded_money_key(key):
+    return "".join(
+        character for character in str(key).lower()
+        if character.isalnum()
+    )
+
+
+_MONEY_MARKER_FOLDED = ("real_" + "money").replace("_", "")
+_ANCHOR_VALUES_FIELD_FOLDED = _folded_money_key(
+    "anchor_" + "scenario_values")
+
+
 def _carries_real_money_value(value):
     if isinstance(value, dict):
+        folded = {
+            _folded_money_key(key): item for key, item in value.items()
+        }
+        if folded.get("amount") is not None and "currency" in folded:
+            return True
         for key, item in value.items():
-            if key in ("real_money_value", "real_money") and (
-                    item is not None):
-                return True
-            if key == "amount" and "currency" in value and (
+            if _MONEY_MARKER_FOLDED in _folded_money_key(key) and (
                     item is not None):
                 return True
             if _carries_real_money_value(item):
@@ -719,12 +733,14 @@ def validate_record(form_id, instance):
     if fid == "4":
         if _carries_real_money_value(instance):
             return False
-        anchor_values = instance.get("anchor_scenario_values")
-        if isinstance(anchor_values, dict) and len(anchor_values) != 3:
-            return False
-        if isinstance(anchor_values, (list, tuple)) and len(
-                anchor_values) != 3:
-            return False
+        for key, anchor_values in instance.items():
+            if _folded_money_key(key) != _ANCHOR_VALUES_FIELD_FOLDED:
+                continue
+            if isinstance(anchor_values, dict) and len(anchor_values) != 3:
+                return False
+            if isinstance(anchor_values, (list, tuple, set, frozenset)) and len(
+                    anchor_values) != 3:
+                return False
     if fid == "15":
         for field, parts in JOINT_OUTCOME_COMPONENT_PARTS.items():
             component = instance.get(field)

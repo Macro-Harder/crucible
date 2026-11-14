@@ -232,21 +232,41 @@ def run_command(command, payload=None, run_id=None):
 _PILOT_BARRED_KEY_MARKERS = ("money", "anchor_" + "set")
 
 
+def _pilot_key_form(key):
+    return "".join(
+        char for char in str(key).lower() if char.isalnum())
+
+
+_PILOT_BARRED_KEY_FORMS = tuple(
+    _pilot_key_form(marker) for marker in _PILOT_BARRED_KEY_MARKERS)
+
+
+def _screen_pilot_key(key):
+    form = _pilot_key_form(key)
+    if any(marker in form for marker in _PILOT_BARRED_KEY_FORMS):
+        raise NamedShellFailure(
+            "pilot artefact carries a barred entry under the "
+            "pilot confined label: " + str(key))
+
+
 def _screen_pilot_artefact(value):
     if isinstance(value, dict):
         for key, item in value.items():
-            name = str(key).lower()
-            if any(marker in name for marker in _PILOT_BARRED_KEY_MARKERS):
-                raise NamedShellFailure(
-                    "pilot artefact carries a barred entry under the "
-                    "pilot confined label: " + str(key))
+            _screen_pilot_key(key)
             _screen_pilot_artefact(item)
+        if not validate_pilot_claim(value):
+            raise NamedShellFailure(
+                "pilot artefact carries a claim the pilot check bars")
     elif isinstance(value, (list, tuple)):
+        if len(value) == 2 and isinstance(value[0], str):
+            _screen_pilot_key(value[0])
         for item in value:
             _screen_pilot_artefact(item)
-    if isinstance(value, dict) and not validate_pilot_claim(value):
-        raise NamedShellFailure(
-            "pilot artefact carries a claim the pilot check bars")
+    elif isinstance(value, (set, frozenset)):
+        for item in value:
+            if isinstance(item, str):
+                _screen_pilot_key(item)
+            _screen_pilot_artefact(item)
 
 
 
@@ -256,13 +276,16 @@ def pilot_run(use, artefact=None):
     timing, conformance, and procedure rates. Every pilot output
     carries its confinement label in the same artefact as the
     number. A use outside the three, including behaviour fitting,
-    is refused as a named failure."""
+    is refused as a named failure. The artefact stands screened
+    in whatever container it arrives in, recursively, before the
+    label is stamped: a barred entry carried in a list, a tuple,
+    or a set, or under a spaced or joined spelling, raises the
+    named failure in the same form as one carried in a dict."""
     if use not in PILOT_USES:
         raise NamedShellFailure(
             "pilot use outside timing, conformance, and procedure rates: " + str(use)
         )
-    if isinstance(artefact, dict):
-        _screen_pilot_artefact(artefact)
+    _screen_pilot_artefact(artefact)
     output = _freeze(artefact) if isinstance(artefact, dict) else {"figure": artefact}
     output["use"] = use
     output["confinement_label"] = "pilot confined"
@@ -433,7 +456,11 @@ def weekly_headline_count(summary_records, week):
     uses, whose witness records fall in the week. A record with
     no week field, and a record of the week with no headline unit
     identifier field, fail in the named form; neither is counted
-    silently as zero."""
+    silently as zero. A record of the week whose identifier field
+    stands at None, or in a form the count cannot read as a list
+    of identifiers, fails in the same named form. A bare string
+    identifier field counts as the one identifier it states,
+    never as its characters."""
     seen = []
     for record in summary_records or ():
         if not isinstance(record, dict) or "week" not in record:
@@ -446,7 +473,19 @@ def weekly_headline_count(summary_records, week):
             raise NamedShellFailure(
                 "summary record for the week carries no "
                 "headline_unit_identifiers field")
-        for unit_id in record.get("headline_unit_identifiers") or ():
+        identifiers = record.get("headline_unit_identifiers")
+        if identifiers is None:
+            raise NamedShellFailure(
+                "summary record for the week carries a "
+                "headline_unit_identifiers field standing at no value")
+        if isinstance(identifiers, str):
+            identifiers = (identifiers,)
+        elif not isinstance(identifiers, (list, tuple, set, frozenset)):
+            raise NamedShellFailure(
+                "summary record for the week carries a "
+                "headline_unit_identifiers field the count cannot "
+                "read: " + type(identifiers).__name__)
+        for unit_id in identifiers:
             if unit_id not in seen:
                 seen.append(unit_id)
     return len(seen)
@@ -488,56 +527,165 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
 
 _EDIT_ACTS = (
     "edit", "modify", "change", "update", "alter", "rewrite",
+    "amend", "patch", "redact", "replace", "correct", "supersede",
+)
+
+_DESTRUCTIVE_ACTS = (
     "delete", "destroy", "remove", "erase", "overwrite",
+    "purge", "drop", "wipe", "clear", "truncate", "expunge",
+    "void", "obliterate", "annihilate",
+)
+
+_READ_ACTS = ("read", "view", "inspect", "show", "list", "get", "fetch")
+
+_ARTICLES = ("the", "a", "an")
+
+_PROTECTED_TARGETS = (
+    "sealed family record", "closed run record", "checkpoint set",
 )
 
 
 def _normalise_name(value):
-    text = str(value or "").lower().replace("_", " ").replace("-", " ")
+    text = str(value or "").lower()
+    text = "".join(
+        char if char.isalnum() else " " for char in text)
     words = []
-    for word in text.split():
-        if len(word) > 1 and word.endswith("s"):
+    for raw in text.split():
+        word = raw.strip(".,;:!?\"'()[]{}")
+        if not word or word in _ARTICLES:
+            continue
+        if len(word) > 3 and word.endswith("ies"):
+            word = word[:-3] + "y"
+        elif len(word) > 1 and word.endswith("s"):
             word = word[:-1]
         words.append(word)
     return " ".join(words)
 
 
+def _verb_stems(word):
+    stems = [word]
+    if word.endswith("ing") and len(word) > 4:
+        base = word[:-3]
+        stems.extend([base, base + "e"])
+        if len(base) > 1 and base[-1] == base[-2]:
+            stems.extend([base[:-1], base[:-1] + "e"])
+    elif word.endswith("ed") and len(word) > 3:
+        base = word[:-2]
+        stems.extend([base, base + "e"])
+        if len(base) > 1 and base[-1] == base[-2]:
+            stems.extend([base[:-1], base[:-1] + "e"])
+    return stems
+
+
+def _act_class(kind):
+    words = kind.split()
+    if not words:
+        return None
+    forms = []
+    for word in words:
+        forms.extend(_verb_stems(word))
+    if any(form in _DESTRUCTIVE_ACTS for form in forms):
+        return "destructive"
+    if any(form in _EDIT_ACTS for form in forms):
+        return "edit"
+    if all(word in _READ_ACTS for word in words):
+        return "read"
+    return "unread"
+
+
+def _folded_reading(word_reading):
+    return "".join(
+        char for char in word_reading if char.isalnum())
+
+
+_PROTECTED_TARGETS_BY_FOLDED = {
+    "sealedfamilyrecord": "sealed family record",
+    "closedrunrecord": "closed run record",
+    "checkpointset": "checkpoint set",
+}
+
+_RULE_PATHS_BY_FOLDED = {
+    "flagrule": "flag rule",
+    "deletionrule": "deletion rule",
+}
+
+
 def _operator_action_bar(action):
     if not isinstance(action, dict):
         return "the action is not a record of an act and a target"
-    kind = _normalise_name(action.get("kind"))
-    target = _normalise_name(action.get("target"))
+    raw_kind = action.get("kind")
+    raw_target = action.get("target")
+    if raw_kind is not None and not isinstance(raw_kind, str):
+        return (
+            "the action kind stands in a form the boundary cannot "
+            "read, a " + type(raw_kind).__name__
+            + ", not a stated act")
+    if raw_target is not None and not isinstance(raw_target, str):
+        return (
+            "the action target stands in a form the boundary cannot "
+            "read, a " + type(raw_target).__name__
+            + ", not a stated target")
+    kind = _normalise_name(raw_kind)
+    target = _normalise_name(raw_target)
     path = _normalise_name(action.get("path"))
+    target = _PROTECTED_TARGETS_BY_FOLDED.get(
+        _folded_reading(target), target)
+    path = _RULE_PATHS_BY_FOLDED.get(
+        _folded_reading(path), path)
     if not kind:
-        if target in ("sealed family record", "closed run record",
-                      "checkpoint set"):
+        if target in _PROTECTED_TARGETS:
             return (
                 "an action with no kind stated stands refused on a "
                 "protected target: " + target)
         return "an action with no kind stated stands refused"
-    if kind in _EDIT_ACTS:
-        if target == "sealed family record":
-            return "no operator action edits a sealed family record"
-        if target == "closed run record" and path != "flag rule":
+    act = _act_class(kind)
+    if target == "sealed family record":
+        if act == "read":
+            return None
+        return "no operator action edits a sealed family record"
+    if target == "closed run record":
+        if act == "read":
+            return None
+        if act == "edit" and path == "flag rule":
+            return None
+        if act == "destructive":
             return (
-                "no operator action edits a closed run record outside "
-                "the flag rule path")
-        if target == "checkpoint set" and path != "deletion rule":
-            return (
-                "no operator action edits a checkpoint set outside "
-                "the deletion rule")
+                "no operator action destroys a closed run record, "
+                "on the flag rule path or on any other")
+        return (
+            "no operator action edits a closed run record outside "
+            "the flag rule path")
+    if target == "checkpoint set":
+        if act == "read":
+            return None
+        if act in ("edit", "destructive") and path == "deletion rule":
+            return None
+        return (
+            "no operator action edits a checkpoint set outside "
+            "the deletion rule")
     return None
 
 
 def validate_operator_action(action):
     """The operator boundary at the shell. The act stands read,
-    not its spelling: verb synonyms, case, plural, and underscored
-    spellings of a protected target name the same act, and every
-    such act stands refused outside its stated rule path. No
-    operator action edits a sealed family record, a closed run
-    record outside the flag rule path, or a checkpoint set outside
-    the deletion rule. Validation reads checkpoint manifests beside
-    the run record to compare seeds, settings, and rule versions."""
+    not its spelling: verb synonyms in the edit and destructive
+    families, verb inflections, case, trailing punctuation,
+    articles, plural, and underscored, hyphenated, dotted,
+    slashed, backslashed, semicolon joined, and colon joined
+    spellings of a protected target name the same act, as does
+    a spelling joined with no separator at all, read beside
+    the word reading by its folded form of letters and digits
+    only, and every such act stands refused
+    outside its stated rule path. A kind or a target standing in
+    a non text form, and a verb the boundary cannot read as a
+    stated act, stand refused on a protected target by name in
+    the reason form. No operator action edits a sealed family
+    record on any path; the flag rule path admits edit acts only
+    on a closed run record, and a destructive act stands refused
+    there as on every path; a checkpoint set stands edited only
+    on the deletion rule. Validation reads checkpoint manifests
+    beside the run record to compare seeds, settings, and rule
+    versions."""
     return _operator_action_bar(action) is None
 
 

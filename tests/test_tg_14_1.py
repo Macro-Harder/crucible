@@ -164,5 +164,125 @@ class TestStep15Fix1TA01(unittest.TestCase):
         self.assertTrue(surface.resume_check(original, resumed)["equal_in_scope"])
 
 
+class TestStep15Round2Fix1NullDress(unittest.TestCase):
+    """Step 15 Round 2 fix pins for R2-A7-01: a check must not pass on a field standing present with the value None, and a resume must not pass on mutually absent detection verdicts."""
+
+    def _fields(self):
+        import crucible.mod01 as mod01
+        return list(mod01.state_hash_field_list())
+
+    def _genuine_facts(self):
+        fields = self._fields()
+        facts = {field: "value for " + field for field in fields}
+        facts["headline_unit"] = "u"
+        return fields, facts
+
+    def test_replay_check_fails_on_null_dressed_fields(self):
+        require_surface(self, "TG-14.1", "replay check names null dressed AC-1 fields as missing")
+        import crucible.mod13 as surface
+        fields = self._fields()
+        first = {field: None for field in fields}
+        first["headline_unit"] = "u"
+        second = {field: None for field in fields}
+        second["headline_unit"] = "u"
+        check = surface.replay_check(first, second)
+        self.assertFalse(check["deterministic"])
+        self.assertTrue(check["marked_non_deterministic"])
+        self.assertEqual(check["missing_fields"], fields)
+        for field in fields:
+            self.assertIn(field, check["differing_fields"])
+
+    def test_replay_check_fails_on_one_sided_null_field(self):
+        require_surface(self, "TG-14.1", "replay check names a one sided null AC-1 field as missing")
+        import crucible.mod13 as surface
+        fields, facts = self._genuine_facts()
+        other = dict(facts)
+        other[fields[3]] = None
+        check = surface.replay_check(facts, other)
+        self.assertFalse(check["deterministic"])
+        self.assertEqual(check["missing_fields"], [fields[3]])
+        self.assertIn(fields[3], check["differing_fields"])
+
+    def test_replay_check_fails_on_null_headline_unit(self):
+        require_surface(self, "TG-14.1", "replay check fails where the headline unit stands null on both sides")
+        import crucible.mod13 as surface
+        fields, facts = self._genuine_facts()
+        first = dict(facts)
+        first["headline_unit"] = None
+        second = dict(facts)
+        second["headline_unit"] = None
+        check = surface.replay_check(first, second)
+        self.assertFalse(check["deterministic"])
+        self.assertFalse(check["identical_headline_unit"])
+
+    def test_replay_check_still_agrees_on_stated_falsy_values(self):
+        require_surface(self, "TG-14.1", "replay check still agrees on stated falsy AC-1 values")
+        import crucible.mod13 as surface
+        fields = self._fields()
+        for value in (0, False, ""):
+            facts = {field: value for field in fields}
+            facts["headline_unit"] = "u"
+            self.assertTrue(surface.replay_check(facts, dict(facts))["deterministic"])
+
+    def test_resume_check_fails_on_null_dressed_fields(self):
+        require_surface(self, "TG-14.1", "resume check names null dressed AC-1 fields, promotes, and bars witness use")
+        import crucible.mod13 as surface
+        fields = self._fields()
+        first = {field: None for field in fields}
+        first["headline_unit"] = "u"
+        second = {field: None for field in fields}
+        second["headline_unit"] = "u"
+        check = surface.resume_check(first, second)
+        self.assertFalse(check["equal_in_scope"])
+        self.assertTrue(check["promoted_to_full_retention"])
+        self.assertTrue(check["witness_use_barred"])
+        self.assertEqual(check["missing_fields"], fields)
+        self.assertIsNotNone(check["divergence_record"])
+
+    def test_resume_check_fails_on_mutually_absent_verdicts(self):
+        require_surface(self, "TG-14.1", "resume check fails where no detection verdict stands on either side")
+        import crucible.mod13 as surface
+        fields, facts = self._genuine_facts()
+        points = surface.detection_comparison_points()
+        bare = surface.resume_check(dict(facts), dict(facts))
+        self.assertFalse(bare["equal_in_scope"])
+        self.assertTrue(bare["promoted_to_full_retention"])
+        self.assertTrue(bare["witness_use_barred"])
+        self.assertEqual(bare["missing_fields"], [])
+        self.assertEqual(bare["first_divergence"], points[0])
+        self.assertIsNotNone(bare["divergence_record"])
+        emptied_first = dict(facts)
+        emptied_first["detection_verdicts"] = {}
+        emptied_second = dict(facts)
+        emptied_second["detection_verdicts"] = {}
+        emptied = surface.resume_check(emptied_first, emptied_second)
+        self.assertFalse(emptied["equal_in_scope"])
+        self.assertTrue(emptied["promoted_to_full_retention"])
+        self.assertTrue(emptied["witness_use_barred"])
+        nulled_first = dict(facts)
+        nulled_first["detection_verdicts"] = {point: None for point in points}
+        nulled_second = dict(facts)
+        nulled_second["detection_verdicts"] = {point: None for point in points}
+        nulled = surface.resume_check(nulled_first, nulled_second)
+        self.assertFalse(nulled["equal_in_scope"])
+        self.assertTrue(nulled["promoted_to_full_retention"])
+        self.assertTrue(nulled["witness_use_barred"])
+
+    def test_resume_check_verdict_controls_still_stand(self):
+        require_surface(self, "TG-14.1", "resume check still agrees on genuine verdicts and still diverges on a one sided verdict absence")
+        import crucible.mod13 as surface
+        fields, facts = self._genuine_facts()
+        verdicts = {"first verdict state after resume": "verdict-a", "run close": "verdict-b"}
+        original = dict(facts)
+        original["detection_verdicts"] = dict(verdicts)
+        resumed = dict(facts)
+        resumed["detection_verdicts"] = dict(verdicts)
+        self.assertTrue(surface.resume_check(original, resumed)["equal_in_scope"])
+        one_sided = surface.resume_check(original, dict(facts))
+        self.assertFalse(one_sided["equal_in_scope"])
+        self.assertTrue(one_sided["promoted_to_full_retention"])
+        self.assertTrue(one_sided["witness_use_barred"])
+
+
 if __name__ == "__main__":
     unittest.main()

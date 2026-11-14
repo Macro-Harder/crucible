@@ -76,16 +76,33 @@ class LookupFailure(KeyError):
             ONE_LOOKUP_FAILURE_NAME + ": " + str(run_id))
 
 
+def _folded_money_key(key):
+    return "".join(
+        character for character in str(key).lower()
+        if character.isalnum()
+    )
+
+
+_MONEY_MARKER_FOLDED = ("real_" + "money").replace("_", "")
+
+
 def _carries_real_money_field(value):
     """Whether a value carries a real money field at any depth, by
     field name (a real money field name with a value standing) or
-    by amount and currency shape."""
+    by amount and currency shape. Field names and the shape keys
+    stand read folded: case folded, with every character that is
+    not a letter or a digit folded out, so a name stands read as
+    the name it is in any dress."""
     if isinstance(value, dict):
-        if (value.get("amount") is not None
-                and value.get("currency") is not None):
+        folded = {
+            _folded_money_key(key): item for key, item in value.items()
+        }
+        if (folded.get("amount") is not None
+                and folded.get("currency") is not None):
             return True
         for key, item in value.items():
-            if key in ("real_money_value", "real_money") and item is not None:
+            if _MONEY_MARKER_FOLDED in _folded_money_key(key) and (
+                    item is not None):
                 return True
             if _carries_real_money_field(item):
                 return True
@@ -633,6 +650,32 @@ def checkpoints_for_run(run_id, store_kind="sweep"):
     return copy.deepcopy(_CHECKPOINTS.get((store_kind, run_id), []))
 
 
+def _normalised_form_text(value):
+    """Return a stated form value in its reading form, or no text.
+
+    A value that is not a string stands as no text, so a wrongly
+    typed trigger or rule path names nothing. A string stands
+    lowered, with underscores and hyphens read as spaces and runs
+    of whitespace read as one space, the reading form the standing
+    named forms are checked in."""
+    if not isinstance(value, str):
+        return ""
+    text = value.lower().replace("_", " ").replace("-", " ")
+    return " ".join(text.split())
+
+
+def _clause_c5_trigger_stands(value):
+    """Return whether a trigger stands in its standing named form:
+    a stated string naming the clause C5 trigger."""
+    return "clause c5" in _normalised_form_text(value)
+
+
+def _deletion_rule_path_stands(value):
+    """Return whether a rule path stands in its standing named
+    form: a stated string naming the deletion rule."""
+    return "deletion rule" in _normalised_form_text(value)
+
+
 def delete_checkpoint(run_id, checkpoint_day, store_kind="sweep",
                       trigger=None, rule_path=None,
                       integrity_flag_open=False,
@@ -641,18 +684,22 @@ def delete_checkpoint(run_id, checkpoint_day, store_kind="sweep",
     """Delete one checkpoint and update every pointer naming it as
     one recorded act. Returns the act record. A deletion stands
     only under a stated clause C5 trigger and a stated deletion
-    rule path, and no deletion stands against a clause C8
-    protection: an open integrity flag, a checkpoint named in a
+    rule path, each in its standing named form: a nonsense, empty,
+    or wrongly typed trigger or rule path states neither, and no
+    deletion stands on one. No deletion stands against a clause
+    C8 protection: an open integrity flag, a checkpoint named in a
     retention record for a reported headline unit, or a regression
     corpus copy of the checkpoint."""
-    if trigger is None:
+    if not _clause_c5_trigger_stands(trigger):
         raise ValueError(
             "checkpoint deletion refused: no clause C5 trigger stands "
-            "stated for the deletion, and no checkpoint stands deleted")
-    if rule_path is None:
+            "stated for the deletion in its standing named form, "
+            "and no checkpoint stands deleted")
+    if not _deletion_rule_path_stands(rule_path):
         raise ValueError(
             "checkpoint deletion refused: no deletion rule path stands "
-            "stated or checked for the deletion")
+            "stated or checked for the deletion in its standing "
+            "named form, and no checkpoint stands deleted")
     if integrity_flag_open or named_in_retention_record or regression_corpus_copy:
         raise ValueError(
             "checkpoint deletion refused: a clause C8 protection stands "
@@ -1587,29 +1634,81 @@ def rerun_list_for_rule_change(family_id="family-under-test"):
 # ---------------------------------------------------------------------------
 
 _VIEW_LEAK_FORMS = ("canary", "field_validation", "timing")
-_VIEW_CANARY_KEYS = frozenset((
-    "ground_truth", "is_honest", "membership", "label", "sleeper",
-    "is_farm",
+
+# The one barred vocabulary, as the cured MOD-04 checker and the
+# cured MOD-03 helper stand on it: the thirteen projection names,
+# beside the ground truth names MOD-03 has always barred, read
+# lowered, with lowered substring matching on the membership,
+# ground truth, groundtruth, and canary parts, so capitalised and
+# variant forms stand barred as well. The plain word label stands
+# barred as an exact name only, never as a substring, so
+# legitimate sibling content such as labelled assumptions stands.
+_VIEW_BARRED_KEYS = frozenset((
+    "ground_truth", "ground_truth_field", "membership",
+    "honest_membership", "farm_membership", "is_honest", "is_farm",
+    "canary", "canary_value", "membership_value", "sleeper",
+    "ground_truth_label", "label",
+    "honest_or_farm_membership", "membership_ground_truth",
 ))
 
+_VIEW_BARRED_KEY_PARTS = (
+    "membership",
+    "ground_truth",
+    "groundtruth",
+    "canary",
+)
 
-def _carries_canary_key(value):
-    if isinstance(value, dict):
-        return any(
-            key in _VIEW_CANARY_KEYS or _carries_canary_key(item)
-            for key, item in value.items())
-    if isinstance(value, (list, tuple)):
-        return any(_carries_canary_key(item) for item in value)
+
+def _is_barred_view_key(key):
+    """Return whether a key stands barred under the one barred
+    vocabulary, case handled as the cured surfaces handle it."""
+    lowered = str(key).lower()
+    if lowered in _VIEW_BARRED_KEYS:
+        return True
+    return any(part in lowered for part in _VIEW_BARRED_KEY_PARTS)
+
+
+def _carries_barred_key(value):
+    """Return whether a value carries a barred key at any depth.
+
+    The read is iterative, through dicts, lists, tuples, sets, and
+    frozensets, with a visited set, so content nested at any depth
+    stands read and cyclic content cannot loop the read. Keys
+    stand read; values standing as plain text stand unread, as on
+    the cured surfaces."""
+    stack = [value]
+    visited = set()
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if id(node) in visited:
+                continue
+            visited.add(id(node))
+            for key, item in node.items():
+                if _is_barred_view_key(key):
+                    return True
+                stack.append(item)
+        elif isinstance(node, (list, tuple, set, frozenset)):
+            if id(node) in visited:
+                continue
+            visited.add(id(node))
+            stack.extend(node)
     return False
 
 
 def run_view_leak_check(view_record):
     """Run the three form leak check on a ViewRecord: the canary
     form, the field validation form, and the timing form, together
-    on the one record. A failure in any one form raises a failure
-    naming the view, the field, and the check form that failed,
-    and the run stands not reportable on that record. A record
-    passing all three forms returns the run record of the check."""
+    on the one record. The canary form reads every group of the
+    record, the graph position group beside the content and
+    reputation and band groups, under the one barred vocabulary
+    the cured MOD-04 checker and the cured MOD-03 helper stand on,
+    at any depth, so the gate this runner governs is the checker
+    it was charged to follow. A failure in any one form raises a
+    failure naming the view, the field, and the check form that
+    failed, and the run stands not reportable on that record. A
+    record passing all three forms returns the run record of the
+    check."""
     if not isinstance(view_record, dict):
         raise ValueError(
             "view leak check failure: form field_validation, the "
@@ -1619,8 +1718,17 @@ def run_view_leak_check(view_record):
             or view_record.get("run_id"))
         + "/" + str(view_record.get("viewer_identifier")
                     or view_record.get("viewer_id")))
-    for field in ("view_contents", "reputation_and_band_values"):
-        if _carries_canary_key(view_record.get(field)):
+    groups = [
+        name for name in (
+            "view_contents", "reputation_and_band_values",
+            "graph_position_as_seen")
+        if name in view_record
+    ]
+    groups.extend(
+        name for name in view_record if name not in groups)
+    for field in groups:
+        if _is_barred_view_key(field) or _carries_barred_key(
+                view_record.get(field)):
             raise ValueError(
                 "view leak check failure: form canary, view "
                 + view_name + ", field " + field

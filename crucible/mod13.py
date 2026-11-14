@@ -61,13 +61,17 @@ def replay_check(first, second):
     written or amended after run close stand outside the list,
     because the comparison is a statement about end of run
     state. A field missing on either side is a stated divergence
-    named in missing_fields, never agreement."""
+    named in missing_fields, never agreement. A field standing
+    present with the value None stands as missing in the same
+    form: no value stands stated on that side, and the headline
+    unit stands under the same rule."""
     fields = ac1_field_list()
     first_record = first if isinstance(first, dict) else {}
     second_record = second if isinstance(second, dict) else {}
     missing = [
         field for field in fields
-        if field not in first_record or field not in second_record
+        if first_record.get(field) is None
+        or second_record.get(field) is None
     ]
     differing = []
     for field in fields:
@@ -76,8 +80,8 @@ def replay_check(first, second):
         elif first_record.get(field) != second_record.get(field):
             differing.append(field)
     unit_differs = (
-        "headline_unit" not in first_record
-        or "headline_unit" not in second_record
+        first_record.get("headline_unit") is None
+        or second_record.get("headline_unit") is None
         or first_record.get("headline_unit") != second_record.get("headline_unit")
     )
     if unit_differs:
@@ -184,13 +188,20 @@ def resume_check(original, resumed):
     retention and bars its use as a witness until the difference
     is explained, and records the first divergence. A field
     missing on either side is a divergence of that kind, named in
-    missing_fields, and it promotes and bars in the same form."""
+    missing_fields, and it promotes and bars in the same form. A
+    field standing present with the value None stands as missing
+    in the same form. A detection verdict standing absent at a
+    comparison point on either side, or standing present with
+    the value None, is a divergence of that point in the same
+    form: a point on which no verdict stands on either side
+    certifies no agreement."""
     fields = ac1_field_list()
     original_record = original if isinstance(original, dict) else {}
     resumed_record = resumed if isinstance(resumed, dict) else {}
     missing = [
         field for field in fields
-        if field not in original_record or field not in resumed_record
+        if original_record.get(field) is None
+        or resumed_record.get(field) is None
     ]
     differing = []
     for field in fields:
@@ -200,10 +211,18 @@ def resume_check(original, resumed):
             differing.append(field)
     verdict_points = detection_comparison_points()
     verdict_differing = []
-    original_verdicts = original_record.get("detection_verdicts") or {}
-    resumed_verdicts = resumed_record.get("detection_verdicts") or {}
+    original_verdicts = original_record.get("detection_verdicts")
+    if not isinstance(original_verdicts, dict):
+        original_verdicts = {}
+    resumed_verdicts = resumed_record.get("detection_verdicts")
+    if not isinstance(resumed_verdicts, dict):
+        resumed_verdicts = {}
     for point in verdict_points:
-        if original_verdicts.get(point) != resumed_verdicts.get(point):
+        if (
+            original_verdicts.get(point) is None
+            or resumed_verdicts.get(point) is None
+            or original_verdicts.get(point) != resumed_verdicts.get(point)
+        ):
             verdict_differing.append(point)
     failed = bool(differing or verdict_differing)
     first = (differing + verdict_differing)[0] if failed else None

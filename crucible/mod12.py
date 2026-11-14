@@ -268,14 +268,28 @@ def run_class_markings():
     }
 
 
+def _folded_money_key(key):
+    return "".join(
+        character for character in str(key).lower()
+        if character.isalnum()
+    )
+
+
+_MONEY_MARKER_FOLDED = _MONEY_MARKER.replace("_", "")
+_ANCHOR_VALUES_FIELD_FOLDED = _folded_money_key(_ANCHOR_VALUES_FIELD)
+
+
 def _carries_barred_money_value(value):
     if isinstance(value, dict):
-        keys = [str(key).lower() for key in value]
-        if "amount" in keys and "currency" in keys:
-            if value.get("amount") is not None:
+        folded = {
+            _folded_money_key(key): item for key, item in value.items()
+        }
+        if "amount" in folded and "currency" in folded:
+            if folded.get("amount") is not None:
                 return True
         for key, item in value.items():
-            if _MONEY_MARKER in str(key).lower() and item is not None:
+            if _MONEY_MARKER_FOLDED in _folded_money_key(key) and (
+                    item is not None):
                 return True
             if _carries_barred_money_value(item):
                 return True
@@ -307,8 +321,9 @@ def validate_run_record(run):
         return False
     if _carries_barred_money_value(run):
         return False
-    if _ANCHOR_VALUES_FIELD in run:
-        values = run.get(_ANCHOR_VALUES_FIELD)
+    for key, values in run.items():
+        if _folded_money_key(key) != _ANCHOR_VALUES_FIELD_FOLDED:
+            continue
         try:
             count = len(values)
         except TypeError:
@@ -768,7 +783,7 @@ def _gated_start(action, run_class=None, family_id=None):
     return refusal
 
 
-def start_run(run_class="screening", family_id=None):
+def start_run(run_class=None, family_id=None):
     """Start one run. Start inputs stand validated before the gate
     answer: a run class outside the four stated classes, a missing
     run class, and a missing family identifier each return a named

@@ -168,15 +168,46 @@ def make_headline_unit(values):
 _HIDDEN_PART_VALUES = ("redacted", "see elsewhere", "none", "x", "")
 
 
-def _envelope_part_stands(value):
+def _envelope_part_stands(value, _seen=None):
     if value is None:
         return False
+    if isinstance(value, bool):
+        return value
     if isinstance(value, str):
         return value.strip().lower() not in _HIDDEN_PART_VALUES \
             and len(value.strip()) >= 2
     if isinstance(value, dict):
-        return bool(value)
-    return True
+        if not value:
+            return False
+        seen = _seen if _seen is not None else set()
+        if id(value) in seen:
+            return False
+        seen.add(id(value))
+        try:
+            return any(
+                _envelope_part_stands(item, seen)
+                for item in value.values())
+        finally:
+            seen.discard(id(value))
+    if isinstance(value, (bytes, bytearray)):
+        return any(byte != 0 for byte in value)
+    if isinstance(value, memoryview):
+        return any(byte != 0 for byte in value.tobytes())
+    if isinstance(value, (list, tuple, set, frozenset)):
+        if not value:
+            return False
+        seen = _seen if _seen is not None else set()
+        if id(value) in seen:
+            return False
+        seen.add(id(value))
+        try:
+            return any(
+                _envelope_part_stands(item, seen) for item in value)
+        finally:
+            seen.discard(id(value))
+    if isinstance(value, (int, float, complex)):
+        return value != 0
+    return False
 
 
 def _region_stands(value):
@@ -207,9 +238,12 @@ def validate_headline_unit(unit):
     centre only fixture unit never validates as a headline unit,
     and a unit carrying an extra Range kind field fails. The
     envelope parts stand checked on content as well as presence:
-    no part may stand empty, hidden as redacted, pointed
-    elsewhere, or stated as none; the claim sentence may not
-    claim the result over all points; and a region stated as a
+    no part may stand empty, in plain form or in the dress of an
+    empty container, a dict carrying only empty content, empty
+    bytes, a memoryview carrying no bytes content, a part standing
+    in a type the check does not read, a zero, or a False, hidden
+    as redacted, pointed elsewhere, or stated as none; the claim
+    sentence may not claim the result over all points; and a region stated as a
     record must carry its sampled point enumeration, each point
     as axis values in numbers with its outcome in words."""
     if not isinstance(unit, dict):
@@ -233,12 +267,45 @@ def validate_headline_unit(unit):
     return True
 
 
+def _quoted_copy(value, _memo=None):
+    if _memo is None:
+        _memo = {}
+    if isinstance(value, memoryview):
+        return value.tobytes()
+    if isinstance(value, dict):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = {}
+        _memo[id(value)] = copied
+        for key, item in value.items():
+            copied[_quoted_copy(key, _memo)] = _quoted_copy(item, _memo)
+        return copied
+    if isinstance(value, list):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = []
+        _memo[id(value)] = copied
+        copied.extend(_quoted_copy(item, _memo) for item in value)
+        return copied
+    if isinstance(value, tuple):
+        return tuple(_quoted_copy(item, _memo) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return type(value)(
+            _quoted_copy(item, _memo) for item in value)
+    return copy.deepcopy(value, _memo)
+
+
 def quote_headline_unit(unit):
     """Quote a headline unit whole. A unit that does not validate
-    is not quoted at all."""
+    is not quoted at all. A standing memoryview part stands quoted
+    as the bytes content it carries, so quotation of a standing
+    unit never fails in the copy act itself."""
     if not validate_headline_unit(unit):
         raise ValueError("a headline unit is quotable whole or not at all")
-    return copy.deepcopy(unit)
+    try:
+        return copy.deepcopy(unit)
+    except TypeError:
+        return _quoted_copy(unit)
 
 
 def first_sentence(text):

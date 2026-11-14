@@ -210,5 +210,65 @@ class TestStep15Fix1ViewEdge(unittest.TestCase):
         self.assertIsNone(no_band["band_differing_share"])
 
 
+class TestStep15Round2Fix1ViewDepth(unittest.TestCase):
+    """Step 15 Round 2 fix pins for R2-A7-03: the view select and build acts stand under the TA-03 depth bound and its named failure form."""
+
+    def _deep(self, depth):
+        value = "leaf"
+        for _ in range(depth):
+            value = {"k": value}
+        return value
+
+    def test_selection_raises_named_failure_on_deep_record(self):
+        mod04 = require_surface(self, "selection raises the named failure on a record nested beyond the bound", "mod04", "select_view_records")
+        record = {"viewer_id": "v1", "first_seen_day": 1, "payload": self._deep(2000)}
+        with self.assertRaises(mod04.NamedFailure):
+            mod04.select_view_records([record], "v1", 1)
+
+    def test_builder_raises_named_failure_on_deep_contents(self):
+        mod04 = require_surface(self, "the builder raises the named failure on contents nested beyond the bound", "mod04", "build_view_record")
+        contents = [{"first_seen_day": 1, "delay": 0, "payload": self._deep(2000)}]
+        with self.assertRaises(mod04.NamedFailure):
+            mod04.build_view_record(contents=contents, position="p", rule_version_set="rv")
+
+    def test_builder_raises_named_failure_on_deep_groups(self):
+        mod04 = require_surface(self, "the builder raises the named failure on a group value nested beyond the bound", "mod04", "build_view_record")
+        with self.assertRaises(mod04.NamedFailure):
+            mod04.build_view_record(
+                contents=[{"first_seen_day": 1, "delay": 0}],
+                position="p", rule_version_set="rv",
+                reputation_and_band={"payload": self._deep(2000)},
+            )
+        with self.assertRaises(mod04.NamedFailure):
+            mod04.build_view_record(
+                contents=[{"first_seen_day": 1, "delay": 0}],
+                position="p", rule_version_set="rv",
+                graph_position={"payload": self._deep(2000)},
+            )
+
+    def test_selection_and_builder_raise_named_failure_on_cyclic_content(self):
+        mod04 = require_surface(self, "selection and the builder raise the named failure on cyclic content", "mod04", "select_view_records", "build_view_record")
+        cyclic = {}
+        cyclic["self"] = cyclic
+        record = {"viewer_id": "v1", "first_seen_day": 1, "payload": cyclic}
+        with self.assertRaises(mod04.NamedFailure):
+            mod04.select_view_records([record], "v1", 1)
+        item = {"first_seen_day": 1, "delay": 0}
+        item["self"] = item
+        with self.assertRaises(mod04.NamedFailure):
+            mod04.build_view_record(contents=[item], position="p", rule_version_set="rv")
+
+    def test_moderately_deep_content_still_stands(self):
+        mod04 = require_surface(self, "selection and the builder still stand on content inside the bound", "mod04", "select_view_records", "build_view_record")
+        record = {"viewer_id": "v1", "first_seen_day": 1, "payload": self._deep(50)}
+        selected = mod04.select_view_records([record], "v1", 1)
+        self.assertEqual(len(selected), 1)
+        built = mod04.build_view_record(
+            contents=[{"first_seen_day": 1, "delay": 0, "payload": self._deep(50)}],
+            position="p", rule_version_set="rv",
+        )
+        self.assertEqual(built["form"], "ViewRecord")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,7 +12,11 @@ message carries the recorded gated failure name DERIVATION-GATED
 and names the gate DQ7-02, and no such path executes in part. The
 tracer composition that retains and reads back one form only
 RunRecord stands at the integration surface of slice S-16, in
-mod16; this module holds no dependency on MOD-10 in any form.
+mod16; this module holds no module level import of MOD-10, and
+it delegates to MOD-10 at body level in two places only,
+release_view calling the MOD-10 view leak check runner as the
+release gate and write_checkpoint retaining the checkpoint pair
+through the MOD-10 paired store.
 """
 import copy
 
@@ -175,12 +179,19 @@ def _state_field(state, names, default=None):
     return default
 
 
+_BARRED_KEY_PARTS = (
+    "membership",
+    "ground_truth",
+    "groundtruth",
+    "canary",
+)
+
+
 def _is_barred_key(key):
     lowered = str(key).lower()
     return (
         lowered in BARRED_PROJECTION_KEYS
-        or "membership" in lowered
-        or "ground_truth" in lowered
+        or any(part in lowered for part in _BARRED_KEY_PARTS)
     )
 
 
@@ -409,8 +420,10 @@ def run_tracer_cut():
     composition itself stands at the integration surface of slice
     S-16, in mod16.run_tracer_cut: the engine delivers the record
     in form only, and the integration surface composes it with the
-    MOD-10 retention and reading path. This module imports no part
-    of MOD-10 in any form."""
+    MOD-10 retention and reading path. This function imports
+    MOD-16 only; the module delegates to MOD-10 at body level in
+    release_view and in write_checkpoint, as the head statement
+    states."""
     from crucible import mod16
 
     return mod16.run_tracer_cut()
@@ -608,6 +621,44 @@ VIEW_EXCLUDED_CONTENT = (
 )
 
 
+VIEW_COPY_DEPTH_BOUND = 100
+
+
+def _view_copy_guard(value, _depth=0, _seen=None, _path=""):
+    """Walk a value the view select and build acts are about to
+    copy, under the same depth bound and named failure form as
+    the TA-03 cures: a value standing deeper than the bound, or
+    carrying a cycle, raises NamedFailure naming the bound or
+    the cycle at its path, and no bare RecursionError escapes
+    the copy. A value shared from two places on different paths
+    carries no cycle and stands admitted."""
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        if _depth > VIEW_COPY_DEPTH_BOUND:
+            raise NamedFailure(
+                "view record copy bound reached at " + (_path or "root")
+                + ": the value stands deeper than the stated bound of "
+                + str(VIEW_COPY_DEPTH_BOUND)
+            )
+        seen = _seen if _seen is not None else set()
+        if id(value) in seen:
+            raise NamedFailure(
+                "view record copy found a cycle at " + (_path or "root")
+            )
+        seen.add(id(value))
+        try:
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    _view_copy_guard(
+                        item, _depth + 1, seen, _path + "/" + str(key))
+            else:
+                for index, item in enumerate(value):
+                    _view_copy_guard(
+                        item, _depth + 1, seen,
+                        _path + "[" + str(index) + "]")
+        finally:
+            seen.discard(id(value))
+
+
 def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
                         as_of_position=None):
     """Select the records one viewer view contains. A record stands
@@ -653,6 +704,7 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
                         continue
                 except (TypeError, ValueError):
                     continue
+        _view_copy_guard(record)
         selected.append(_freeze(record))
     return selected
 
@@ -675,10 +727,16 @@ def build_view_record(run_id="run-under-test", viewer_id="viewer-1",
     by item, and where an arrival value does not stand on a content
     record the group carries an explicit not derived marker in its
     place. A record carrying a barred field at any depth stands
-    refused at this writing act."""
+    refused at this writing act. Content standing deeper than
+    the view copy bound, or carrying a cycle, stands refused in
+    the named failure form of the depth guard before any copy
+    stands taken."""
     if completeness not in COMPLETENESS_STATES:
         raise NamedFailure("completeness state outside the closed vocabulary: " + str(completeness))
     contents = list(contents or ())
+    _view_copy_guard(contents)
+    _view_copy_guard(reputation_and_band or {})
+    _view_copy_guard(graph_position or {})
     stated_position = position
     if stated_position is None and isinstance(run_record, dict):
         stated_position = run_record.get("scheduling_position_identifier")

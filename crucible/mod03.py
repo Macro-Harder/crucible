@@ -563,35 +563,36 @@ def generator_holds_rule_state():
     return False
 
 
-def _value_carries_rule_state(value, _seen=None):
+def _value_carries_rule_state(value, _depth=0, _seen=None, _path=""):
     """Return whether a value carries a rule state field at any depth.
 
     Dicts are read by their keys and by every value they hold, and
     lists, tuples, and sets are read by every item they hold, so a
-    decided effect nested inside another value still counts. A
-    container already under reading on this path is not read again.
+    decided effect nested inside another value still counts. The
+    reading stands under the module traversal guard: a value
+    standing deeper than the stated traversal bound, and a value
+    carrying a cycle, each fail in the module named failure form,
+    as the ground truth reading of this module fails, and no bare
+    recursion error escapes.
     """
-    if isinstance(value, dict):
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
         seen = _seen if _seen is not None else set()
-        if id(value) in seen:
-            return False
+        _traversal_guard(value, _depth, seen, _path)
         seen.add(id(value))
         try:
+            if isinstance(value, dict):
+                return any(
+                    key in RULE_STATE_FIELDS
+                    or _value_carries_rule_state(
+                        item, _depth + 1, seen, _path + "/" + str(key))
+                    for key, item in value.items()
+                )
             return any(
-                key in RULE_STATE_FIELDS
-                or _value_carries_rule_state(item, seen)
-                for key, item in value.items()
+                _value_carries_rule_state(
+                    item, _depth + 1, seen,
+                    _path + "[" + str(index) + "]")
+                for index, item in enumerate(value)
             )
-        finally:
-            seen.discard(id(value))
-    if isinstance(value, (list, tuple, set, frozenset)):
-        seen = _seen if _seen is not None else set()
-        if id(value) in seen:
-            return False
-        seen.add(id(value))
-        try:
-            return any(
-                _value_carries_rule_state(item, seen) for item in value)
         finally:
             seen.discard(id(value))
     return False
@@ -601,10 +602,13 @@ def validate_generator_output(output):
     """Return True only where an output proposes and decides nothing.
 
     An output carrying a reputation, stake, band, or contract effect
-    as a decided effect fails this check, at any depth: the stated
-    rule carries no depth limit. Ground truth carriage in a
-    cast delivery is scoring carriage, not an effect, and stands
-    outside this check, which reads proposal outputs.
+    as a decided effect fails this check, at any depth the traversal
+    bound reaches: the reading carries no shallower limit of its
+    own, and a value standing deeper than the module traversal
+    bound, or carrying a cycle, fails in the module named failure
+    form instead of standing read as clean. Ground truth carriage
+    in a cast delivery is scoring carriage, not an effect, and
+    stands outside this check, which reads proposal outputs.
     """
     items = output if isinstance(output, (list, tuple)) else [output]
     for item in items:
