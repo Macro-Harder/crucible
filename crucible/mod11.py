@@ -15,6 +15,7 @@ container record of its week and stands released into the next
 weekly container in arrival order.
 """
 import copy
+import re
 
 from crucible import mod01
 from crucible import mod10
@@ -120,32 +121,39 @@ def unit_is_publishable(unit):
     return validate_publication_record(unit.get("publication_record"))
 
 
-def judge_registry_entry(entry, compiler, checker):
+def judge_registry_entry(entry, compiler, checker, run_log=None):
     """Judge one SweepFamilyRegistry entry by phase, as the
     Reporter acting as family registrar: the before runs fields
     for lateness, the after runs fields for completeness, the
     entry compared against the run log by a checker who did not
-    compile the registry."""
+    compile the registry. The comparison stands stated only
+    where a run log stands among the inputs of the act: handed
+    in as the run log argument, or carried on the entry itself.
+    With no run log among the inputs, no comparison stands
+    stated, because none took place."""
     same_person = compiler == checker
     phases = (entry or {}).get("phase_judgements") or {}
     judged = {
         "before_runs": phases.get("before_runs") == "judged",
         "after_runs": phases.get("after_runs") == "judged",
     }
+    run_log_stands = run_log is not None or (
+        isinstance(entry, dict) and entry.get("run_log") is not None)
     return {
         "before_runs_judged_for": "lateness",
         "after_runs_judged_for": "completeness",
         "phases_judged": judged,
-        "compared_against_run_log": not same_person,
+        "compared_against_run_log": run_log_stands and not same_person,
         "checker_did_not_compile": not same_person,
         "valid": (not same_person) and all(judged.values()),
     }
 
 
-def validate_registry_entry(entry, compiler, checker):
+def validate_registry_entry(entry, compiler, checker, run_log=None):
     """Return True only where an entry stands judged in both
     phases by a checker who did not compile it."""
-    return judge_registry_entry(entry, compiler, checker)["valid"]
+    return judge_registry_entry(
+        entry, compiler, checker, run_log=run_log)["valid"]
 
 
 def make_headline_unit(values):
@@ -722,12 +730,35 @@ def weekly_count(summary_records, week):
     return len(identifiers)
 
 
+_UNIT_IDENTIFIER_PATTERN = re.compile(r"u[0-9]+")
+
+
+def _unit_identifier_stands(item):
+    """Return True only where an item stands as one headline unit
+    identifier in the standing form the weekly pins use: the
+    letter u followed by one or more plain digits, and nothing
+    else."""
+    return isinstance(item, str) and \
+        _UNIT_IDENTIFIER_PATTERN.fullmatch(item) is not None
+
+
 def make_weekly_container(week, units):
     """Build the weekly container for one week in arrival order.
     At most 25 whole headline units stand in the container under
     decision D-12. A unit beyond the cap stands held, reported as
-    held in the container record of its own week."""
+    held in the container record of its own week. Each held item
+    stands validated against the standing unit identifier form
+    before any count stands taken, and an item that does not
+    stand in that form stands refused in named form, so no count
+    stands stated over unvalidated contents."""
     ordered = list(units or [])
+    for item in ordered:
+        if not _unit_identifier_stands(item):
+            raise ValueError(
+                "weekly container stands refused in named form: "
+                "a held item stands in no unit identifier form, "
+                "and no count stands taken over unvalidated "
+                "contents: " + repr(item))
     inside = ordered[:WEEKLY_CAP]
     held = ordered[WEEKLY_CAP:]
     outside_cells = sum(

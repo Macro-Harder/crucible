@@ -77,6 +77,13 @@ _HOMOGLYPH_MAP = {
     "\u03c4": "t", "\u03c7": "x", "\u03c5": "u", "\u03bd": "n",
     "\u03b3": "g", "\u03b4": "d", "\u03bb": "l", "\u03c3": "s",
     "\u03c9": "w", "\u03b6": "z", "\u03b8": "t", "\u03c6": "f",
+    "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
+    "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
+    "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
+    "\u0167": "t",
+    "\u00c6": "ae", "\u0152": "oe", "\u00d8": "o", "\u0110": "d",
+    "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
+    "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
 }
 for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
     _HOMOGLYPH_MAP[_upper.upper()] = _lower

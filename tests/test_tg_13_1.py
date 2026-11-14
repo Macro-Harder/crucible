@@ -92,6 +92,7 @@ class TestTG131(unittest.TestCase):
         """
         Fixture: One SweepFamilyRegistry entry for a family, with its run log, inspected before runs and after runs.
         Pins: The Reporter, as family registrar, judges the registry fields by phase, the before runs fields for lateness and the after runs fields for completeness, and the entry stands compared against the run log by a checker who did not compile the registry, in the form plan section 3, Form 22, states for the registry.
+        Restatement, recorded under the Step 14 re-run Manager ruling on TA-56: the comparison stands stated only where a run log stands among the inputs of the judging act. An entry judged with no run log among its inputs states no comparison, and an entry judged with a run log in hand states the comparison, as the two limbs below pin. The earlier form of this pin, which asserted the comparison on a call carrying no run log, stands restated by that ruling, and the restatement stands recorded in the closing cure paper of the re-run.
         Bar: A registry entry compiled and checked by the same person fails this group, and an entry whose fields stand unjudged in either phase fails this group.
         Failure: Fails while crucible.mod11 stands absent, naming TG-13.1 and this behaviour; an entry checked by its compiler, or unjudged in either phase, fails this test when the surface stands.
         """
@@ -99,18 +100,26 @@ class TestTG131(unittest.TestCase):
         m = _surface_module
         entry = {"phase_judgements": {"before_runs": "judged",
                                       "after_runs": "judged"}}
-        judged = m.judge_registry_entry(entry, compiler="registrar",
-                                        checker="independent checker")
+        judged = m.judge_registry_entry(
+            entry, compiler="registrar",
+            checker="independent checker",
+            run_log={"runs": ["retirement run 1"]})
         self.assertEqual(judged["before_runs_judged_for"], "lateness")
         self.assertEqual(judged["after_runs_judged_for"], "completeness")
         self.assertTrue(judged["compared_against_run_log"])
+        no_log = m.judge_registry_entry(entry, compiler="registrar",
+                                        checker="independent checker")
+        self.assertFalse(no_log["compared_against_run_log"])
         self.assertTrue(m.validate_registry_entry(
-            entry, compiler="registrar", checker="independent checker"))
+            entry, compiler="registrar", checker="independent checker",
+            run_log={"runs": ["retirement run 1"]}))
         self.assertFalse(m.validate_registry_entry(
-            entry, compiler="registrar", checker="registrar"))
+            entry, compiler="registrar", checker="registrar",
+            run_log={"runs": ["retirement run 1"]}))
         unjudged = {"phase_judgements": {"before_runs": "judged"}}
         self.assertFalse(m.validate_registry_entry(
-            unjudged, compiler="registrar", checker="independent checker"))
+            unjudged, compiler="registrar", checker="independent checker",
+            run_log={"runs": ["retirement run 1"]}))
 
 
 if __name__ == "__main__":
