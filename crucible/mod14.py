@@ -116,7 +116,7 @@ def _freeze(value, _depth=0, _memo=None):
             frozen_item = _freeze(item, _depth + 1, memo)
             try:
                 collides = frozen_key in copied
-            except TypeError:
+            except Exception:
                 collides = False
             if collides:
                 counter = 2
@@ -127,7 +127,11 @@ def _freeze(value, _depth=0, _memo=None):
                             + str(counter) + ")")
                     else:
                         distinct_key = (frozen_key, counter)
-                    if distinct_key not in copied:
+                    try:
+                        distinct_taken = distinct_key in copied
+                    except Exception:
+                        distinct_taken = False
+                    if not distinct_taken:
                         frozen_key = distinct_key
                         break
                     counter += 1
@@ -306,6 +310,17 @@ def _safe_text(value):
         return object.__repr__(value)
 
 
+def _vocabulary_text(value):
+    """Render a handed value for a vocabulary sentence: a text
+    form or a buffer form stands rendered by the text it stores,
+    read through _stored_text, so a memoryview form names the
+    value it stores and never a volatile memory address. Any
+    other form stands rendered through _safe_text."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return _stored_text(value)
+    return _safe_text(value)
+
+
 def _key_error_message_text(raw_message):
     """The sentence a KeyError family failure carries, with
     the repr escapes the interpreter supplies inside its
@@ -414,8 +429,20 @@ def error_carriage(failure, run_id=None, stage=None):
         "operator_sees_failure": True,
     }
     for key, value in fields.items():
-        if key not in carriage and key != "message":
+        try:
+            already_carried = key in carriage
+        except Exception:
+            already_carried = False
+        try:
+            is_message = key == "message"
+        except Exception:
+            is_message = False
+        if already_carried or is_message:
+            continue
+        try:
             carriage[key] = value
+        except Exception:
+            continue
     return carriage
 
 
@@ -476,7 +503,9 @@ def run_command(command, payload=None, run_id=None):
                     "stands required, and nothing stands written")
             record_id = dict.get(record, "run_id") or dict.get(
                 record, "run_identifier")
-            if record_id is not None and not isinstance(record_id, str):
+            if record_id is not None and (
+                    not isinstance(record_id, str)
+                    or str.__len__(record_id) == 0):
                 raise NamedShellFailure(
                     "write_store stands refused: the run_id stands "
                     "in no identifier form: a run identifier in "
@@ -780,13 +809,14 @@ def pilot_run(use, artefact=None):
     label is stamped: a barred entry carried in a list, a tuple,
     or a set, or under a spaced or joined spelling, raises the
     named failure in the same form as one carried in a dict."""
-    if use not in PILOT_USES:
+    use_text = str.__str__(use) if isinstance(use, str) else None
+    if use_text is None or use_text not in PILOT_USES:
         raise NamedShellFailure(
             "pilot use outside timing, conformance, and procedure rates: " + _safe_text(use)
         )
     _screen_pilot_artefact(artefact)
     output = _freeze(artefact) if isinstance(artefact, dict) else {"figure": artefact}
-    output["use"] = use
+    output["use"] = use_text
     output["confinement_label"] = "pilot confined"
     output["form"] = "pilot artefact, stored apart from sweep results"
     return output
@@ -812,10 +842,14 @@ def validate_pilot_claim(claim):
 # ---------------------------------------------------------------------------
 
 def _pilot_confined(material):
-    return isinstance(material, dict) and (
-        dict.get(material, "material_class") == "pilot confined"
-        or dict.get(material, "confinement_label") == "pilot confined"
-    )
+    if not isinstance(material, dict):
+        return False
+    for key in ("material_class", "confinement_label"):
+        value = dict.get(material, key)
+        if isinstance(value, str) and str.__eq__(
+                value, "pilot confined"):
+            return True
+    return False
 
 
 def sweep_level_determinism_contract(material):
@@ -1125,7 +1159,7 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
         if tier is not None and tier_text not in RETENTION_TIERS:
             raise NamedShellFailure(
                 "flag evaluation tier outside the tiers the rule "
-                "names: " + _safe_text(tier) + "; the tiers the rule names "
+                "names: " + _vocabulary_text(tier) + "; the tiers the rule names "
                 "stand as Tier 0, Tier 1, Tier 2, and Tier 3, and no flag "
                 "evaluation stands performed")
         current = _base_get(summary_record, "retention_tier")
@@ -1177,9 +1211,28 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
 
 
 def _week_stands_equal(stored_week, handed_week):
+    """Judge two week values equal kind first: two text weeks
+    by the base text equality of their stored characters, a
+    boolean week only against a boolean week, two plain number
+    weeks by their plain number equality, and any other pair
+    only where both stand in the same kind, judged by a guarded
+    equality that a raising reading answers as not equal. No
+    handed equality reading decides a pair across kinds."""
     if isinstance(stored_week, str) and isinstance(handed_week, str):
         return str.__eq__(stored_week, handed_week)
-    return stored_week == handed_week
+    if isinstance(stored_week, bool) or isinstance(handed_week, bool):
+        return (isinstance(stored_week, bool)
+                and isinstance(handed_week, bool)
+                and stored_week is handed_week)
+    if isinstance(stored_week, (int, float)) and isinstance(
+            handed_week, (int, float)):
+        return stored_week == handed_week
+    if type(stored_week) is not type(handed_week):
+        return False
+    try:
+        return bool(stored_week == handed_week)
+    except Exception:
+        return False
 
 
 def weekly_headline_count(summary_records, week):
@@ -1226,14 +1279,14 @@ def weekly_headline_count(summary_records, week):
             raise NamedShellFailure(
                 "summary record for the week carries no "
                 "headline_unit_identifiers field, and no weekly "
-                "headline count stands certified")
+                "headline count stands certified without it")
         identifiers = _base_get(record, "headline_unit_identifiers")
         if identifiers is None:
             raise NamedShellFailure(
                 "summary record for the week carries a "
                 "headline_unit_identifiers field standing at no "
                 "value, and no weekly headline count stands "
-                "certified")
+                "certified without it")
         if isinstance(identifiers, str):
             identifiers = (identifiers,)
         elif not isinstance(identifiers, (list, tuple, set, frozenset)):
@@ -1241,7 +1294,8 @@ def weekly_headline_count(summary_records, week):
                 "summary record for the week carries a "
                 "headline_unit_identifiers field the count cannot "
                 "read: " + type(identifiers).__name__
-                + "; no weekly headline count stands certified")
+                + "; no weekly headline count stands certified "
+                "without it")
         for unit_id in _container_parts(identifiers):
             if isinstance(unit_id, (list, tuple, set, frozenset,
                                     dict)):

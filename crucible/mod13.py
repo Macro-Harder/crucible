@@ -194,10 +194,13 @@ def _stored_present(value):
 def _stored_string(value):
     """The stored string form of a value: a text value through
     its base class string form, any other value through the
-    plain string conversion its plain form carries."""
+    safe string form, which renders through the base object
+    repr where the string reading the value itself supplies
+    raises, so a caller building a sentence or an identifier
+    from the stored form never escapes bare on that reading."""
     if isinstance(value, str):
         return str.__str__(value)
-    return str(value)
+    return _safe_str(value)
 
 
 def _safe_repr(value):
@@ -222,6 +225,19 @@ def _safe_str(value):
         return str(value)
     except Exception:
         return _safe_repr(value)
+
+
+def _vocabulary_text(value):
+    """Render a handed value for a vocabulary sentence: a text
+    form or a buffer form stands rendered by the text it stores,
+    read through _stored_text, so a memoryview form names the
+    value it stores and never a volatile memory address. Any
+    other form stands rendered through _safe_str."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        stored = _stored_text(value)
+        if stored is not None:
+            return stored
+    return _safe_str(value)
 
 
 COMPARISON_DEPTH_BOUND = 100
@@ -296,7 +312,16 @@ def _stored_key_texts(value):
     passes 5040 the unordered container contributes its
     sorted join alone, as _stored_key_text states it, so
     no cross product past the bound stands ever built for
-    any ordering."""
+    any ordering. The joins of an unordered container stand
+    built by used part sets, each part entering a join once,
+    with the partial joins deduplicated as they grow, so
+    orderings that compose the same texts stand built once
+    and the work the act performs stands bounded by the
+    distinct partial joins, never by the factorial of the
+    part count times the cross product of one ordering.
+    Where a partial join set passes 5040 the unordered
+    container contributes its sorted join alone, in the
+    bound form this reading already states."""
     if isinstance(value, (tuple, list)):
         part_texts = [
             _stored_key_texts(part)
@@ -322,19 +347,24 @@ def _stored_key_texts(value):
                 total *= len(texts)
                 if total > 5040:
                     return {_stored_key_text(value)}
-            out = set()
-            for order in itertools.permutations(range(len(parts))):
-                combos = {""}
-                for index in order:
-                    combos = {
-                        head + (tail if tail is not None else "")
-                        for head in combos
-                        for tail in part_texts[index]}
-                out.update(combos)
-                if len(out) > 5040:
-                    break
-            if len(out) <= 5040:
-                return out
+            states = {0: {""}}
+            for _level in range(len(parts)):
+                next_states = {}
+                for mask, partials in states.items():
+                    for index in range(len(parts)):
+                        bit = 1 << index
+                        if mask & bit:
+                            continue
+                        grown = next_states.setdefault(mask | bit, set())
+                        for head in partials:
+                            for tail in part_texts[index]:
+                                grown.add(
+                                    head
+                                    + (tail if tail is not None else ""))
+                                if len(grown) > 5040:
+                                    return {_stored_key_text(value)}
+                states = next_states
+            return states.get((1 << len(parts)) - 1, set())
         return {_stored_key_text(value)}
     return {_stored_key_text(value)}
 
@@ -951,11 +981,11 @@ def use_stands_for_marked_run(use, marked_non_deterministic=True,
     confinement, and no other use."""
     if not marked_non_deterministic:
         return True
-    if use in NON_DETERMINISTIC_BARRED_USES:
+    if _base_str_member(use, NON_DETERMINISTIC_BARRED_USES):
         return False
-    if use == "screening observation":
+    if _base_str_eq(use, "screening observation"):
         return bool(labelled_screening)
-    if use in NON_DETERMINISTIC_PERMITTED_USES:
+    if _base_str_member(use, NON_DETERMINISTIC_PERMITTED_USES):
         return True
     return False
 
@@ -1139,7 +1169,7 @@ def verdict_record(claim_id, standard="exact replay alone", outcome="rests"):
             "and no verdict record stands made")
     if not _base_str_member(outcome, ("rests", "does not rest")):
         raise NamedReplicationFailure(
-            "unknown verdict outcome: " + _safe_str(outcome)
+            "unknown verdict outcome: " + _vocabulary_text(outcome)
             + "; the stated outcomes stand as rests and does not "
             "rest, and no verdict record stands made")
     record = {

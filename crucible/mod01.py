@@ -24,6 +24,8 @@ import collections
 import copy
 import itertools
 import unicodedata
+from decimal import Decimal
+from fractions import Fraction
 
 __all__ = [
     "AC1_STATE_HASH_FIELDS",
@@ -527,6 +529,9 @@ _FIELD_VALUES = {
     "core_only_qualifier": True,
     "content_check_outcome": "passed",
     "completeness_state": "complete",
+    "outcome": "not reported",
+    "confirmation_outcome": "not run",
+    "gate_failure": "none",
     "anchor_scenario_values": (
         "stated anchor value one", "stated anchor value two",
         "stated anchor value three"),
@@ -2509,17 +2514,112 @@ def _stored_plain(value):
 
 def _base_value_equals(left, right):
     """Whether two handed values stand equal in what they store,
-    judged through base class operations. A text value stands
-    equal only to a text value whose stored text matches."""
-    plain_left = _stored_plain(left)
-    plain_right = _stored_plain(right)
-    if isinstance(plain_left, str) or isinstance(plain_right, str):
+    judged kind first through base class operations. A text value
+    stands equal only to a text value whose stored text matches.
+    A boolean stands apart from every number and stands equal
+    only to a boolean holding the same value. A Decimal stands
+    equal only to a Decimal holding the same stored value, and a
+    Fraction only to a Fraction holding the same stored value,
+    each judged through the base class operation of its kind on
+    a plain copy of its kind. The plain number limb reaches int
+    and float values alone, which stand equal where their plain
+    values stand equal. A complex value stands equal only to a
+    complex value holding the same stored value. Container values
+    stand equal only to a container of the same kind whose parts
+    stand equal under this same judgement, part by part."""
+    if isinstance(left, str) or isinstance(right, str):
         return (
-            isinstance(plain_left, str)
-            and isinstance(plain_right, str)
-            and str.__eq__(plain_left, plain_right)
+            isinstance(left, str)
+            and isinstance(right, str)
+            and str.__eq__(str.__str__(left), str.__str__(right)) is True
         )
-    return plain_left == plain_right
+    if isinstance(left, bool) or isinstance(right, bool):
+        return (
+            isinstance(left, bool)
+            and isinstance(right, bool)
+            and (left is True) == (right is True)
+        )
+    if left is None or right is None:
+        return left is None and right is None
+    if isinstance(left, Decimal) or isinstance(right, Decimal):
+        return (
+            isinstance(left, Decimal)
+            and isinstance(right, Decimal)
+            and Decimal.__eq__(
+                Decimal.__new__(Decimal, left),
+                Decimal.__new__(Decimal, right)) is True
+        )
+    if isinstance(left, Fraction) or isinstance(right, Fraction):
+        return (
+            isinstance(left, Fraction)
+            and isinstance(right, Fraction)
+            and Fraction.__eq__(
+                Fraction.__new__(Fraction, left),
+                Fraction.__new__(Fraction, right)) is True
+        )
+    if isinstance(left, complex) or isinstance(right, complex):
+        return (
+            isinstance(left, complex)
+            and isinstance(right, complex)
+            and complex.__eq__(
+                complex.__new__(complex, left),
+                complex.__new__(complex, right)) is True
+        )
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return _stored_plain(left) == _stored_plain(right)
+    if isinstance(left, (int, float)) or isinstance(right, (int, float)):
+        return False
+    if isinstance(left, dict) and isinstance(right, dict):
+        if dict.__len__(left) != dict.__len__(right):
+            return False
+        remaining = list(dict.items(right))
+        for key, item in dict.items(left):
+            matched = None
+            for index, (other_key, other_item) in enumerate(remaining):
+                if _base_value_equals(key, other_key):
+                    matched = index
+                    matched_item = other_item
+                    break
+            if matched is None:
+                return False
+            if not _base_value_equals(item, matched_item):
+                return False
+            remaining.pop(matched)
+        return True
+    if isinstance(left, (list, tuple)) and isinstance(right, (list, tuple)):
+        if type(left) is not type(right):
+            return False
+        left_parts = list(_base_iter(left)) if isinstance(
+            left, (list, tuple)) else []
+        right_parts = list(_base_iter(right))
+        if len(left_parts) != len(right_parts):
+            return False
+        return all(
+            _base_value_equals(one, two)
+            for one, two in zip(left_parts, right_parts))
+    if isinstance(left, (set, frozenset)) and isinstance(
+            right, (set, frozenset)):
+        if type(left) is not type(right):
+            return False
+        left_parts = list(_base_iter(left))
+        right_parts = list(_base_iter(right))
+        if len(left_parts) != len(right_parts):
+            return False
+        remaining = list(right_parts)
+        for part in left_parts:
+            matched = None
+            for index, other in enumerate(remaining):
+                if _base_value_equals(part, other):
+                    matched = index
+                    break
+            if matched is None:
+                return False
+            remaining.pop(matched)
+        return True
+    if isinstance(left, (dict, list, tuple, set, frozenset)) or isinstance(
+            right, (dict, list, tuple, set, frozenset)):
+        return False
+    return left is right or _stored_plain(left) == _stored_plain(right)
 
 
 def validate_lien_state(value, cross_seam=False):

@@ -15,6 +15,8 @@ no sweep run starts here.
 
 import itertools
 import unicodedata
+from decimal import Decimal
+from fractions import Fraction
 
 from crucible import mod01 as _mod01
 from crucible import mod02 as _mod02
@@ -566,14 +568,35 @@ def admit_claim(family, claim=None):
     return {"admitted": True, "claim": _freeze(claim)}
 
 
+def _safe_str(value):
+    """Render a handed value for a sentence: through its string
+    reading where that reading stands, and through the base
+    object repr where the string reading the value itself
+    supplies raises, so the sentence stands delivered whole and
+    never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def kill_check_for_claim(claim):
     """One named kill check for one headline claim, in four parts:
     the name of the check; the data it runs on, standing outside
     the artefact under check; the judge that applies it, standing
-    outside the artefact under check; and the killing result."""
+    outside the artefact under check; and the killing result.
+    The name stands built from the text the claim stores, read
+    through the stored text reading of this module where the
+    claim stands in a text form, and through the safe string
+    form of this module where it does not, so a claim whose own
+    string reading raises or misstates its stored text still
+    stands named whole."""
+    name_text = _stored_text(claim)
+    if name_text is None:
+        name_text = _safe_str(claim)
     return {
         "claim": claim,
-        "name": "kill check for " + str(claim),
+        "name": "kill check for " + name_text,
         "data": "records outside the artefact under check",
         "judge": "checker outside the artefact under check",
         "killing_result": "the claim does not stand as reported",
@@ -585,8 +608,19 @@ def kill_check_for_claim(claim):
 
 def kill_checks_for_family(family_id="family-under-test", claims=None):
     """The kill checks fixed before runs for one family, one per
-    headline claim in the family list."""
-    claims = list(claims or ("headline claim 1",))
+    headline claim in the family list. The claims stand read in
+    the form of the cured sibling act make_family_record: a
+    handing in list, tuple, set, or frozenset form stands read
+    through the base iteration of its form, and a handing in
+    any other form stands as the default claim list, so no
+    truth, iteration, or string reading the handing itself
+    supplies directs which claims stand checked."""
+    if claims is None:
+        claims = ["headline claim 1"]
+    elif isinstance(claims, (list, tuple, set, frozenset)):
+        claims = list(_base_iter(claims)) or ["headline claim 1"]
+    else:
+        claims = ["headline claim 1"]
     return [kill_check_for_claim(claim) for claim in claims]
 
 
@@ -861,7 +895,16 @@ def _key_stored_texts(key, _depth=0):
     holding more than seven parts stands under the same
     discipline: it contributes the one deterministic text
     of _key_stored_text alone, so no ordering enumeration
-    past seven parts stands ever run."""
+    past seven parts stands ever run. The joins of an
+    unordered container stand built by used part sets, each
+    part entering a join once, with the partial joins
+    deduplicated as they grow, so orderings that compose the
+    same texts stand built once and the work the act performs
+    stands bounded by the distinct partial joins, never by
+    the factorial of the part count times the cross product
+    of one ordering. Where a partial join set passes the
+    stated bound, the fallback stands taken at once, in the
+    bound form this reading already states."""
     text = _stored_text(key)
     if text is not None:
         return {text}
@@ -893,18 +936,22 @@ def _key_stored_texts(key, _depth=0):
             total *= len(part_options)
             if total > _DRESS_TEXTS_BOUND:
                 return {_key_stored_text(key, _depth)}
-        texts = set()
-        for order in itertools.permutations(range(len(parts))):
-            composed = {""}
-            for index in order:
-                composed = {
-                    head + option
-                    for head in composed
-                    for option in options[index]}
-            texts.update(composed)
-            if len(texts) > _DRESS_TEXTS_BOUND:
-                return {_key_stored_text(key, _depth)}
-        return texts
+        states = {0: {""}}
+        for _level in range(len(parts)):
+            next_states = {}
+            for mask, partials in states.items():
+                for index in range(len(parts)):
+                    bit = 1 << index
+                    if mask & bit:
+                        continue
+                    grown = next_states.setdefault(mask | bit, set())
+                    for head in partials:
+                        for option in options[index]:
+                            grown.add(head + option)
+                            if len(grown) > _DRESS_TEXTS_BOUND:
+                                return {_key_stored_text(key, _depth)}
+            states = next_states
+        return states.get((1 << len(parts)) - 1, set())
     return {""}
 
 
@@ -1564,8 +1611,11 @@ def _carries_cycle(value):
 def _stored_values_equal(first, second):
     """Whether two handed values store the same value, judged on
     their stored forms: text storing values by their stored text,
-    and every other value by its frozen stored copy, never
-    through an equality reading either value itself supplies."""
+    and every other value kind first under settlement S-16, in
+    the form of the sibling act _stored_ids_equal of this
+    module, never through an equality reading either value
+    itself supplies and never by the plain equality of frozen
+    copies, which judges kind blind."""
     first_text = _stored_text(first)
     second_text = _stored_text(second)
     if first_text is not None or second_text is not None:
@@ -1575,7 +1625,86 @@ def _stored_values_equal(first, second):
         return result if result is not NotImplemented else False
     if _carries_cycle(first) or _carries_cycle(second):
         return first is second
-    return _freeze(first) == _freeze(second)
+    return _values_equal_kind_first(first, second)
+
+
+def _values_equal_kind_first(one, two):
+    """Whether two handed values store the same value, judged
+    kind first part by part: a boolean stands apart from every
+    number, an integer from a float, and a Decimal, a Fraction,
+    and a complex value each stand judged against their own
+    kind alone, outside the plain number limb, in the form
+    settlement S-16 states and the sibling act
+    _stored_ids_equal of this module states for identifiers.
+    Containers stand judged part by part under this same
+    reading, and a value of any other kind stands judged by
+    identity, so no equality reading a handed value itself
+    supplies decides the judgement."""
+    one_text = _stored_text(one)
+    two_text = _stored_text(two)
+    if one_text is not None or two_text is not None:
+        if one_text is None or two_text is None:
+            return False
+        result = str.__eq__(one_text, two_text)
+        return result if result is not NotImplemented else False
+    if one is None or two is None:
+        return one is None and two is None
+    if isinstance(one, bool) or isinstance(two, bool):
+        return isinstance(one, bool) and isinstance(two, bool) \
+            and one is two
+    if isinstance(one, int) or isinstance(two, int):
+        return isinstance(one, int) and isinstance(two, int) \
+            and int.__eq__(one, two) is True
+    if isinstance(one, float) or isinstance(two, float):
+        return isinstance(one, float) and isinstance(two, float) \
+            and float.__eq__(one, two) is True
+    if isinstance(one, (Decimal, Fraction, complex)) \
+            or isinstance(two, (Decimal, Fraction, complex)):
+        return type(one) is type(two) \
+            and type(one).__eq__(one, two) is True
+    if isinstance(one, dict) and isinstance(two, dict):
+        if dict.__len__(one) != dict.__len__(two):
+            return False
+        remaining = list(dict.items(two))
+        for key, item in dict.items(one):
+            matched = None
+            for index, (other_key, other_item) in enumerate(remaining):
+                if _values_equal_kind_first(key, other_key) \
+                        and _values_equal_kind_first(item, other_item):
+                    matched = index
+                    break
+            if matched is None:
+                return False
+            remaining.pop(matched)
+        return True
+    if isinstance(one, (list, tuple)) and isinstance(two, (list, tuple)):
+        if type(one) is not type(two):
+            return False
+        one_parts = _base_sequence(one)
+        two_parts = _base_sequence(two)
+        if len(one_parts) != len(two_parts):
+            return False
+        return all(
+            _values_equal_kind_first(part, other)
+            for part, other in zip(one_parts, two_parts))
+    if isinstance(one, (set, frozenset)) \
+            and isinstance(two, (set, frozenset)):
+        one_parts = _base_sequence(one)
+        two_parts = _base_sequence(two)
+        if len(one_parts) != len(two_parts):
+            return False
+        remaining = list(two_parts)
+        for part in one_parts:
+            matched = None
+            for index, other in enumerate(remaining):
+                if _values_equal_kind_first(part, other):
+                    matched = index
+                    break
+            if matched is None:
+                return False
+            remaining.pop(matched)
+        return True
+    return one is two
 
 
 def _stored_ids_equal(first, second):
@@ -2204,7 +2333,11 @@ def sample_statement(runs=None):
     count of runs completed in each run class, stated class by
     class, what the sample was as the concrete units counted,
     and, where no run stands completed, the bound stated in
-    words with no count invented."""
+    words with no count invented. Where two runs counted
+    apart stand under one printed name, each such name in the
+    sentence carries the kind of its run beside it, so the
+    operator stands told that two different runs stand
+    behind the repeated name."""
     counts = {run_class: 0 for run_class in RUN_CLASSES}
     named = []
     if isinstance(runs, dict):
@@ -2244,13 +2377,41 @@ def sample_statement(runs=None):
                 "no run stands completed behind this result; "
                 "the DQ7-02 gate stands unadopted"),
         }
+    name_texts = [_sample_name_text(name) for name in named]
+    repeated = {
+        text for text in name_texts if name_texts.count(text) > 1}
+    rendered = [
+        text + " (" + _sample_name_kind(name) + ")"
+        if text in repeated else text
+        for name, text in zip(named, name_texts)]
     return {
         "n": total,
         "runs_completed_by_class": counts,
         "sample": "the runs named in this statement: " + ", ".join(
-            _sample_name_text(name) for name in named),
+            rendered),
         "bound": "counts taken from the runs this result rests on only",
     }
+
+
+def _sample_name_kind(name):
+    """The kind one run identifier stands in, named in plain
+    words for the sample sentence: a boolean as boolean, a
+    text form value, in string, bytes, bytearray, or
+    memoryview dress, as text, an integer as integer, a float
+    as float, and a complex value as complex, in the kind
+    first form of settlement S-16. A value of any other kind
+    stands named by the name of its type."""
+    if isinstance(name, bool):
+        return "boolean"
+    if isinstance(name, (str, bytes, bytearray, memoryview)):
+        return "text"
+    if isinstance(name, int):
+        return "integer"
+    if isinstance(name, float):
+        return "float"
+    if isinstance(name, complex):
+        return "complex"
+    return type(name).__name__
 
 
 def _sample_name_text(name):

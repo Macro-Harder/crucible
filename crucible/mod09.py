@@ -471,7 +471,7 @@ def catalogue_gaps():
     return tuple(_mod03.catalogue_gaps())
 
 
-def _catalogue_repr(name):
+def _catalogue_repr(name, _depth=0, _seen=None):
     """Return a content derived representation of one identifier
     in a container form, built from the stored parts alone. A
     set or frozenset part stands represented by the sorted
@@ -490,22 +490,39 @@ def _catalogue_repr(name):
     through this same reading, never by a representation
     reading the part itself supplies, so two parts whose kind
     name and stored contents tie still tie here, and no order
-    rule for such tied parts stands stated by this act."""
+    rule for such tied parts stands stated by this act. The
+    walk stands bounded at a depth of 100, in the form the
+    neighbouring stored readings state for this shape, and
+    stands guarded against cycles: a part standing past that
+    depth, or standing again on its own walk path, stands
+    represented by its kind name alone."""
+    if _depth > 100:
+        return type(name).__name__
     if isinstance(name, (set, frozenset)):
+        if _seen is not None and id(name) in _seen:
+            return type(name).__name__
+        seen = (_seen or frozenset()) | {id(name)}
         parts = sorted(
-            _catalogue_repr(part) for part in (
+            _catalogue_repr(part, _depth + 1, seen) for part in (
                 set.__iter__(name) if isinstance(name, set)
                 else frozenset.__iter__(name)))
         return "%s({%s})" % (type(name).__name__, ", ".join(parts))
     if isinstance(name, tuple):
+        if _seen is not None and id(name) in _seen:
+            return type(name).__name__
+        seen = (_seen or frozenset()) | {id(name)}
         parts = [
-            _catalogue_repr(part)
+            _catalogue_repr(part, _depth + 1, seen)
             for part in tuple.__iter__(name)]
         return "(%s%s)" % (
             ", ".join(parts), "," if len(parts) == 1 else "")
     if isinstance(name, list):
+        if _seen is not None and id(name) in _seen:
+            return type(name).__name__
+        seen = (_seen or frozenset()) | {id(name)}
         return "[%s]" % ", ".join(
-            _catalogue_repr(part) for part in list.__iter__(name))
+            _catalogue_repr(part, _depth + 1, seen)
+            for part in list.__iter__(name))
     if isinstance(name, str):
         return repr(str.__str__(name))
     if isinstance(name, (bytes, bytearray, memoryview)):
@@ -523,11 +540,14 @@ def _catalogue_repr(name):
     except TypeError:
         stored = None
     if isinstance(stored, dict):
+        if _seen is not None and id(name) in _seen:
+            return type(name).__name__
+        seen = (_seen or frozenset()) | {id(name)}
         parts = [
             "%s=%s" % (
                 str.__str__(key) if isinstance(key, str)
                 else _catalogue_repr(key),
-                _catalogue_repr(item))
+                _catalogue_repr(item, _depth + 1, seen))
             for key, item in sorted(
                 list(dict.items(stored)),
                 key=lambda pair: str.__str__(pair[0])
@@ -686,21 +706,22 @@ def attacker_payoff(strategy, external_profit_value):
             in_protocol, (int, float)):
         raise NamedAttackerFailure(
             "attacker payoff rejected: the in protocol payoff "
-            "stands in no numeric form: " + repr(in_protocol)
+            "stands in no numeric form: " + _safe_repr(in_protocol)
         )
     if isinstance(external_profit_value, bool) or not isinstance(
             external_profit_value, (int, float)):
         raise NamedAttackerFailure(
             "attacker payoff rejected: the external profit value "
-            "stands in no numeric form: " + repr(external_profit_value)
+            "stands in no numeric form: "
+            + _safe_repr(external_profit_value)
         )
     if not math.isfinite(in_protocol) or not math.isfinite(
             external_profit_value):
         raise NamedAttackerFailure(
             "attacker payoff rejected: a payoff part stands in no "
             "finite numeric form: in protocol "
-            + repr(in_protocol) + ", external "
-            + repr(external_profit_value)
+            + _safe_repr(in_protocol) + ", external "
+            + _safe_repr(external_profit_value)
         )
     return _plain_number(in_protocol) + _plain_number(
         external_profit_value)
@@ -710,13 +731,94 @@ def _safe_repr(value):
     """Render a handed value for a refusal sentence: through
     its repr reading where that reading stands, and through
     the base object repr where the repr reading the value
-    itself supplies raises, so the sentence stands delivered
-    whole and never escapes bare on that reading."""
+    itself supplies raises one of the seven named kinds
+    (TypeError, RuntimeError, ValueError, AttributeError,
+    OverflowError, KeyError, OSError), so the sentence stands
+    delivered whole and never escapes bare on a reading that
+    raises one of those seven named kinds."""
     try:
         return repr(value)
     except (TypeError, RuntimeError, ValueError, AttributeError,
             OverflowError, KeyError, OSError):
         return object.__repr__(value)
+
+
+def _safe_str(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises TypeError, RuntimeError, ValueError,
+    AttributeError, OverflowError, KeyError, or OSError, so
+    the sentence stands delivered whole on those kinds."""
+    try:
+        return str(value)
+    except (TypeError, RuntimeError, ValueError, AttributeError,
+            OverflowError, KeyError, OSError):
+        return object.__repr__(value)
+
+
+def _render_safe_copy(value, _depth=0, _seen=None):
+    """A copy of a handed value whose every part stands safe
+    to render: container parts copied part by part through
+    this same reading, a text part as the plain text it
+    stores, a buffer part in its own buffer form, and every
+    other part as itself where its repr reading stands, or
+    as its base object repr text where that reading raises
+    TypeError, RuntimeError, ValueError, AttributeError,
+    OverflowError, KeyError, or OSError. A part standing past
+    a depth of 100, or standing again on its own copy path,
+    stands as its base object repr text."""
+    if isinstance(value, dict):
+        if _depth > 100 or (
+                _seen is not None and id(value) in _seen):
+            return object.__repr__(value)
+        seen = (_seen or frozenset()) | {id(value)}
+        return {
+            _render_safe_copy(key, _depth + 1, seen):
+                _render_safe_copy(item, _depth + 1, seen)
+            for key, item in list(dict.items(value))}
+    if isinstance(value, list):
+        if _depth > 100 or (
+                _seen is not None and id(value) in _seen):
+            return object.__repr__(value)
+        seen = (_seen or frozenset()) | {id(value)}
+        return [
+            _render_safe_copy(item, _depth + 1, seen)
+            for item in list.__iter__(value)]
+    if isinstance(value, tuple):
+        if _depth > 100 or (
+                _seen is not None and id(value) in _seen):
+            return object.__repr__(value)
+        seen = (_seen or frozenset()) | {id(value)}
+        return tuple(
+            _render_safe_copy(item, _depth + 1, seen)
+            for item in tuple.__iter__(value))
+    if isinstance(value, (set, frozenset)):
+        if _depth > 100 or (
+                _seen is not None and id(value) in _seen):
+            return object.__repr__(value)
+        seen = (_seen or frozenset()) | {id(value)}
+        parts = [
+            _render_safe_copy(item, _depth + 1, seen)
+            for item in (
+                set.__iter__(value) if isinstance(value, set)
+                else frozenset.__iter__(value))]
+        return set(parts) if isinstance(value, set) else frozenset(
+            parts)
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bytes):
+        return bytes(value)
+    if isinstance(value, bytearray):
+        return bytearray(bytes(value))
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
+    try:
+        repr(value)
+    except (TypeError, RuntimeError, ValueError, AttributeError,
+            OverflowError, KeyError, OSError):
+        return object.__repr__(value)
+    return value
 
 
 def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
@@ -860,7 +962,7 @@ def run_record_carriage(strategy_class, ladder_position,
         if not _base_contains(strategy_class, name):
             raise NamedAttackerFailure(
                 "strategy outside the fixed class stands rejected: "
-                + str(name)
+                + _safe_str(name)
             )
         exercised.append(_carry_text(name))
     return {
@@ -1142,7 +1244,7 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
         if not isinstance(candidate, dict):
             raise NamedAttackerFailure(
                 "bond parameter search rejected: a candidate stands "
-                "in no record form: " + repr(candidate)
+                "in no record form: " + _safe_repr(candidate)
             )
         params = _base_dict_get(
             candidate, "parameter_set", candidate)
@@ -1156,7 +1258,7 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
                 raise NamedAttackerFailure(
                     "bond parameter search rejected: a candidate "
                     "carries a harm or a cost in no numeric form: "
-                    + repr(candidate)
+                    + _safe_repr(candidate)
                 )
             if cost is None or _plain_number(cost) == 0 or (
                     harm is None):
@@ -1165,7 +1267,8 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
         if not _stands_numeric(factor) or not math.isfinite(factor):
             raise NamedAttackerFailure(
                 "bond parameter search rejected: a griefing factor "
-                "stands in no finite numeric form: " + repr(factor)
+                "stands in no finite numeric form: "
+                + _safe_repr(factor)
             )
         scored.append({
             "parameter_set": _stored_copy(params),
@@ -1213,7 +1316,7 @@ def build_search_record(run_carriage, points_tried,
         if not isinstance(entry, dict):
             raise NamedAttackerFailure(
                 "search record rejected: a case use stands in "
-                "no record form: " + repr(entry)
+                "no record form: " + _safe_repr(entry)
             )
         if entry.get("fixture") == "F-26":
             entry["use"] = "strategy search point only"
@@ -1366,18 +1469,33 @@ def _outcome_carries_content(value):
 
 def _stands_point_mapping(entry):
     """Whether a handed dict stands in point mapping form:
-    a non empty mapping whose every stored value stands in
-    an outcome bearing form, a record, a text or buffer
-    outcome, or a container of outcomes, so a dict carrying
-    a plain scalar beside its keys stands as an entry in
-    record form and not as a point mapping."""
+    a non empty mapping carrying at least one stored value
+    in an outcome bearing form, a record, a text or buffer
+    outcome, or a container of outcomes, whose every other
+    stored value stands in an outcome bearing form or in a
+    plain scalar outcome form, an int, a float, a complex,
+    a boolean, or no value, each standing as the outcome a
+    point records in scalar dress beside the outcomes under
+    its fellow point keys. A dict carrying no outcome
+    bearing value at all, as an entry in record form
+    carrying a plain scalar beside its keys, stands as an
+    entry in record form and not as a point mapping."""
     if not isinstance(entry, dict) or _base_length(entry) == 0:
+        return False
+    values = list(dict.values(entry))
+    if not any(
+            isinstance(item, (dict, str, bytes, bytearray,
+                              memoryview, list, tuple, set,
+                              frozenset))
+            for item in values):
         return False
     return all(
         isinstance(item, (dict, str, bytes, bytearray,
                           memoryview, list, tuple, set,
-                          frozenset))
-        for item in list(dict.values(entry)))
+                          frozenset, bool, int, float,
+                          complex))
+        or item is None
+        for item in values)
 
 
 def _entry_outcome_state(entry):
@@ -1564,25 +1682,59 @@ def attacker_cost_summary(witness_run):
     """The attacker cost summary of INV8B-14 for one witness run.
 
     A descriptive figure beside the witness, priced per failure
-    witness run, changing no regime classification.
+    witness run, changing no regime classification. Every field
+    the summary carries stands rendered safe, so the summary
+    itself stands safe to render whole. A run carrying none of
+    a figure the summary reports stands named in the summary
+    itself: absent_fields names each reported field whose
+    value stands absent on the run, and where no regime
+    classification stands on the run the summary states that
+    standing in classification_standing and carries no changed
+    verdict, regime_classification_changed standing as no
+    value, in place of a verdict reading as a classification
+    that stood and did not change.
     """
     if not isinstance(witness_run, dict):
         raise NamedAttackerFailure(
             "attacker cost summary rejected: the witness run "
-            "stands in no record form: " + repr(witness_run)
+            "stands in no record form: " + _safe_repr(witness_run)
         )
+    identifier = _base_dict_get(witness_run, "run_identifier")
+    cost = _stored_copy(_base_dict_get(witness_run, "attacker_cost"))
+    harm = _stored_copy(_base_dict_get(witness_run, "harm"))
+    classification = _base_dict_get(
+        witness_run, "regime_classification")
+    absent_fields = []
+    if identifier is None:
+        absent_fields.append("run_identifier")
+    if cost is None:
+        absent_fields.append("attacker_cost")
+    if harm is None:
+        absent_fields.append("harm")
+    if classification is None:
+        absent_fields.append("regime_classification")
+    if classification is None:
+        classification_standing = (
+            "no regime classification stands on the run, and no "
+            "classification change stands judged")
+        classification_changed = None
+    else:
+        classification_standing = (
+            "the regime classification stands on the run and "
+            "stands unchanged by this summary")
+        classification_changed = False
+    classification_safe = _render_safe_copy(classification)
     return {
-        "witness_run": _base_dict_get(witness_run, "run_identifier"),
-        "attacker_cost": _stored_copy(
-            _base_dict_get(witness_run, "attacker_cost")),
-        "harm": _stored_copy(_base_dict_get(witness_run, "harm")),
+        "witness_run": _render_safe_copy(identifier),
+        "attacker_cost": _render_safe_copy(cost),
+        "harm": _render_safe_copy(harm),
         "standing": "descriptive figure beside the witness",
         "priced_per": "failure witness run",
-        "regime_classification_changed": False,
-        "classification_before": _base_dict_get(
-            witness_run, "regime_classification"),
-        "classification_after": _base_dict_get(
-            witness_run, "regime_classification"),
+        "regime_classification_changed": classification_changed,
+        "classification_before": classification_safe,
+        "classification_after": classification_safe,
+        "absent_fields": absent_fields,
+        "classification_standing": classification_standing,
         "units": UNITS,
     }
 

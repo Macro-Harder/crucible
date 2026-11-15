@@ -268,10 +268,14 @@ class TestR16053CompoundInformationies(unittest.TestCase):
             readout_for("informationies result holds")))
 
     def test_r14_033_bound_forms_stand(self):
-        for word in ("toothes", "informationes", "informations"):
+        for word in ("informationes", "informations"):
             with self.subTest(word=word):
                 self.assertTrue(mod11._is_readable_word(word), word)
                 self.assertEqual(mod11._readable_stem(word), [])
+
+    def test_toothes_refused_on_ruling_h(self):
+        self.assertFalse(mod11._is_readable_word("toothes"))
+        self.assertEqual(mod11._readable_stem("toothes"), [])
 
     def test_barred_plural_controls_hold(self):
         for word in ("sheepes", "childs", "mouses", "tooths",

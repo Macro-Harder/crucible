@@ -144,8 +144,10 @@ def _guarded_copy(value, _memo=None):
     built as plain containers of their kind, so no copy protocol
     a part supplies is ever invoked and a part supplying a lying
     deepcopy protocol cannot materialise as another value inside
-    the copy. A part in no container form stands copied as
-    itself."""
+    the copy. The buffer forms stand carried as stored: a
+    bytearray as a fresh bytearray and a memoryview as a
+    memoryview over fresh bytes. A part in no container form and
+    no buffer form stands copied as itself."""
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):
@@ -190,6 +192,10 @@ def _guarded_copy(value, _memo=None):
         for item in set.__iter__(value):
             copied.add(_guarded_copy(item, _memo))
         return copied
+    if isinstance(value, bytearray):
+        return bytearray(bytes(value))
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
     return value
 
 

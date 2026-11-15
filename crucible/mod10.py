@@ -86,6 +86,17 @@ def _safe_str(value):
     except Exception:
         return object.__repr__(value)
 
+
+def _vocabulary_text(value):
+    """Render a handed value for a vocabulary sentence: a text
+    form or a buffer form stands rendered by the text it stores,
+    read through _stored_text, so a memoryview form names the
+    value it stores and never a volatile memory address. Any
+    other form stands rendered through _safe_str."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return _stored_text(value)
+    return _safe_str(value)
+
 FORM_ONLY = "form_only"
 
 
@@ -1506,6 +1517,22 @@ def _base_value_eq(left, right):
                 right, (set, frozenset)):
             return False
         return _base_set_eq(left, right)
+    if isinstance(left, bool) or isinstance(right, bool):
+        return left is right
+    if isinstance(left, Decimal) or isinstance(right, Decimal):
+        if not isinstance(left, Decimal) or not isinstance(
+                right, Decimal):
+            return False
+        return Decimal.__eq__(
+            Decimal.__new__(Decimal, left),
+            Decimal.__new__(Decimal, right)) is True
+    if isinstance(left, Fraction) or isinstance(right, Fraction):
+        if not isinstance(left, Fraction) or not isinstance(
+                right, Fraction):
+            return False
+        return Fraction.__eq__(
+            Fraction.__new__(Fraction, left),
+            Fraction.__new__(Fraction, right)) is True
     left_number = _plain_number(left)
     right_number = _plain_number(right)
     if left_number is not None or right_number is not None:
@@ -2202,7 +2229,7 @@ class RecorderStore:
                 pass
         for rid, record in self._records.items():
             merged[rid] = record
-        records = [merged[rid] for rid in sorted(merged, key=lambda item: str(item))]
+        records = [merged[rid] for rid in sorted(merged, key=lambda item: _safe_str(item))]
         payload = {"store_kind": self.store_kind, "records": records}
         tmp_path = self.path + ".tmp"
         try:
@@ -2233,6 +2260,10 @@ class RecorderStore:
                 "no identifier form: a run identifier in text form "
                 "stands required, and no record stands retained "
                 "under it")
+        if str.__len__(rid) == 0:
+            raise ValueError(
+                "identity less record: no run identifier stands on the "
+                "record, and no record stands retained under no identifier")
         try:
             hash(rid)
         except TypeError as exc:
@@ -2256,13 +2287,13 @@ class RecorderStore:
         self._index.append(rid)
         try:
             self._flush()
-        except OSError as exc:
+        except Exception as exc:
             del self._records[rid]
             self._index.remove(rid)
             raise ValueError(
                 "recorder store flush failure: the retained record stands "
                 "not written, and the prior store file stands whole: "
-                + str(exc)) from exc
+                + _safe_str(exc)) from exc
         return _safe_copy(record)
 
     def read_run_record(self, run_id):
@@ -2284,9 +2315,19 @@ class RecorderStore:
             raise LookupFailure(run_id) from exc
 
     def clear(self):
+        kept_records = self._records
+        kept_index = self._index
         self._records = {}
         self._index = []
-        self._flush(merge_disk=False)
+        try:
+            self._flush(merge_disk=False)
+        except Exception as exc:
+            self._records = kept_records
+            self._index = kept_index
+            raise ValueError(
+                "recorder store flush failure: the store stands not "
+                "cleared, and the prior store file stands whole: "
+                + _safe_str(exc)) from exc
 
     def index(self):
         return list(self._index)
@@ -2487,21 +2528,21 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
                     if _numeric_component(component):
                         continue
                     where = (
-                        " for viewer " + str(dict.get(delivery, "viewer_id"))
-                        + " at day " + str(dict.get(delivery, "simulated_day")))
+                        " for viewer " + _safe_str(dict.get(delivery, "viewer_id"))
+                        + " at day " + _safe_str(dict.get(delivery, "simulated_day")))
                     if isinstance(component, (int, float)) and not isinstance(
                             component, bool):
                         raise ValueError(
                             "daily aggregate delivery in named form: "
                             "the " + field + " of the delivery" + where
                             + " stand in a non finite numeric form "
-                            "(component " + repr(component)
+                            "(component " + _safe_repr(component)
                             + "), and that delivery stands not retained")
                     raise ValueError(
                         "daily aggregate delivery in named form: the "
                         + field + " of the delivery" + where
                         + " stand in a non numeric form (component "
-                        + repr(component)
+                        + _safe_repr(component)
                         + "), and that delivery stands not retained")
     stored = _AGGREGATE_DELIVERIES.setdefault(run_id, {})
     for delivery in stored_deliveries:
@@ -3343,7 +3384,7 @@ def checkpoint_position_check(manifest, store_kind="sweep"):
         else:
             wording = (
                 "the journal position stands in no integer form: "
-                + repr(position))
+                + _safe_repr(position))
         return {
             "check": "checkpoint position check",
             "outcome": (
@@ -3426,11 +3467,16 @@ def close_run_retention(run_id, tier, store_kind="sweep"):
     not decimal digit text stands outside the close day set
     altogether, neither kept nor released by this act, its
     checkpoint and its state standing untouched by the close."""
-    if tier not in ("Tier 0", "Tier 1", "Tier 2", "Tier 3"):
+    tier_text = (
+        _stored_text(tier) if isinstance(
+            tier, (str, bytes, bytearray, memoryview)) else None)
+    if tier_text not in ("Tier 0", "Tier 1", "Tier 2", "Tier 3"):
         raise ValueError(
-            "unknown retention tier for the close act: " + _safe_str(tier)
+            "unknown retention tier for the close act: "
+            + _vocabulary_text(tier)
             + "; a retention tier stands among Tier 0, Tier 1, "
             "Tier 2, and Tier 3, and no close stands performed")
+    tier = tier_text
     store_kind = _canonical_store_kind(store_kind)
     bucket = _CHECKPOINTS.get((store_kind, run_id), [])
     groups = []
@@ -3561,7 +3607,14 @@ def restore_check(portable, present_identifiers):
             "stand in no iterable form, a set of present identifiers "
             "stands required, and no restore standing stands "
             "returned") from None
-    return identifier in present_set
+    try:
+        return identifier in present_set
+    except TypeError:
+        raise ValueError(
+            "restore_check stands refused: the relative identifier "
+            "stands in an unhashable form, a present identifier in "
+            "text form stands required, and no restore standing "
+            "stands returned") from None
 
 
 def replay_check(original, resumed):
@@ -3861,13 +3914,19 @@ def summary_record_for_run(run_id="run-under-test"):
         hash(run_id)
     except TypeError as exc:
         raise LookupFailure(run_id) from exc
-    if run_id in _SUMMARY_RECORDS:
+    try:
+        summary_present = run_id in _SUMMARY_RECORDS
+    except Exception as exc:
+        raise LookupFailure(run_id) from exc
+    if summary_present:
         return _safe_copy(_SUMMARY_RECORDS[run_id])
     record = None
     try:
         record = _DEFAULT_STORE.read_run_record(run_id)
     except LookupFailure:
         record = None
+    except Exception as exc:
+        raise LookupFailure(run_id) from exc
     if record is None:
         return {
             "run_id": run_id,
@@ -4660,7 +4719,7 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
     if tier is not None and tier_text not in _TIER_RANKS:
         raise ValueError(
             "flag evaluation tier outside the tiers the rule names: "
-            + _safe_str(tier) + "; the tiers the rule names stand as "
+            + _vocabulary_text(tier) + "; the tiers the rule names stand as "
             "Tier 0, Tier 1, Tier 2, and Tier 3, and no flag "
             "evaluation stands performed")
     current = dict.get(record, "retention_tier")
@@ -4703,14 +4762,14 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
         if current_text in _TIER_RANKS and _TIER_RANKS[tier_text] <= _TIER_RANKS[current_text]:
             raise ValueError(
                 "a promote outcome with no effected promotion stands "
-                "refused: the stated tier " + _safe_str(tier)
+                "refused: the stated tier " + _vocabulary_text(tier)
                 + " does not rise above the standing tier "
-                + _safe_str(current)
+                + _vocabulary_text(current)
                 + ", a promotion must rise above the standing tier, "
                 "and no promotion stands effected by it")
     updated = _safe_copy(record)
     if outcome_text == "promote" and tier is not None:
-        updated["retention_tier"] = tier
+        updated["retention_tier"] = tier_text
     updated["flag_evaluation"] = {
         "inputs": _safe_copy(inputs),
         "outcome": outcome,
@@ -4852,19 +4911,42 @@ def retention_record_for_run(run_id, store_kind="sweep"):
     evaluations = summary.get("deferred_evaluations") or []
     later = evaluations[-1] if evaluations else None
     tier = summary.get("retention_tier")
-    tier_forms = {
+    tier_key = (
+        _stored_text(tier) if isinstance(
+            tier, (str, bytes, bytearray, memoryview)) else tier)
+    tier_map = {
+        "Tier 0": [],
         "Tier 1": ["final_checkpoint"],
         "Tier 2": ["final_checkpoint", "tenth_point_checkpoints"],
         "Tier 3": ["final_checkpoint", "daily_checkpoints"],
-    }.get(tier, [])
+    }
+    try:
+        tier_judged = tier_key in tier_map
+        tier_forms = tier_map.get(tier_key, [])
+    except TypeError:
+        tier_judged = False
+        tier_forms = []
+    retained_checkpoints = checkpoints_for_run(run_id, store_kind)
     pointer_counts = {
-        "checkpoints": len(checkpoints_for_run(run_id, store_kind)),
+        "checkpoints": len(retained_checkpoints),
         "event_log_entries": len(event_log_entries(run_id, store_kind)),
         "daily_snapshots": len(daily_snapshots(run_id, store_kind)),
     }
     retained_forms = []
     if pointer_counts["checkpoints"]:
         retained_forms.append("final_checkpoint")
+    if "tenth_point_checkpoints" in tier_forms and any(
+            _day_match_form(dict.get(checkpoint, "simulated_day"))[0]
+            == "int"
+            and _day_match_form(
+                dict.get(checkpoint, "simulated_day"))[1] % 10 == 0
+            for checkpoint in retained_checkpoints
+            if isinstance(checkpoint, dict)):
+        retained_forms.append("tenth_point_checkpoints")
+    if "daily_checkpoints" in tier_forms and (
+            pointer_counts["checkpoints"] >= 2
+            or pointer_counts["daily_snapshots"]):
+        retained_forms.append("daily_checkpoints")
     if pointer_counts["event_log_entries"]:
         retained_forms.append("event_log")
     if pointer_counts["daily_snapshots"]:
@@ -4873,17 +4955,28 @@ def retention_record_for_run(run_id, store_kind="sweep"):
         form + ": not retained"
         for form in tier_forms if form not in retained_forms
     ]
+    if tier_judged:
+        shortfall_bound = (
+            "shortfall stands stated inside this result as a bound: "
+            + str(len(not_retained)) + " of " + str(len(tier_forms))
+            + " forms the tier names stand not retained")
+    else:
+        shortfall_bound = (
+            "shortfall stands not judged inside this result: no tier "
+            "forms stand named for the tier the run states, the tier "
+            "standing unstated or unknown, and no shortfall stands "
+            "stated against it")
     result = {
         "run_id": run_id,
-        "retention_tier": tier,
+        "retention_tier": tier_key,
         "tier_forms": list(tier_forms),
         "retained_forms": retained_forms,
         "not_retained": not_retained,
+        "shortfall_judged": tier_judged,
         "shortfall": {
             "count": len(not_retained),
-            "bound": "shortfall stands stated inside this result as a bound: "
-            + str(len(not_retained)) + " of " + str(len(tier_forms))
-            + " forms the tier names stand not retained",
+            "judged": tier_judged,
+            "bound": shortfall_bound,
         },
         "later_evaluation": _safe_copy(later),
         "pointers": {
@@ -5612,9 +5705,9 @@ def run_view_leak_check(view_record):
             "view leak check failure: form field_validation, the "
             "record stands as no ViewRecord")
     view_name = (
-        str(dict.get(view_record, "run_identifier")
+        _safe_str(dict.get(view_record, "run_identifier")
             or dict.get(view_record, "run_id"))
-        + "/" + str(dict.get(view_record, "viewer_identifier")
+        + "/" + _safe_str(dict.get(view_record, "viewer_identifier")
                     or dict.get(view_record, "viewer_id")))
     groups = [
         name for name in (

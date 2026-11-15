@@ -2276,14 +2276,20 @@ def _payload_carries_barred(value, _depth=0, _seen=None, _walked=None):
 
 def _key_reading_stands_empty(text):
     """Whether one key reading stands empty in the walk folded
-    forms: under every letter map the plain reading of the key,
-    with digits dropped, stands empty, so the key contributes
-    no character to a joined folded reading. A separator only,
-    space only, or dash only key folds to no reading at all,
-    and a digit only key folds to a reading its digits dropped
-    form leaves empty, so both forms stand empty here, as the
-    sibling money walks read them, while a key carrying any
-    letter reading under any map stands read on that letter."""
+    forms: under some letter map the plain reading of the key,
+    with digits dropped, stands empty, so on that map the key
+    contributes no character to a joined folded reading. A
+    separator only, space only, or dash only key folds to no
+    reading at all on every map, and a digit only key folds to
+    a reading its digits dropped form leaves empty on every
+    map, so both forms stand empty here, as the sibling money
+    walks read them. A key standing as a Cyrillic hard sign or
+    soft sign, in either case, doubled, or mixed with a digit
+    or a separator, stands empty here on the transliteration
+    map, which records those signs with an empty reading and
+    so reads the key as no character at all, while a key whose
+    plain reading carries a letter on every map stands read
+    on that letter."""
     for letter_map in (
         _HOMOGLYPH_MAP, _TRANSLITERATION_MAP,
         _HOMOGLYPH_MAP_VO, _TRANSLITERATION_MAP_VO,
@@ -2294,9 +2300,9 @@ def _key_reading_stands_empty(text):
             if not unicodedata.category(character).startswith("M"))
         plain = "".join(
             character for character in base if character.isalnum())
-        if any(not character.isdigit() for character in plain):
-            return False
-    return True
+        if not any(not character.isdigit() for character in plain):
+            return True
+    return False
 
 
 def _dict_node_split_barred(value):

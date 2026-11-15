@@ -210,10 +210,20 @@ def unit_is_publishable(unit):
 _AMENDED_REGISTRY_FIELDS = ("confirmation_outcome", "gate_failure")
 
 
-def _registry_key_text(value):
+def _factorial(count):
+    result = 1
+    for number in range(2, count + 1):
+        result *= number
+    return result
+
+
+def _registry_key_text(value, _depth=0):
     """The stored text of a key or of a part of a key, under the
     governing stored text settlement, in the form crucible/mod01.py
-    states for its key reading."""
+    states for its key reading. Parts past the depth bound of
+    100 stand unread, as at the MOD-12 sister reading, so a key
+    nested past that bound reads as the one empty text and no
+    reading escapes as a bare RecursionError."""
     if isinstance(value, str):
         return str.__str__(value)
     if isinstance(value, bytes):
@@ -223,21 +233,25 @@ def _registry_key_text(value):
     if isinstance(value, memoryview):
         return bytes.decode(memoryview.tobytes(value), "utf-8", "ignore")
     if isinstance(value, (tuple, list)):
+        if _depth > _DEPTH_BOUND:
+            return ""
         parts = []
         for part in _base_iter(value):
-            part_text = _registry_key_text(part)
+            part_text = _registry_key_text(part, _depth + 1)
             parts.append(part_text if part_text is not None else "")
         return "".join(parts)
     if isinstance(value, (set, frozenset)):
+        if _depth > _DEPTH_BOUND:
+            return ""
         parts = []
         for part in _base_iter(value):
-            part_text = _registry_key_text(part)
+            part_text = _registry_key_text(part, _depth + 1)
             parts.append(part_text if part_text is not None else "")
         return "".join(sorted(parts))
     return None
 
 
-def _registry_key_texts(value):
+def _registry_key_texts(value, _depth=0):
     """Every stored text one registry key composes, as a set of
     texts, in the fuller dress reading form of settlement S-15:
     a key in tuple or list form composes the joins of its parts
@@ -247,20 +261,52 @@ def _registry_key_texts(value):
     split across the parts of an unordered key stands composed
     whole in every process. Where the composed texts pass the
     bound of 4096, the reading falls back to the one
-    deterministic sorted text of _registry_key_text."""
+    deterministic sorted text of _registry_key_text. The
+    combination total of the part texts stands computed before
+    any join stands built, in the form the MOD-12 sister states:
+    where that total passes the bound, the fallback stands taken
+    at once and no cross product past the bound stands ever
+    built. An unordered key holding more than seven parts stands
+    under the same discipline: it contributes the one
+    deterministic text alone, so no ordering enumeration past
+    seven parts stands ever run. The ordering aware work total,
+    the combination total times the factorial of the part count,
+    stands computed before enumeration as well: where that total
+    passes 1000000 the fallback stands taken at once, so the
+    orderings themselves stand counted in the bound and not only
+    the texts one ordering composes. Parts past the depth bound
+    of 100 stand unread, as at _registry_key_text."""
+    if _depth > _DEPTH_BOUND and isinstance(
+            value, (tuple, list, set, frozenset)):
+        return {""}
     if isinstance(value, (tuple, list)):
+        options = [
+            _registry_key_texts(part, _depth + 1)
+            for part in _base_iter(value)]
+        total = 1
+        for part_options in options:
+            total *= len(part_options)
+            if total > 4096:
+                return {_registry_key_text(value, _depth)}
         texts = {""}
-        for part in _base_iter(value):
-            options = _registry_key_texts(part)
+        for part_options in options:
             texts = {
                 head + (option if option is not None else "")
-                for head in texts for option in options}
-            if len(texts) > 4096:
-                return {_registry_key_text(value)}
+                for head in texts for option in part_options}
         return texts
     if isinstance(value, (set, frozenset)):
         parts = list(_base_iter(value))
-        options = [_registry_key_texts(part) for part in parts]
+        if len(parts) > 7:
+            return {_registry_key_text(value, _depth)}
+        options = [
+            _registry_key_texts(part, _depth + 1) for part in parts]
+        total = 1
+        for part_options in options:
+            total *= len(part_options)
+            if total > 4096:
+                return {_registry_key_text(value, _depth)}
+        if total * _factorial(len(parts)) > 1000000:
+            return {_registry_key_text(value, _depth)}
         texts = set()
         for order in itertools.permutations(range(len(parts))):
             composed = {""}
@@ -270,9 +316,9 @@ def _registry_key_texts(value):
                     for head in composed for option in options[index]}
             texts.update(composed)
             if len(texts) > 4096:
-                return {_registry_key_text(value)}
+                return {_registry_key_text(value, _depth)}
         return texts
-    return {_registry_key_text(value)}
+    return {_registry_key_text(value, _depth)}
 
 
 def _registry_stored_text(value):
@@ -640,7 +686,7 @@ def _region_stands(value):
     return _envelope_part_stands(value)
 
 
-def _part_text(value, _depth=0):
+def _part_text(value, _depth=0, _budget=None):
     """Return the text a unit part carries, read through base
     class readings only, so a string form stands beside a block
     form of the same part. A buffer part in bytes, bytearray, or
@@ -651,7 +697,21 @@ def _part_text(value, _depth=0):
     apart on a newline, so a mark split across the parts of an
     unordered part stands composed whole in every process; a
     part past six parts stands read in the one deterministic
-    sorted order of its part texts."""
+    sorted order of its part texts. The orders one whole reading
+    composes stand under one shared budget of 1000000 composed
+    characters across every level of the reading: where the
+    orders a level would compose pass the budget that stands
+    left, that level stands read in the one deterministic sorted
+    order instead, so an unordered part nested inside an
+    unordered part composes no more than the budget allows. A
+    stored key of a record part and a value in no stated form
+    stand read through base class readings only as well: a key
+    stands read as a part in its own right, a plain number
+    stands read through its base class reading, and any other
+    value in no stated form carries no text here, never a text
+    a reading the handed value supplies states."""
+    if _budget is None:
+        _budget = [1000000]
     if _depth > _DEPTH_BOUND and isinstance(
             value, (dict, list, tuple, set, frozenset)):
         return ""
@@ -667,26 +727,42 @@ def _part_text(value, _depth=0):
     if isinstance(value, dict):
         parts = []
         for key, item in dict.items(value):
-            parts.append(str(key))
-            parts.append(_part_text(item, _depth + 1))
+            parts.append(_part_text(key, _depth + 1, _budget))
+            parts.append(_part_text(item, _depth + 1, _budget))
         return " ".join(parts)
     if isinstance(value, (list, tuple)):
         return " ".join(
-            _part_text(item, _depth + 1) for item in _base_iter(value))
+            _part_text(item, _depth + 1, _budget)
+            for item in _base_iter(value))
     if isinstance(value, (set, frozenset)):
         part_texts = [
-            _part_text(item, _depth + 1) for item in _base_iter(value)]
+            _part_text(item, _depth + 1, _budget)
+            for item in _base_iter(value)]
         if len(part_texts) <= 1:
             return " ".join(part_texts)
         if len(part_texts) > 6:
             return " ".join(sorted(part_texts))
+        estimate = _factorial(len(part_texts)) * (
+            sum(len(text) for text in part_texts)
+            + len(part_texts) - 1)
+        if estimate > _budget[0]:
+            return " ".join(sorted(part_texts))
+        _budget[0] -= estimate
         composed = {
             " ".join(order)
             for order in itertools.permutations(part_texts)}
         return "\n".join(sorted(composed))
     if value is None:
         return ""
-    return str(value)
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    if isinstance(value, int):
+        return int.__str__(value)
+    if isinstance(value, float):
+        return float.__str__(value)
+    if isinstance(value, complex):
+        return complex.__str__(value)
+    return ""
 
 
 _FIELD10_SEAM_VALUES = (
@@ -1293,7 +1369,7 @@ def _readable_stem(word):
         if word[:-1] + "e" not in no_y_derivation:
             stems.append(word[:-1] + "e")
         plain = undoubled(word[:-1])
-        if plain is not None:
+        if plain is not None and plain not in no_y_derivation:
             stems.append(plain)
         if len(word[:-1]) >= 4:
             swapped = word[:-3] + word[-2] + word[-3]
@@ -1322,8 +1398,37 @@ def _is_readable_word(word):
     with a part that stands as no readable word counts as no
     word. A derivation carried on a whole compound likewise
     counts where the stem it yields stands as a readable word
-    on this reading."""
+    on this reading. A spelling that stands as the barred
+    plural of a base whose plural stands in no s form counts
+    as no word on the compound reading either, save the two
+    spellings the R14-033 bound carries in their exact form,
+    informationes and informations, which stand not charged."""
     memo = {}
+
+    # Bases whose plural stands in no s form at all, in the
+    # form _readable_stem states for its own limbs. A spelling
+    # that stands as the barred plural of one of these bases
+    # counts as no word on the compound reading either, the
+    # posture row R16-053 charges at informationies, save the
+    # two spellings the R14-033 bound carries in their exact
+    # form, informationes and informations, which stand not
+    # charged and keep the compound reading the bound states.
+    no_s_plural = frozenset(
+        ("child", "man", "woman", "sheep", "tooth", "wife",
+         "mouse", "foot", "leaf", "life", "half", "shelf",
+         "children", "data", "information"))
+    bound_compound_forms = frozenset(
+        ("informationes", "informations"))
+
+    def barred_plural_form(candidate):
+        if candidate.endswith("ies") and len(candidate) > 4:
+            return candidate[:-3] in no_s_plural \
+                or candidate[:-3] + "e" in no_s_plural
+        if candidate.endswith("es") and len(candidate) > 3:
+            return candidate[:-2] in no_s_plural
+        if candidate.endswith("s") and len(candidate) > 3:
+            return candidate[:-1] in no_s_plural
+        return False
 
     def readable(candidate):
         if candidate in memo:
@@ -1349,6 +1454,9 @@ def _is_readable_word(word):
             elif any(stem in _READABLE_LEXICON or readable(stem)
                      for stem in _readable_stem(candidate)):
                 result = True
+            elif barred_plural_form(candidate) \
+                    and candidate not in bound_compound_forms:
+                result = False
             else:
                 def compound_part(part):
                     if len(part) == 2:
@@ -2428,6 +2536,14 @@ def transition_figure(replicates):
         if regime is None:
             censored += 1
         else:
+            try:
+                hash(regime)
+            except Exception:
+                raise ValueError(
+                    "transition_figure stands refused: a replicate "
+                    "first terminal regime stands in no name form, "
+                    "a regime name stands required, and no "
+                    "transition figure stands computed") from None
             counts[regime] = counts.get(regime, 0) + 1
     denominator = total if total else 1
     incidence = {
@@ -2459,7 +2575,10 @@ def location_for_endpoint(figure, regime, band_endpoint):
     if not isinstance(figure, dict):
         return None
     incidence = dict.get(figure, "cumulative_incidence") or {}
-    entry = dict.get(incidence, regime) if isinstance(incidence, dict) else None
+    try:
+        entry = dict.get(incidence, regime) if isinstance(incidence, dict) else None
+    except Exception:
+        return None
     if entry is None:
         return None
     share = dict.get(entry, "share") if isinstance(entry, dict) else entry["share"]
@@ -2817,10 +2936,26 @@ def _week_stands_equal(stored_week, handed_week):
     where both stand in text form, through the base text
     equality, never through an equality reading a handed or
     stored value supplies. Values in other forms stand judged
-    by the plain equality of their forms."""
+    kind first: a boolean week only against a boolean week,
+    two plain number weeks by their plain number equality,
+    and any other pair only where both stand in the same
+    kind, judged by a guarded equality that a raising reading
+    answers as not equal."""
     if isinstance(stored_week, str) and isinstance(handed_week, str):
         return str.__eq__(stored_week, handed_week)
-    return stored_week == handed_week
+    if isinstance(stored_week, bool) or isinstance(handed_week, bool):
+        return (isinstance(stored_week, bool)
+                and isinstance(handed_week, bool)
+                and stored_week is handed_week)
+    if isinstance(stored_week, (int, float)) and isinstance(
+            handed_week, (int, float)):
+        return stored_week == handed_week
+    if type(stored_week) is not type(handed_week):
+        return False
+    try:
+        return bool(stored_week == handed_week)
+    except Exception:
+        return False
 
 
 _UNIT_IDENTIFIER_PATTERN = re.compile(r"u[0-9]+")

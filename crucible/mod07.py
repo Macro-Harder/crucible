@@ -16,6 +16,8 @@ applies and does not restate.
 """
 import copy
 import unicodedata
+from decimal import Decimal
+from fractions import Fraction
 
 from crucible import mod01
 
@@ -277,6 +279,21 @@ def _stored_pair_equal(first, second, _depth=0, _seen=None):
         return int.__eq__(first, second) is True
     if isinstance(first, float) and isinstance(second, float):
         return float.__eq__(first, second) is True
+    if isinstance(first, Decimal) or isinstance(second, Decimal):
+        return isinstance(first, Decimal) and isinstance(second, Decimal) \
+            and Decimal.__eq__(
+                Decimal.__new__(Decimal, first),
+                Decimal.__new__(Decimal, second)) is True
+    if isinstance(first, Fraction) or isinstance(second, Fraction):
+        return isinstance(first, Fraction) and isinstance(second, Fraction) \
+            and Fraction.__eq__(
+                Fraction.__new__(Fraction, first),
+                Fraction.__new__(Fraction, second)) is True
+    if isinstance(first, complex) or isinstance(second, complex):
+        return isinstance(first, complex) and isinstance(second, complex) \
+            and complex.__eq__(
+                complex.__new__(complex, first),
+                complex.__new__(complex, second)) is True
     if isinstance(first, dict) and isinstance(second, dict):
         pair = (id(first), id(second))
         if _seen is not None and pair in _seen:

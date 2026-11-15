@@ -306,6 +306,16 @@ def _base_get(record, key):
     return None
 
 
+def _base_str_eq(first, second):
+    """Judge two values by base string equality, which no part
+    can override. A value that does not stand in string form, or
+    whose stored characters differ, does not agree."""
+    if not (isinstance(first, str) and isinstance(second, str)):
+        return False
+    result = str.__eq__(first, second)
+    return result if result is not NotImplemented else False
+
+
 def _folded_readings(key):
     """The folded readings of one key, in the shared canonicalised
     form the barred surfaces at MOD-03, MOD-04 and MOD-05 read:
@@ -1754,8 +1764,11 @@ def _safe_repr(value):
     """Render a handed value for a refusal sentence: through
     its repr reading where that reading stands, and through
     the base object repr where the repr reading the value
-    itself supplies raises, so the sentence stands delivered
-    whole and never escapes bare on that reading."""
+    itself supplies raises one of the seven named kinds
+    (TypeError, RuntimeError, ValueError, AttributeError,
+    OverflowError, KeyError, OSError), so the sentence stands
+    delivered whole and never escapes bare on a reading that
+    raises one of those seven named kinds."""
     try:
         return repr(value)
     except (TypeError, RuntimeError, ValueError, AttributeError,
@@ -1767,8 +1780,11 @@ def _safe_str(value):
     """Render a handed value for a refusal sentence: through
     its string reading where that reading stands, and through
     the base object repr where the string reading the value
-    itself supplies raises, so the sentence stands delivered
-    whole and never escapes bare on that reading."""
+    itself supplies raises one of the seven named kinds
+    (TypeError, RuntimeError, ValueError, AttributeError,
+    OverflowError, KeyError, OSError), so the sentence stands
+    delivered whole and never escapes bare on a reading that
+    raises one of those seven named kinds."""
     try:
         return str(value)
     except (TypeError, RuntimeError, ValueError, AttributeError,
@@ -2088,7 +2104,8 @@ def validate_output(output):
     """
     if not isinstance(output, dict):
         return False
-    if dict.get(output, PROFILE_BOUND_LABEL_FIELD) != (
+    if not _base_str_eq(
+            dict.get(output, PROFILE_BOUND_LABEL_FIELD),
             PROFILE_LABEL_CARRIAGE):
         return False
     return not _carries_barred_verdict(output)
@@ -2104,9 +2121,14 @@ _VERDICT_POSITION_KEYS = (
 def _barred_verdict_value(value):
     """Whether a value stands as one of the barred verdict
     values, in the stripped and lowered form the walk judges
-    a single entry in."""
-    return isinstance(value, str) and (
-        value.strip().lower() in _BARRED_VERDICT_VALUES)
+    a single entry in. The value stands judged on its stored
+    text, in the form _stored_text states: a text value on the
+    characters it stores, read through the base class string
+    form, and a bytes, bytearray, or memoryview value on the
+    bytes it stores or views, so no reading the handed value
+    itself supplies stands as the judgement."""
+    return _stored_text(value).strip().lower() in (
+        _BARRED_VERDICT_VALUES)
 
 
 def _verdict_keys_tile_exact(readings, pairs, target):
@@ -2251,7 +2273,7 @@ def _carries_barred_verdict(node, _depth=0, _seen=None, _walked=None):
                     walked[(id(node), _depth)] = True
                     return True
                 for key, value in dict.items(node):
-                    lowered = str(key).lower()
+                    lowered = _stored_text(key).lower()
                     if lowered in _VERDICT_POSITION_KEYS or (
                             "verdict" in lowered):
                         if _barred_verdict_value(value):
@@ -2350,7 +2372,7 @@ def score_profiles(profile_set=None):
                 streams, (int, float)):
             raise NamedDetectionFailure(
                 "profile set rejected: the streams per profile "
-                "value stands in no number form: " + repr(streams)
+                "value stands in no number form: " + _safe_repr(streams)
             )
         if isinstance(streams, int):
             streams = int.__int__(streams)
@@ -2449,7 +2471,7 @@ def validate_use_naming(artefact, run_record_uses=None):
     for use in named:
         if use not in USES:
             raise SilentUseMovement(
-                "use naming check: a use stands unnamed: " + str(use)
+                "use naming check: a use stands unnamed: " + _safe_str(use)
             )
     if not named:
         raise SilentUseMovement(
