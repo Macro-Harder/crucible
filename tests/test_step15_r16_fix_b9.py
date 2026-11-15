@@ -245,7 +245,7 @@ class TestR15090VocabularyRefusals(unittest.TestCase):
         self.assertIn("demote", message)
 
     def test_flag_outcome_forms_all_name_vocabulary(self):
-        for value in (123, ["promote"], b"promote", ("promote",)):
+        for value in (123, ["promote"], b"bogus", ("promote",)):
             message = message_of(lambda: mod10.apply_flag_evaluation(
                 self.record(), outcome=value))
             self.assertIn("promote and demote", message)

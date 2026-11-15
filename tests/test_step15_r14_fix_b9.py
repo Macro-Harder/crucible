@@ -84,7 +84,8 @@ class TestWeeklyCountSentences(unittest.TestCase):
         self.assertEqual(
             text,
             "summary record for the week carries no "
-            "headline_unit_identifiers field")
+            "headline_unit_identifiers field, and no weekly count "
+            "stands certified without it")
 
     def test_non_record_sentence_is_the_no_week_form(self):
         text = message_of(
@@ -101,7 +102,8 @@ class TestWeeklyCountSentences(unittest.TestCase):
         self.assertEqual(
             text,
             "summary record for the week carries a "
-            "headline_unit_identifiers field standing at no value")
+            "headline_unit_identifiers field standing at no value, "
+            "and no weekly count stands certified without it")
 
     def test_unreadable_identifier_sentence_names_the_form(self):
         text = message_of(
@@ -111,7 +113,8 @@ class TestWeeklyCountSentences(unittest.TestCase):
             text,
             "summary record for the week carries a "
             "headline_unit_identifiers field the count cannot "
-            "read: int")
+            "read: int, and no weekly count stands certified "
+            "without it")
 
     def test_the_four_sentences_stand_apart(self):
         texts = {

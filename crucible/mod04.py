@@ -2229,8 +2229,12 @@ def measure_order_sensitivity(states_under_order_a, states_under_order_b):
     two stated orders and states the size at which the order must
     be fixed. It fixes no order itself."""
     divergence = 0
-    for key in set(states_under_order_a) | set(states_under_order_b):
-        if states_under_order_a.get(key) != states_under_order_b.get(key):
+    keys_a = set(dict.__iter__(states_under_order_a)) if isinstance(states_under_order_a, dict) else set()
+    keys_b = set(dict.__iter__(states_under_order_b)) if isinstance(states_under_order_b, dict) else set()
+    for key in keys_a | keys_b:
+        value_a = dict.get(states_under_order_a, key) if isinstance(states_under_order_a, dict) else None
+        value_b = dict.get(states_under_order_b, key) if isinstance(states_under_order_b, dict) else None
+        if value_a != value_b:
             divergence += 1
     return {
         "divergence": divergence,
@@ -2369,6 +2373,18 @@ VIEW_EXCLUDED_CONTENT = (
 VIEW_COPY_DEPTH_BOUND = 100
 
 
+def _safe_str(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def _view_copy_guard(value, _depth=0, _seen=None, _path="", _walked=None,
                      _act=None, _argument=None):
     """Walk a value the view select and build acts are about to
@@ -2420,10 +2436,10 @@ def _view_copy_guard(value, _depth=0, _seen=None, _path="", _walked=None,
             if isinstance(value, dict):
                 for key, item in dict.items(value):
                     _view_copy_guard(
-                        key, _depth + 1, seen, _path + "/" + str(key),
+                        key, _depth + 1, seen, _path + "/" + _safe_str(key),
                         _walked, _act, _argument)
                     _view_copy_guard(
-                        item, _depth + 1, seen, _path + "/" + str(key),
+                        item, _depth + 1, seen, _path + "/" + _safe_str(key),
                         _walked, _act, _argument)
             else:
                 for index, item in _base_entries(value):
@@ -2527,6 +2543,45 @@ def select_view_records(retained_records, viewer_id, as_of_day, delay=0,
     return selected
 
 
+def _split_barred_field(keys):
+    """Return the barred field a split node carries, named on
+    the joined reading's own terms, or None where no group of
+    the node's keys forms one. The node's keys stand read in
+    stored order: every group of two or more neighbouring keys
+    stands joined with no separator and judged as a single key
+    stands judged, the smallest such group first, so a barred
+    name split across neighbouring keys stands named by the
+    keys that form it alone, never by the whole joined text of
+    a node carrying further keys. Where a joined group stands
+    barred only because it carries a barred part inside it,
+    the part itself, as it stands in the joined text, stands
+    named, in the same form. A group standing as a barred name
+    whole, in its plain form or in a folded reading, stands
+    named whole."""
+    texts = [_stored_text(key) for key in keys]
+    parts = sorted(
+        set(_BARRED_KEY_PARTS) | set(_BARRED_FOLDED_PARTS),
+        key=len, reverse=True)
+    for size in range(2, len(keys) + 1):
+        for start in range(0, len(keys) - size + 1):
+            joined = "".join(texts[start:start + size])
+            if not joined or not _is_barred_text(joined):
+                continue
+            lowered = joined.lower()
+            if lowered in BARRED_PROJECTION_KEYS:
+                return joined
+            if any(
+                    reading in _BARRED_FOLDED_EXACT
+                    for reading in _folded_readings(joined)):
+                return joined
+            for part in parts:
+                index = lowered.find(part)
+                if 0 <= index and len(part) < len(lowered):
+                    return joined[index:index + len(part)]
+            return joined
+    return None
+
+
 def _first_barred_field(value, _seen=None):
     """Return the first barred field name a value carries, judged
     on the keys of the records it holds, in the order those keys
@@ -2540,11 +2595,15 @@ def _first_barred_field(value, _seen=None):
         if id(value) in _seen:
             return None
         _seen.add(id(value))
-        if _is_barred_key(value) and not any(
+        if not any(
                 _is_barred_key(key)
                 for key in dict.keys(value)):
-            return "".join(
-                _stored_text(key) for key in dict.keys(value))
+            named = _split_barred_field(list(dict.keys(value)))
+            if named is not None:
+                return named
+            if _is_barred_key(value):
+                return "".join(
+                    _stored_text(key) for key in dict.keys(value))
         for key, item in dict.items(value):
             if _is_barred_key(key):
                 return key
@@ -2630,7 +2689,7 @@ def build_view_record(run_id="run-under-test", viewer_id="viewer-1",
     the named failure form of the depth guard before any copy
     stands taken."""
     if completeness not in COMPLETENESS_STATES:
-        raise NamedFailure("completeness state outside the closed vocabulary: " + str(completeness))
+        raise NamedFailure("completeness state outside the closed vocabulary: " + _safe_str(completeness))
     if contents is None:
         contents = []
     elif isinstance(contents, (list, tuple)):
@@ -2964,10 +3023,24 @@ def flip_trial_record(trial_id="trial-under-test", candidate_forms=None):
     """The viewer flip trial record: it reports a property of
     candidate forms, restates the bar on a singular presentation
     on its face, and is never a run result."""
+    if candidate_forms is None:
+        stored_forms = ["per viewer form", "singular form"]
+    elif isinstance(candidate_forms, (list, tuple, set, frozenset)):
+        stored_forms = [
+            item for index, item in _base_entries(candidate_forms)]
+    else:
+        try:
+            stored_forms = list(candidate_forms)
+        except Exception:
+            raise NamedFailure(
+                "flip trial refused in named form: candidate_forms "
+                "stands in a non list form and no flip trial record "
+                "stands written from it: "
+                + type(candidate_forms).__name__) from None
     return {
         "trial_id": trial_id,
         "kind": "property_of_candidate_forms",
-        "candidate_forms": list(candidate_forms or ("per viewer form", "singular form")),
+        "candidate_forms": stored_forms,
         "property": "whether a candidate form presents one comparable vector quantity",
         "singular_presentation_bar": (
             "no singular vector is reported and the vector is not "

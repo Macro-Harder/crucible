@@ -15,6 +15,7 @@ container record of its week and stands released into the next
 weekly container in arrival order.
 """
 import copy
+import itertools
 import re
 
 from crucible import mod01
@@ -69,6 +70,30 @@ def _tally(verdicts):
     return tally
 
 
+def _safe_repr(value):
+    """Render a handed value for a refusal sentence: through
+    its repr reading where that reading stands, and through
+    the base object repr where the repr reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return repr(value)
+    except Exception:
+        return object.__repr__(value)
+
+
+def _safe_str(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def retirement_verdicts(fixture):
     """Return the per check verdicts of the retirement test for a
     fixture, over all fifteen checks T-01 to T-15 in the version of
@@ -77,7 +102,10 @@ def retirement_verdicts(fixture):
         return dict(_F01_VERDICTS)
     if fixture in ("F-02", "EX-01"):
         return dict(_EX01_VERDICTS)
-    raise ValueError("no retirement verdict stands recorded for: " + str(fixture))
+    raise ValueError(
+        "no retirement verdict stands recorded for: " + _safe_str(fixture)
+        + "; a fixture stands among F-01, F-02, and EX-01, and no "
+        "verdicts and no tally stand returned")
 
 
 def retirement_tally(fixture):
@@ -194,13 +222,57 @@ def _registry_key_text(value):
         return bytearray.decode(value, "utf-8", "ignore")
     if isinstance(value, memoryview):
         return bytes.decode(memoryview.tobytes(value), "utf-8", "ignore")
-    if isinstance(value, (tuple, list, set, frozenset)):
+    if isinstance(value, (tuple, list)):
         parts = []
         for part in _base_iter(value):
             part_text = _registry_key_text(part)
             parts.append(part_text if part_text is not None else "")
         return "".join(parts)
+    if isinstance(value, (set, frozenset)):
+        parts = []
+        for part in _base_iter(value):
+            part_text = _registry_key_text(part)
+            parts.append(part_text if part_text is not None else "")
+        return "".join(sorted(parts))
     return None
+
+
+def _registry_key_texts(value):
+    """Every stored text one registry key composes, as a set of
+    texts, in the fuller dress reading form of settlement S-15:
+    a key in tuple or list form composes the joins of its parts
+    in their handed order, and a key in set or frozenset form,
+    whose parts carry no order of their own, composes the joins
+    of its parts in every order of those parts, so a field name
+    split across the parts of an unordered key stands composed
+    whole in every process. Where the composed texts pass the
+    bound of 4096, the reading falls back to the one
+    deterministic sorted text of _registry_key_text."""
+    if isinstance(value, (tuple, list)):
+        texts = {""}
+        for part in _base_iter(value):
+            options = _registry_key_texts(part)
+            texts = {
+                head + (option if option is not None else "")
+                for head in texts for option in options}
+            if len(texts) > 4096:
+                return {_registry_key_text(value)}
+        return texts
+    if isinstance(value, (set, frozenset)):
+        parts = list(_base_iter(value))
+        options = [_registry_key_texts(part) for part in parts]
+        texts = set()
+        for order in itertools.permutations(range(len(parts))):
+            composed = {""}
+            for index in order:
+                composed = {
+                    head + (option if option is not None else "")
+                    for head in composed for option in options[index]}
+            texts.update(composed)
+            if len(texts) > 4096:
+                return {_registry_key_text(value)}
+        return texts
+    return {_registry_key_text(value)}
 
 
 def _registry_stored_text(value):
@@ -235,8 +307,8 @@ def _registry_stored_value(entry, field):
     if not isinstance(entry, dict):
         return None
     for key, item in dict.items(entry):
-        key_text = _registry_key_text(key)
-        if key_text is not None and str.__eq__(key_text, field):
+        if any(key_text is not None and str.__eq__(key_text, field)
+               for key_text in _registry_key_texts(key)):
             return item
     return None
 
@@ -447,7 +519,7 @@ def make_headline_unit(values):
         raise ValueError(
             "make_headline_unit stands refused: fields beyond the "
             "closed unit: "
-            + ", ".join(str(key) for key in extra)
+            + ", ".join(_safe_str(key) for key in extra)
             + ", and no unit stands built")
     unit = {}
     for field in HEADLINE_UNIT_FIELDS:
@@ -571,21 +643,47 @@ def _region_stands(value):
 def _part_text(value, _depth=0):
     """Return the text a unit part carries, read through base
     class readings only, so a string form stands beside a block
-    form of the same part."""
+    form of the same part. A buffer part in bytes, bytearray, or
+    memoryview form stands read on the bytes it stores or views.
+    A part in set or frozenset form, whose parts carry no order
+    of their own, stands read on every order its parts compose,
+    each order joined in the form above and the orders standing
+    apart on a newline, so a mark split across the parts of an
+    unordered part stands composed whole in every process; a
+    part past six parts stands read in the one deterministic
+    sorted order of its part texts."""
     if _depth > _DEPTH_BOUND and isinstance(
             value, (dict, list, tuple, set, frozenset)):
         return ""
     if isinstance(value, str):
         return str.__str__(value)
+    if isinstance(value, bytes):
+        return bytes.decode(value, "utf-8", "ignore")
+    if isinstance(value, bytearray):
+        return bytearray.decode(value, "utf-8", "ignore")
+    if isinstance(value, memoryview):
+        return bytes.decode(
+            memoryview.tobytes(value), "utf-8", "ignore")
     if isinstance(value, dict):
         parts = []
         for key, item in dict.items(value):
             parts.append(str(key))
             parts.append(_part_text(item, _depth + 1))
         return " ".join(parts)
-    if isinstance(value, (list, tuple, set, frozenset)):
+    if isinstance(value, (list, tuple)):
         return " ".join(
             _part_text(item, _depth + 1) for item in _base_iter(value))
+    if isinstance(value, (set, frozenset)):
+        part_texts = [
+            _part_text(item, _depth + 1) for item in _base_iter(value)]
+        if len(part_texts) <= 1:
+            return " ".join(part_texts)
+        if len(part_texts) > 6:
+            return " ".join(sorted(part_texts))
+        composed = {
+            " ".join(order)
+            for order in itertools.permutations(part_texts)}
+        return "\n".join(sorted(composed))
     if value is None:
         return ""
     return str(value)
@@ -913,6 +1011,23 @@ vanilla
 """.split())
 
 
+# Bases the records name as taking the able derivation, and
+# bases the records name as taking the ible derivation, in the
+# next ring form row R16-052 states: the able bases write, make,
+# pay, sell, wear, notice, and manage beside the nine bases of
+# row R15-045, and the ible base of permit beside convert and
+# access, entered in the stem form permiss that the ible
+# reading of permissible itself yields. Each suffix limb
+# refuses the bases the other suffix takes, and a cross
+# spelling counts as no word on any reading, the compound
+# reading included.
+_ABLE_BASES = frozenset(
+    ("break", "wash", "use", "port", "move", "love",
+     "like", "size", "read", "write", "make", "pay", "sell",
+     "wear", "notice", "manage"))
+_IBLE_BASES = frozenset(("convert", "access", "permiss"))
+
+
 def _readable_stem(word):
     """Yield the plain stems a regular inflection of a lexicon
     word can stand on, so a plural, a past form, or an adverb
@@ -950,7 +1065,13 @@ def _readable_stem(word):
     gradable refusal as their plain cut limbs. The able
     and ible limbs each refuse the bases the records name
     as taking the other suffix, and the ability limb
-    refuses the ible bases in the same form."""
+    refuses the ible bases in the same form. The e form
+    appends of the er and est limbs and the y form appends
+    at their letter i branches carry the same gradable
+    refusal as their plain cut limbs. The ies limb yields
+    its y form only where that form stands in the lexicon
+    itself, so a barred plural composed through a derived
+    y form counts as no word."""
     stems = []
 
     def undoubled(stem):
@@ -985,10 +1106,8 @@ def _readable_stem(word):
     # and bases the records name as taking the ible
     # derivation. Each suffix limb refuses the bases the
     # other suffix takes.
-    able_bases = frozenset(
-        ("break", "wash", "use", "port", "move", "love",
-         "like", "size", "read"))
-    ible_bases = frozenset(("convert", "access"))
+    able_bases = _ABLE_BASES
+    ible_bases = _IBLE_BASES
     # Bases whose plural stands in no s form at all.
     no_s_plural = frozenset(
         ("child", "man", "woman", "sheep", "tooth", "wife",
@@ -1019,7 +1138,8 @@ def _readable_stem(word):
         stems.append(word[2:])
     if word.endswith("ies") and len(word) > 4:
         if word[:-3] not in no_s_plural \
-                and word[:-3] + "e" not in no_s_plural:
+                and word[:-3] + "e" not in no_s_plural \
+                and word[:-3] + "y" in _READABLE_LEXICON:
             stems.append(word[:-3] + "y")
     if word.endswith("ves") and len(word) > 4:
         stems.append(word[:-3] + "f")
@@ -1140,7 +1260,8 @@ def _readable_stem(word):
         if word[:-2].endswith("i"):
             stems.append(word[:-3] + "y")
     if word.endswith("er") and len(word) > 4:
-        stems.append(word[:-1])
+        if word[:-1] not in no_gradable:
+            stems.append(word[:-1])
         plain_cut = word[:-2]
         if plain_cut not in no_gradable \
                 and not plain_cut.endswith("e") \
@@ -1150,18 +1271,21 @@ def _readable_stem(word):
         if plain is not None and plain not in no_gradable:
             stems.append(plain)
         if word[:-2].endswith("i"):
-            stems.append(word[:-3] + "y")
+            if word[:-3] + "y" not in no_gradable:
+                stems.append(word[:-3] + "y")
     if word.endswith("est") and len(word) > 5:
         plain_cut = word[:-3]
         if plain_cut not in no_gradable \
                 and not short_single_vowel_cvc(plain_cut):
             stems.append(plain_cut)
-        stems.append(word[:-2])
+        if word[:-2] not in no_gradable:
+            stems.append(word[:-2])
         plain = undoubled(word[:-3])
         if plain is not None and plain not in no_gradable:
             stems.append(plain)
         if word[:-3].endswith("i"):
-            stems.append(word[:-4] + "y")
+            if word[:-4] + "y" not in no_gradable:
+                stems.append(word[:-4] + "y")
     if word.endswith("y") and len(word) > 3:
         if word[:-1] not in no_y_derivation \
                 and not short_single_vowel_cvc(word[:-1]):
@@ -1207,6 +1331,19 @@ def _is_readable_word(word):
         memo[candidate] = False
         result = False
         if len(candidate) >= 3:
+            if (candidate.endswith("able") and len(candidate) > 5
+                    and (candidate[:-4] in _IBLE_BASES
+                         or candidate[:-4] + "e" in _IBLE_BASES)) \
+                    or (candidate.endswith("ible")
+                        and len(candidate) > 5
+                        and (candidate[:-4] in _ABLE_BASES
+                             or candidate[:-4] + "e" in _ABLE_BASES)) \
+                    or (candidate.endswith("ability")
+                        and len(candidate) > 8
+                        and (candidate[:-7] in _IBLE_BASES
+                             or candidate[:-7] + "e" in _IBLE_BASES)):
+                memo[candidate] = False
+                return False
             if candidate in _READABLE_LEXICON:
                 result = True
             elif any(stem in _READABLE_LEXICON or readable(stem)
@@ -1990,7 +2127,7 @@ def _headline_unit_refusal(unit):
     if extra:
         return (
             "quote_headline_unit stands refused: fields beyond the closed "
-            "unit: " + ", ".join(str(key) for key in extra)
+            "unit: " + ", ".join(_safe_str(key) for key in extra)
             + ", and no unit stands quoted")
     for field in HEADLINE_UNIT_FIELDS:
         if field not in keys or dict.get(unit, field) is None:
@@ -2080,7 +2217,7 @@ def quote_headline_unit(unit):
 
 def first_sentence(text):
     """Return the first sentence of a claim text."""
-    return str(text).split(".", 1)[0]
+    return _safe_str(text).split(".", 1)[0]
 
 
 def validate_working_range_claim(text, assumption_set, rows, range_kind):
@@ -2104,7 +2241,14 @@ def moved_reading(delta, reporting_resolution):
     only the recorded change and the recorded resolution, so a
     second reader applying it to the same record reaches the same
     reading."""
-    return abs(delta) >= reporting_resolution
+    try:
+        return abs(delta) >= reporting_resolution
+    except Exception:
+        raise ValueError(
+            "moved_reading stands refused: the change and the "
+            "reporting resolution stand in no number form, plain "
+            "numbers stand required, and no moved reading stands "
+            "returned") from None
 
 
 def validate_bounding_headline(headline, family_record, run_record):
@@ -2129,7 +2273,7 @@ def validate_bounding_headline(headline, family_record, run_record):
         if (list.__len__(traces) if isinstance(traces, list) else tuple.__len__(traces)) != 3:
             return False
         traces = list(_base_iter(traces))
-    elif len(traces) != 3:
+    else:
         return False
     for trace in traces:
         if not isinstance(trace, dict) or not dict.__contains__(trace, "moved"):
@@ -2176,27 +2320,50 @@ def honest_loss_rate_h1(submitted, accepted_by_submission_period):
     equals the event count by construction and cannot fall below
     zero. The rate travels as a stored numerator and denominator
     pair."""
-    numerator = int(submitted) - int(accepted_by_submission_period)
+    try:
+        submitted_count = int(submitted)
+        accepted_count = int(accepted_by_submission_period)
+    except Exception:
+        raise ValueError(
+            "honest_loss_rate_h1 stands refused: the submitted "
+            "and accepted counts stand in no whole number form, "
+            "whole numbers stand required, and no loss rate "
+            "stands computed") from None
+    numerator = submitted_count - accepted_count
     if numerator < 0:
         numerator = 0
     return {
         "form": "H1",
         "numerator": numerator,
-        "denominator": int(submitted),
+        "denominator": submitted_count,
     }
 
 
 def top_up_applies(winning_probability):
     """The top up duty at F-18, read with closed bounds: it
     applies at or above 0.1 and at or below 0.9."""
-    return 0.1 <= winning_probability <= 0.9
+    try:
+        return 0.1 <= winning_probability <= 0.9
+    except Exception:
+        raise ValueError(
+            "top_up_applies stands refused: the winning "
+            "probability stands in no number form, a plain "
+            "number stands required, and no top up judgement "
+            "stands returned") from None
 
 
 def point_standing(replicate_count):
     """Return the standing of one control point against the 30
     replicate floor, with its count stated. A point below the
     floor borrows no standing of a point at the floor."""
-    count = int(replicate_count)
+    try:
+        count = int(replicate_count)
+    except Exception:
+        raise ValueError(
+            "point_standing stands refused: the replicate count "
+            "stands in no whole number form, a whole number "
+            "stands required, and no point standing stands "
+            "returned") from None
     return {
         "replicates": count,
         "standing": "at floor" if count >= 30 else "below floor",
@@ -2208,7 +2375,15 @@ def classify_run_outcome(run_length_in_days, regime_class):
     days is not classifiable as attacker winning under the final
     30 day rule: its outcome stands recorded as horizon
     insufficient and contributes to no transition figure."""
-    if int(run_length_in_days) < 30:
+    try:
+        run_days = int(run_length_in_days)
+    except Exception:
+        raise ValueError(
+            "classify_run_outcome stands refused: the run length "
+            "in days stands in no whole number form, a whole "
+            "number stands required, and no outcome stands "
+            "classified") from None
+    if run_days < 30:
         return {
             "outcome": "horizon insufficient",
             "contributes_to_transition_figure": False,
@@ -2227,11 +2402,25 @@ def transition_figure(replicates):
     Competing regime exits stand counted as competing events and
     never as censoring. The denominator rule stands stated in the
     result."""
-    total = len(replicates)
+    if not isinstance(replicates, (list, tuple, set, frozenset)):
+        raise ValueError(
+            "transition_figure stands refused: the replicates "
+            "stand in no list form, a list of replicate records "
+            "stands required, and no transition figure stands "
+            "computed")
+    stored_replicates = list(_base_iter(replicates))
+    for replicate in stored_replicates:
+        if not isinstance(replicate, dict):
+            raise ValueError(
+                "transition_figure stands refused: a replicate "
+                "stands in no record form, a replicate stands as "
+                "a record, and no transition figure stands "
+                "computed")
+    total = len(stored_replicates)
     counts = {}
     competing = 0
     censored = 0
-    for replicate in replicates:
+    for replicate in stored_replicates:
         if dict.get(replicate, "competing_exit") if isinstance(replicate, dict) else replicate.get("competing_exit"):
             competing += 1
             continue
@@ -2459,7 +2648,8 @@ def reporter_inputs_for_family(retained_records):
     naming the affected family and the affected share."""
     records = retained_records if isinstance(retained_records, dict) else {}
     return {
-        "divergence_count": dict.get(records, "divergence_count"),
+        "divergence_count": _quoted_copy(
+            dict.get(records, "divergence_count")),
         "blocked_family_mark": _quoted_copy(
             dict.get(records, "blocked_family_mark")),
     }
@@ -2503,7 +2693,7 @@ def build_headline_unit_from_run(run_id, values, store_kind="sweep",
         return {"built": False, "failure": failure, "unit": None}
     except Exception as error:
         failure = {
-            "name": type(error).__name__ + ": " + str(error),
+            "name": type(error).__name__ + ": " + _safe_str(error),
             "run_status": "failed",
             "complete": False,
             "run_identifier": run_id,
@@ -2518,7 +2708,7 @@ def build_headline_unit_from_run(run_id, values, store_kind="sweep",
         unit_values = {}
     unit_values.setdefault(
         "run_registry_line",
-        "run record " + str(run_id) + " read in one lookup")
+        "run record " + _safe_str(run_id) + " read in one lookup")
     provenance = {
         "record": run_id,
         "record_state": record.get("record_state", "as retained"),
@@ -2571,7 +2761,8 @@ def weekly_count(summary_records, week):
         raise ValueError(
             "weekly_count stands refused: the summary_records "
             "argument stands in no list form: a list of summary "
-            "records stands required")
+            "records stands required, and no weekly count stands "
+            "certified without it")
     identifiers = []
     seen_texts = []
     for record in _base_iter(summary_records):
@@ -2585,24 +2776,28 @@ def weekly_count(summary_records, week):
         if not dict.__contains__(record, "headline_unit_identifiers"):
             raise ValueError(
                 "summary record for the week carries no "
-                "headline_unit_identifiers field")
+                "headline_unit_identifiers field, and no weekly "
+                "count stands certified without it")
         field = dict.get(record, "headline_unit_identifiers")
         if field is None:
             raise ValueError(
                 "summary record for the week carries a "
                 "headline_unit_identifiers field standing at "
-                "no value")
+                "no value, and no weekly count stands certified "
+                "without it")
         if isinstance(field, str):
             field = (field,)
         elif not isinstance(field, (list, tuple, set, frozenset)):
             raise ValueError(
                 "summary record for the week carries a "
                 "headline_unit_identifiers field the count "
-                "cannot read: " + type(field).__name__)
+                "cannot read: " + type(field).__name__
+                + ", and no weekly count stands certified "
+                "without it")
         for identifier in _base_iter(field):
             if isinstance(identifier, (list, tuple, set, frozenset,
                                        dict)):
-                key = ("container", repr(identifier))
+                key = ("container", _safe_repr(identifier))
             elif _unit_identifier_stands(identifier):
                 key = ("text", str.__str__(identifier))
             else:
@@ -2610,7 +2805,7 @@ def weekly_count(summary_records, week):
                     "summary record for the week carries an "
                     "identifier standing in no unit identifier "
                     "form, and no count stands stated over "
-                    "unvalidated contents: " + repr(identifier))
+                    "unvalidated contents: " + _safe_repr(identifier))
             if key not in seen_texts:
                 seen_texts.append(key)
                 identifiers.append(identifier)
@@ -2666,7 +2861,7 @@ def make_weekly_container(week, units):
                 "weekly container stands refused in named form: "
                 "a held item stands in no unit identifier form, "
                 "and no count stands taken over unvalidated "
-                "contents: " + repr(item))
+                "contents: " + _safe_repr(item))
     inside = ordered[:WEEKLY_CAP]
     held = ordered[WEEKLY_CAP:]
     outside_cells = sum(

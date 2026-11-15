@@ -1750,6 +1750,32 @@ def _undirected_copy(value, _memo=None, _depth=0):
     return value
 
 
+def _safe_repr(value):
+    """Render a handed value for a refusal sentence: through
+    its repr reading where that reading stands, and through
+    the base object repr where the repr reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return repr(value)
+    except (TypeError, RuntimeError, ValueError, AttributeError,
+            OverflowError, KeyError, OSError):
+        return object.__repr__(value)
+
+
+def _safe_str(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return str(value)
+    except (TypeError, RuntimeError, ValueError, AttributeError,
+            OverflowError, KeyError, OSError):
+        return object.__repr__(value)
+
+
 def accept_detection_input(record):
     """Accept one DetectionInput record and return a normalised copy.
 
@@ -1772,7 +1798,7 @@ def accept_detection_input(record):
     if not keys.issubset(allowed):
         raise NamedDetectionFailure(
             "delivery rejected: fields outside DetectionInput: "
-            + ", ".join(sorted(str(k) for k in keys - allowed))
+            + ", ".join(sorted(_safe_str(k) for k in keys - allowed))
         )
     for field in ("agent_identifier", "day", "feature_values"):
         if field not in keys or dict.get(values, field) is None:
@@ -1784,25 +1810,25 @@ def accept_detection_input(record):
     if not isinstance(identifier_raw, str):
         raise NamedDetectionFailure(
             "delivery rejected: the agent identifier stands in no "
-            "identifier form: " + repr(identifier_raw)
+            "identifier form: " + _safe_repr(identifier_raw)
         )
     identifier = str.__str__(identifier_raw)
     if not identifier:
         raise NamedDetectionFailure(
             "delivery rejected: the agent identifier stands empty, "
-            "no identifier stands stated in it: " + repr(identifier_raw)
+            "no identifier stands stated in it: " + _safe_repr(identifier_raw)
         )
     day_raw = dict.get(values, "day")
     if isinstance(day_raw, bool) or not isinstance(day_raw, int):
         raise NamedDetectionFailure(
             "delivery rejected: the day stands in no stated simulated "
-            "day form: " + repr(day_raw)
+            "day form: " + _safe_repr(day_raw)
         )
     day = int.__int__(day_raw)
     if int.__lt__(day, 0) or int.__ge__(day, 10 ** 6):
         raise NamedDetectionFailure(
             "delivery rejected: the day stands in no stated simulated "
-            "day form: " + repr(day)
+            "day form: " + _safe_repr(day)
         )
     feature_raw = dict.get(values, "feature_values")
     if not isinstance(feature_raw, dict):
@@ -1820,7 +1846,7 @@ def accept_detection_input(record):
         if not isinstance(feature_name_raw, str):
             raise NamedDetectionFailure(
                 "delivery rejected: a feature name stands in no "
-                "string form: " + repr(feature_name_raw)
+                "string form: " + _safe_repr(feature_name_raw)
             )
         feature_name = str.__str__(feature_name_raw)
         if isinstance(feature_value_raw, bool) or not isinstance(
@@ -1954,7 +1980,7 @@ def score_day(records, society_state=None, mode="conformance",
         )
     if mode not in USES:
         raise NamedDetectionFailure(
-            "scoring mode stands unnamed: " + str(mode)
+            "scoring mode stands unnamed: " + _safe_str(mode)
         )
     if uses is None:
         named_uses = [mode]
@@ -1965,7 +1991,7 @@ def score_day(records, society_state=None, mode="conformance",
     for use in named_uses:
         if use not in USES:
             raise NamedDetectionFailure(
-                "scoring use stands unnamed: " + str(use)
+                "scoring use stands unnamed: " + _safe_str(use)
             )
     before = _undirected_copy(society_state)
     accepted = [accept_detection_input(record)
@@ -2075,6 +2101,121 @@ _VERDICT_POSITION_KEYS = (
 )
 
 
+def _barred_verdict_value(value):
+    """Whether a value stands as one of the barred verdict
+    values, in the stripped and lowered form the walk judges
+    a single entry in."""
+    return isinstance(value, str) and (
+        value.strip().lower() in _BARRED_VERDICT_VALUES)
+
+
+def _verdict_keys_tile_exact(readings, pairs, target):
+    """Whether a run of two or more consecutive dict keys, in
+    stored order, joins exactly to the target on the lowered
+    reading of each key it uses, with the barred value
+    standing under the opening key of the run, in the joined
+    reading form settlement S-14 states. A key whose reading
+    stands empty may stand inside the run, stepped past on
+    that empty reading and unused by the occurrence. A name
+    standing inside one key alone stands judged by the per
+    entry acts, never here, so a run stands only on two or
+    more pieces."""
+    for start in range(len(pairs)):
+        if not _barred_verdict_value(pairs[start][1]):
+            continue
+        stack = [(start, 0, 0)]
+        visited = set()
+        while stack:
+            index, pos, pieces = stack.pop()
+            if pos == len(target):
+                if pieces >= 2:
+                    return True
+                continue
+            if index >= len(pairs):
+                continue
+            state = (index, pos, pieces >= 2)
+            if state in visited:
+                continue
+            visited.add(state)
+            option = readings[index]
+            if not option:
+                if pieces:
+                    stack.append((index + 1, pos, pieces))
+            elif option == target[pos:pos + len(option)]:
+                stack.append((
+                    index + 1, pos + len(option), pieces + 1))
+    return False
+
+
+def _verdict_keys_carry_split(readings, pairs):
+    """Whether the word verdict stands split across two or
+    more consecutive dict keys, in stored order, with the
+    barred value standing under the opening key, in the
+    verdict substring form the walk judges a single entry
+    in: the first key contributes a tail of its reading as
+    the opening of the word, each middle key one whole
+    reading as an exact piece of it, and the last key a
+    reading that begins with its closing. A key whose
+    reading stands empty may stand inside the split,
+    stepped past on that empty reading."""
+    pattern = "verdict"
+    for start in range(len(pairs)):
+        if not _barred_verdict_value(pairs[start][1]):
+            continue
+        reading = readings[start]
+        if not reading:
+            continue
+        for cut in range(len(reading)):
+            piece = reading[cut:]
+            if not piece or len(piece) >= len(pattern):
+                continue
+            if piece != pattern[:len(piece)]:
+                continue
+            stack = [(start + 1, len(piece))]
+            while stack:
+                index, pos = stack.pop()
+                if pos >= len(pattern):
+                    return True
+                if index >= len(pairs):
+                    continue
+                option = readings[index]
+                if not option:
+                    stack.append((index + 1, pos))
+                    continue
+                if option == pattern[pos:pos + len(option)]:
+                    stack.append((index + 1, pos + len(option)))
+                elif option.startswith(pattern[pos:]):
+                    return True
+    return False
+
+
+def _dict_node_carries_barred_verdict(node):
+    """Whether a dict node itself carries a barred verdict
+    reading, in the form settlement S-14 states: the node
+    stands judged on the joined reading of its keys in
+    stored order, in the same forms in which the walk judges
+    a single entry, lowered equality against the position
+    names and the verdict substring reading, with the barred
+    value standing under the opening key of the split exactly
+    as the single entry carries it under the whole name. A
+    container key stands judged on the joined stored text of
+    its parts in the same forms, with the barred value
+    standing under that key."""
+    pairs = list(dict.items(node))
+    if len(pairs) < 2:
+        return False
+    readings = []
+    for key, value in pairs:
+        if isinstance(key, (dict, list, tuple, set, frozenset)):
+            readings.append(_joined_stored_text(key).lower())
+        else:
+            readings.append(_stored_text(key).lower())
+    for target in _VERDICT_POSITION_KEYS:
+        if _verdict_keys_tile_exact(readings, pairs, target):
+            return True
+    return _verdict_keys_carry_split(readings, pairs)
+
+
 def _carries_barred_verdict(node, _depth=0, _seen=None, _walked=None):
     """Return whether a value carries a barred verdict reading.
 
@@ -2088,7 +2229,10 @@ def _carries_barred_verdict(node, _depth=0, _seen=None, _walked=None):
     standing across paths, keyed by identity and depth: a
     container whose standing at one depth stands earned is not
     walked again at that depth, and a reach at a greater depth
-    stands judged at its own depth."""
+    stands judged at its own depth. A dict node stands judged
+    on the joined reading of its keys in stored order beside
+    its entries, in the form _dict_node_carries_barred_verdict
+    states."""
     if isinstance(node, (dict, list, tuple, set, frozenset)):
         if _depth > BARRED_SEARCH_DEPTH_BOUND:
             return True
@@ -2103,15 +2247,25 @@ def _carries_barred_verdict(node, _depth=0, _seen=None, _walked=None):
         try:
             if isinstance(node, dict):
                 result = False
+                if _dict_node_carries_barred_verdict(node):
+                    walked[(id(node), _depth)] = True
+                    return True
                 for key, value in dict.items(node):
                     lowered = str(key).lower()
                     if lowered in _VERDICT_POSITION_KEYS or (
                             "verdict" in lowered):
-                        if isinstance(value, str) and (
-                                value.strip().lower() in
-                                _BARRED_VERDICT_VALUES):
+                        if _barred_verdict_value(value):
                             result = True
                             break
+                    if isinstance(
+                            key, (dict, list, tuple, set, frozenset)):
+                        joined = _joined_stored_text(key).lower()
+                        if joined and (
+                                joined in _VERDICT_POSITION_KEYS
+                                or "verdict" in joined):
+                            if _barred_verdict_value(value):
+                                result = True
+                                break
                     if _carries_barred_verdict(
                             key, _depth + 1, seen, walked):
                         result = True
@@ -2243,12 +2397,12 @@ def conformance_statement(table_identifier="LR-1",
             "threshold formula table"):
         raise NamedDetectionFailure(
             "conformance statement names no recorded table: "
-            + str(table_identifier)
+            + _safe_str(table_identifier)
         )
     if threshold_set not in THRESHOLD_SETS:
         raise NamedDetectionFailure(
             "conformance statement names no recorded threshold set: "
-            + str(threshold_set)
+            + _safe_str(threshold_set)
         )
     entry = THRESHOLD_SETS[threshold_set]
     value = table_value
@@ -2320,8 +2474,21 @@ def report(figures=None):
     the record as deferred, adopted in no part. A figure supplied
     without its label is rejected before the report stands.
     """
+    if figures is None:
+        stored_figures = []
+    elif isinstance(figures, (list, tuple, set, frozenset)):
+        stored_figures = list(_base_iter(figures))
+    else:
+        try:
+            stored_figures = list(figures)
+        except (TypeError, RuntimeError, ValueError, AttributeError,
+                OverflowError, KeyError, OSError):
+            raise NamedDetectionFailure(
+                "report stands refused: the figures stand in no "
+                "list form, a list of figures stands required, "
+                "and no report stands built") from None
     carried = []
-    for position, figure in enumerate(figures or []):
+    for position, figure in enumerate(stored_figures):
         if not validate_output(figure):
             if not isinstance(figure, dict):
                 ground = (
@@ -2584,7 +2751,7 @@ class DetectionLayer:
     def score(self, record_or_records, society_state=None,
               mode="conformance", uses=None):
         if isinstance(record_or_records, (list, tuple)):
-            return self.score_day(list(record_or_records),
+            return self.score_day(list(_base_iter(record_or_records)),
                                   society_state=society_state,
                                   mode=mode, uses=uses)
         return self.score_day([record_or_records],

@@ -207,8 +207,16 @@ def _base_value_eq(left, right):
     """Return whether two handed values agree on their stored
     contents, judged through base class operations at every
     level, never through an equality, get, keys, or iteration
-    reading a handed value supplies. The comparison runs on
-    an explicit stack, in the style this module states for
+    reading a handed value supplies. The judgement stands
+    kind first on numbers: a boolean stands apart from every
+    number and stands equal only to itself, a Decimal stands
+    equal only to a Decimal holding the same stored value,
+    a Fraction stands equal only to a Fraction holding the
+    same stored value, and the plain number limb reaches
+    int, float, and complex values alone, so no value crosses
+    into a number kind it does not store. The comparison
+    runs on an explicit stack, in the style this module
+    states for
     its deep walks, so a deep acyclic state answers on its
     stored contents instead of raising a bare RecursionError
     from the interpreter frame limit. A pair of containers
@@ -381,6 +389,35 @@ def _base_value_eq(left, right):
                 frame["remaining"] = list(right_items)
                 frame["item_index"] = 0
                 frame["candidate"] = 0
+                continue
+            if isinstance(held, bool) or isinstance(other, bool):
+                value = held is other
+                if close(value):
+                    return value
+                continue
+            if isinstance(held, Decimal) or isinstance(
+                    other, Decimal):
+                if isinstance(held, Decimal) and isinstance(
+                        other, Decimal):
+                    value = Decimal.__eq__(
+                        Decimal.__new__(Decimal, held),
+                        Decimal.__new__(Decimal, other)) is True
+                else:
+                    value = False
+                if close(value):
+                    return value
+                continue
+            if isinstance(held, Fraction) or isinstance(
+                    other, Fraction):
+                if isinstance(held, Fraction) and isinstance(
+                        other, Fraction):
+                    value = Fraction.__eq__(
+                        Fraction.__new__(Fraction, held),
+                        Fraction.__new__(Fraction, other)) is True
+                else:
+                    value = False
+                if close(value):
+                    return value
                 continue
             left_number = _plain_number(held)
             right_number = _plain_number(other)
@@ -793,6 +830,30 @@ def validate_family_derivation_text(text):
     return bool(refusal.get("valid"))
 
 
+def _safe_repr(value):
+    """Render a handed value for a refusal sentence: through
+    its repr reading where that reading stands, and through
+    the base object repr where the repr reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return repr(value)
+    except Exception:
+        return object.__repr__(value)
+
+
+def _safe_str(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def make_derivation_input(derivation_version=None, domain=None,
                           root_seed_reference=None,
                           scenario_identifier=None, run_identifier=None,
@@ -806,7 +867,7 @@ def make_derivation_input(derivation_version=None, domain=None,
     """
     if not validate_domain(domain):
         raise ValueError(
-            "domain outside the two value vocabulary: " + str(domain)
+            "domain outside the two value vocabulary: " + _safe_str(domain)
             + "; a domain stands among screening and held out "
             "confirmation")
     if parameter_values is None:
@@ -1066,7 +1127,7 @@ def draw_from_stream(stream_class=None, position=None,
     except (ValueError, TypeError):
         raise ValueError(
             "draw_from_stream stands refused: the position argument "
-            "stands in no numeric form: " + repr(position)
+            "stands in no numeric form: " + _safe_repr(position)
             + "; a position stands as a number, and no draw "
             "stands made") from None
     try:
@@ -1075,7 +1136,7 @@ def draw_from_stream(stream_class=None, position=None,
         raise ValueError(
             "draw_from_stream stands refused: the carried positions "
             "argument stands in no numeric form: "
-            + repr(carried_positions)
+            + _safe_repr(carried_positions)
             + "; carried positions stand as a number, and no draw "
             "stands made") from None
     if position_value >= carried_value:
@@ -1116,7 +1177,11 @@ def encode_candidate_input(values):
     seed and adopts no derivation form.
     """
     if not isinstance(values, dict):
-        raise ValueError("candidate input is not a field mapping")
+        raise ValueError(
+            "encode_candidate_input stands refused: candidate "
+            "input is not a field mapping; a candidate input "
+            "stands as a mapping of field names to recorded "
+            "string values, and no encoding stands returned")
     parts = []
     stored_pairs = list(dict.items(values))
     stored_pairs.sort(key=lambda pair: _stored_name(pair[0]))
@@ -1125,7 +1190,9 @@ def encode_candidate_input(values):
         if not isinstance(raw, str):
             raise ValueError(
                 "parameter value for " + name
-                + " is not a recorded string")
+                + " is not a recorded string; a candidate input "
+                "stands as a mapping of field names to recorded "
+                "string values, and no encoding stands returned")
         text = str.__str__(raw)
         parts.append(
             type(key).__name__ + ":" + str(len(name)) + ":" + name + "="
@@ -1285,7 +1352,12 @@ def _carried_generator_state(run_id, stream_classes=None,
                 carried["run_id"] = run_id
             return carried
     streams = {}
-    names = list(stream_classes or ())
+    if stream_classes is None:
+        names = []
+    elif isinstance(stream_classes, (list, tuple, set, frozenset)):
+        names = list(_base_iter(stream_classes))
+    else:
+        names = list(stream_classes)
     stored_positions = None
     if isinstance(positions, dict) and dict.__len__(positions) != 0:
         stored_positions = positions

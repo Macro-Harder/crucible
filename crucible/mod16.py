@@ -139,6 +139,18 @@ def fixture_inventory():
     return lines
 
 
+def _safe_str(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 class FixtureLookupFailure(KeyError):
     """A named failure for a fixture that does not resolve in the
     inventory. The failure value stands on the exception in the
@@ -159,7 +171,7 @@ class FixtureLookupFailure(KeyError):
             "complete": False,
         }
         super().__init__(
-            "fixture lookup failure: " + str(fixture_id))
+            "fixture lookup failure: " + _safe_str(fixture_id))
 
 
 def fixture_record(fixture_id):
@@ -348,7 +360,7 @@ def exercise_run_class(run_class, material="validation"):
     stand carried as unexercised here, their exercise standing
     in the companion exercise below."""
     if run_class not in RUN_CLASSES:
-        raise ValueError("unknown run class: " + str(run_class))
+        raise ValueError("unknown run class: " + _safe_str(run_class))
     if run_class in ("confirmation", "headline"):
         return {
             "run_class": run_class,

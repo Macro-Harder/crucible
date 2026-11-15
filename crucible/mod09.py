@@ -485,10 +485,12 @@ def _catalogue_repr(name):
     bytes form part by the plain bytes it stores, and a plain
     scalar part by the plain scalar it stores, each read through
     the base class reading of its kind. Every other part stands
-    represented by its base representation in the standing
-    form, so two parts whose kind name and base representation
-    tie still tie here, and no order rule for such tied parts
-    stands stated by this act."""
+    represented by its kind name and the stored contents it
+    carries in its own stored mapping, read part by part
+    through this same reading, never by a representation
+    reading the part itself supplies, so two parts whose kind
+    name and stored contents tie still tie here, and no order
+    rule for such tied parts stands stated by this act."""
     if isinstance(name, (set, frozenset)):
         parts = sorted(
             _catalogue_repr(part) for part in (
@@ -516,7 +518,23 @@ def _catalogue_repr(name):
         return repr(float.__float__(name))
     if isinstance(name, complex):
         return repr(complex.__complex__(name))
-    return repr(name)
+    try:
+        stored = vars(name)
+    except TypeError:
+        stored = None
+    if isinstance(stored, dict):
+        parts = [
+            "%s=%s" % (
+                str.__str__(key) if isinstance(key, str)
+                else _catalogue_repr(key),
+                _catalogue_repr(item))
+            for key, item in sorted(
+                list(dict.items(stored)),
+                key=lambda pair: str.__str__(pair[0])
+                if isinstance(pair[0], str)
+                else _catalogue_repr(pair[0]))]
+        return "%s(%s)" % (type(name).__name__, ", ".join(parts))
+    return type(name).__name__
 
 
 def _catalogue_order_key(name):
@@ -624,7 +642,8 @@ def make_strategy(identifier, in_protocol_payoff=0,
         "external_profit_standing": (
             "swept parameter, labelled assumption, " + UNITS),
         "external_profit_declared_by": None,
-        "parameters": _stored_copy(parameters or {}),
+        "parameters": _stored_copy(
+            parameters if _stored_truthy(parameters) else {}),
         "units": UNITS,
     }
 
@@ -683,7 +702,21 @@ def attacker_payoff(strategy, external_profit_value):
             + repr(in_protocol) + ", external "
             + repr(external_profit_value)
         )
-    return in_protocol + external_profit_value
+    return _plain_number(in_protocol) + _plain_number(
+        external_profit_value)
+
+
+def _safe_repr(value):
+    """Render a handed value for a refusal sentence: through
+    its repr reading where that reading stands, and through
+    the base object repr where the repr reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return repr(value)
+    except (TypeError, RuntimeError, ValueError, AttributeError,
+            OverflowError, KeyError, OSError):
+        return object.__repr__(value)
 
 
 def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
@@ -697,7 +730,7 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
     if not isinstance(strategy, dict):
         raise NamedAttackerFailure(
             "external profit sweep rejected: the strategy stands "
-            "in no record form: " + repr(strategy)
+            "in no record form: " + _safe_repr(strategy)
         )
     stated_range = _base_dict_get(
         strategy, "external_profit_range", [])
@@ -708,13 +741,13 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
     else:
         raise NamedAttackerFailure(
             "external profit sweep rejected: the stated range "
-            "stands in no range form: " + repr(stated_range)
+            "stands in no range form: " + _safe_repr(stated_range)
         )
     for value in values:
         if not _stands_numeric(value):
             raise NamedAttackerFailure(
                 "external profit sweep rejected: a stated range "
-                "value stands in no numeric form: " + repr(value)
+                "value stands in no numeric form: " + _safe_repr(value)
             )
     if not any(
             _stored_match(value, 0) and _stored_eq(value, 0)
@@ -730,7 +763,7 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
         raise NamedAttackerFailure(
             "external profit sweep rejected: the largest in "
             "protocol payoff stands in no numeric form: "
-            + repr(largest)
+            + _safe_repr(largest)
         )
     if not any(
             _plain_number(value) > _plain_number(largest)
@@ -770,7 +803,7 @@ def run_record_carriage(strategy_class, ladder_position,
     if not isinstance(strategy_class, (list, tuple)):
         raise NamedAttackerFailure(
             "run record rejected: the fixed strategy class stands "
-            "in no class list form: " + repr(strategy_class)
+            "in no class list form: " + _safe_repr(strategy_class)
         )
     if _base_length(strategy_class) == 0:
         raise NamedAttackerFailure(
@@ -781,19 +814,20 @@ def run_record_carriage(strategy_class, ladder_position,
             strategies, (list, tuple)):
         raise NamedAttackerFailure(
             "run record rejected: the strategies exercised stand "
-            "in no list form: " + repr(strategies)
+            "in no list form: " + _safe_repr(strategies)
         )
     if ladder_position is None:
         raise NamedAttackerFailure(
             "run record rejected: no ladder position stands stated"
         )
     if isinstance(ladder_position, bool) or not isinstance(
-            ladder_position, int) or ladder_position < 0 or (
-            ladder_position > READOUT_POINT_RUNG):
+            ladder_position, int) or _plain_number(
+            ladder_position) < 0 or (
+            _plain_number(ladder_position) > READOUT_POINT_RUNG):
         raise NamedAttackerFailure(
             "run record rejected: the ladder position stands outside "
             "the whole rungs 0 to 6 of the search ladder: "
-            + repr(ladder_position)
+            + _safe_repr(ladder_position)
         )
     if catalogue_version_or_hash is None or (
             isinstance(
@@ -1066,7 +1100,7 @@ def stopping_rule_state(ladder_position):
     complete = (
         isinstance(ladder_position, int)
         and not isinstance(ladder_position, bool)
-        and ladder_position == READOUT_POINT_RUNG
+        and _plain_number(ladder_position) == READOUT_POINT_RUNG
     )
     state = {
         "ladder_position": ladder_position,
@@ -1076,7 +1110,9 @@ def stopping_rule_state(ladder_position):
             "no readout is reported as established under stopping "
             "condition 2 while DQ7-10 stands open"),
     }
-    if ladder_position == 0:
+    if isinstance(ladder_position, int) and not isinstance(
+            ladder_position, bool) and _plain_number(
+            ladder_position) == 0:
         state["rung_zero_control"] = copy.deepcopy(RUNG_ZERO_CONTROL)
     return state
 
@@ -1122,9 +1158,10 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
                     "carries a harm or a cost in no numeric form: "
                     + repr(candidate)
                 )
-            if not cost or harm is None:
+            if cost is None or _plain_number(cost) == 0 or (
+                    harm is None):
                 continue
-            factor = harm / cost
+            factor = _plain_number(harm) / _plain_number(cost)
         if not _stands_numeric(factor) or not math.isfinite(factor):
             raise NamedAttackerFailure(
                 "bond parameter search rejected: a griefing factor "
@@ -1132,14 +1169,16 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
             )
         scored.append({
             "parameter_set": _stored_copy(params),
-            "griefing_factor": factor,
+            "griefing_factor": _plain_number(factor),
         })
     if not scored:
         raise NamedAttackerFailure(
             "bond parameter search rejected: no scored parameter "
             "set stands in the search"
         )
-    worst = max(scored, key=lambda item: item["griefing_factor"])
+    worst = max(
+        scored,
+        key=lambda item: _plain_number(item["griefing_factor"]))
     return {
         "search_kind": (
             "optimisation search above the fixed search ladder"),
@@ -1274,11 +1313,16 @@ def _outcome_stands_failure(value):
     """Whether a stored per point outcome stands as the failure
     outcome: a text value on the text it stores, a buffer value
     on the bytes it stores, each judged against the failure
-    outcome in its own form, and a list, tuple, set, or
+    outcome in its own form, a list, tuple, set, or
     frozenset value where any stored part stands as the failure
     outcome on this same reading or where the texts its stored
     parts carry join, in the wording claim reading of this
-    module, to the failure outcome text whole."""
+    module, to the failure outcome text whole, and a dict
+    value where any stored key or stored value stands as the
+    failure outcome on this same reading or where the texts
+    its stored keys and values carry join, in that same
+    wording claim reading, to the failure outcome text
+    whole."""
     if isinstance(value, str):
         return _stored_eq(value, "failure found")
     if isinstance(value, (bytes, bytearray, memoryview)):
@@ -1290,7 +1334,50 @@ def _outcome_stands_failure(value):
             return True
         return _stored_eq(
             _wording_claim_text(value), "failure found")
+    if isinstance(value, dict):
+        if any(
+                _outcome_stands_failure(key)
+                or _outcome_stands_failure(item)
+                for key, item in list(dict.items(value))):
+            return True
+        return _stored_eq(
+            _wording_claim_text(value), "failure found")
     return False
+
+
+def _outcome_carries_content(value):
+    """Whether a stored outcome value carries any outcome
+    content at all, judged on its stored form: no value, a
+    boolean standing at False, a number standing at zero, an
+    empty text or buffer, and an empty list, tuple, set,
+    frozenset, or dict each carry no outcome content, and
+    every other stored value carries the content it stores."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value is True
+    if isinstance(value, (int, float, complex)):
+        return _plain_number(value) != 0
+    if isinstance(value, (str, bytes, bytearray, memoryview,
+                          list, tuple, set, frozenset, dict)):
+        return _base_length(value) > 0
+    return True
+
+
+def _stands_point_mapping(entry):
+    """Whether a handed dict stands in point mapping form:
+    a non empty mapping whose every stored value stands in
+    an outcome bearing form, a record, a text or buffer
+    outcome, or a container of outcomes, so a dict carrying
+    a plain scalar beside its keys stands as an entry in
+    record form and not as a point mapping."""
+    if not isinstance(entry, dict) or _base_length(entry) == 0:
+        return False
+    return all(
+        isinstance(item, (dict, str, bytes, bytearray,
+                          memoryview, list, tuple, set,
+                          frozenset))
+        for item in list(dict.values(entry)))
 
 
 def _entry_outcome_state(entry):
@@ -1298,14 +1385,14 @@ def _entry_outcome_state(entry):
     entry in record form, as a pair of whether an outcome
     stands recorded and whether it stands as a failure. An
     entry records the outcome its outcome key carries, and an
-    entry carrying no outcome key, or an outcome standing at
-    None, records nothing."""
+    entry carrying no outcome key, or an outcome carrying no
+    outcome content, records nothing."""
     if not isinstance(entry, dict):
         return (False, False)
     if not _base_dict_contains(entry, "outcome"):
         return (False, False)
     outcome = _base_dict_get(entry, "outcome")
-    if outcome is None:
+    if not _outcome_carries_content(outcome):
         return (False, False)
     return (True, _outcome_stands_failure(outcome))
 
@@ -1315,27 +1402,37 @@ def _recorded_outcome_state(carriage, _depth=0):
     in dict form, as a pair of whether an outcome stands
     recorded and whether a recorded outcome stands as a
     failure. A dict carrying an outcome key stands as one
-    outcome entry, judged as _entry_outcome_state judges it.
-    A dict carrying no outcome key stands as a point mapping,
-    point names to their outcomes or to their own outcome
-    records, and records what its stored values record, read
-    recursively under its point keys. The walk reads at most
-    sixteen mapping levels; a carriage nested deeper records
-    nothing past that depth."""
+    outcome entry, judged as _entry_outcome_state judges it,
+    and the walk also records what the values under its other
+    keys record, those keys standing as point keys beside the
+    outcome key. A dict carrying no outcome key stands as a
+    point mapping, point names to their outcomes or to their
+    own outcome records, and records what its stored values
+    record, read recursively under its point keys. The walk
+    reads at most sixteen mapping levels; a carriage nested
+    deeper records nothing past that depth."""
     if not isinstance(carriage, dict) or _depth > 16:
         return (False, False)
-    if _base_dict_contains(carriage, "outcome"):
-        return _entry_outcome_state(carriage)
     recorded = False
     failure = False
-    for item in list(dict.values(carriage)):
+    if _base_dict_contains(carriage, "outcome"):
+        recorded, failure = _entry_outcome_state(carriage)
+    for key, item in list(dict.items(carriage)):
+        if _base_dict_contains(carriage, "outcome") and (
+                isinstance(key, str) and str.__eq__(
+                    str.__str__(key), "outcome")):
+            continue
+        if _base_dict_contains(carriage, "outcome") and (
+                isinstance(key, str) and str.__eq__(
+                    str.__str__(key), "point")):
+            continue
         if isinstance(item, dict):
             item_recorded, item_failure = _recorded_outcome_state(
                 item, _depth + 1)
         elif item is None:
             item_recorded, item_failure = (False, False)
         else:
-            item_recorded = True
+            item_recorded = _outcome_carries_content(item)
             item_failure = _outcome_stands_failure(item)
         recorded = recorded or item_recorded
         failure = failure or item_failure
@@ -1379,7 +1476,7 @@ def readout(search_record, found_failure=True, wording="",
     if not isinstance(carriage, dict):
         raise NamedAttackerFailure(
             "readout rejected: the run record carriage stands in "
-            "no record form: " + repr(carriage)
+            "no record form: " + _safe_repr(carriage)
         )
     position = _base_dict_get(carriage, "ladder_position")
     if established:
@@ -1405,7 +1502,7 @@ def readout(search_record, found_failure=True, wording="",
     if not isinstance(exercised, (list, tuple)):
         raise NamedAttackerFailure(
             "readout rejected: the strategies exercised stand in "
-            "no list form: " + repr(exercised)
+            "no list form: " + _safe_repr(exercised)
         )
     swept = _base_dict_get(
         search_record, "external_profit_swept_values", [])
@@ -1414,12 +1511,12 @@ def readout(search_record, found_failure=True, wording="",
     if not isinstance(swept, (list, tuple)):
         raise NamedAttackerFailure(
             "readout rejected: the external profit swept values "
-            "stand in no list form: " + repr(swept)
+            "stand in no list form: " + _safe_repr(swept)
         )
     in_protocol_only = (
         not _base_contains(exercised, "conditional briber")
         or not any(
-            _stands_numeric(v) and v > 0
+            _stands_numeric(v) and _plain_number(v) > 0
             for v in _base_sequence(swept))
     )
     search_limb = _base_dict_get(search_record, "search_record", {})
@@ -1434,8 +1531,14 @@ def readout(search_record, found_failure=True, wording="",
         else:
             for entry in _base_sequence(outcomes):
                 if isinstance(entry, dict):
-                    entry_recorded, entry_failure = (
-                        _entry_outcome_state(entry))
+                    if _base_dict_contains(entry, "outcome") or (
+                            _base_dict_contains(entry, "point")) or (
+                            not _stands_point_mapping(entry)):
+                        entry_recorded, entry_failure = (
+                            _entry_outcome_state(entry))
+                    else:
+                        entry_recorded, entry_failure = (
+                            _recorded_outcome_state(entry))
                     outcomes_recorded = (
                         outcomes_recorded or entry_recorded)
                     recorded_failure = (
@@ -1470,8 +1573,9 @@ def attacker_cost_summary(witness_run):
         )
     return {
         "witness_run": _base_dict_get(witness_run, "run_identifier"),
-        "attacker_cost": _base_dict_get(witness_run, "attacker_cost"),
-        "harm": _base_dict_get(witness_run, "harm"),
+        "attacker_cost": _stored_copy(
+            _base_dict_get(witness_run, "attacker_cost")),
+        "harm": _stored_copy(_base_dict_get(witness_run, "harm")),
         "standing": "descriptive figure beside the witness",
         "priced_per": "failure witness run",
         "regime_classification_changed": False,
@@ -1488,7 +1592,7 @@ def witness_carriage(witness_run, envelope_claim_names_witness=True):
     if not isinstance(witness_run, dict):
         raise NamedAttackerFailure(
             "witness carriage rejected: the witness run stands in "
-            "no record form: " + repr(witness_run)
+            "no record form: " + _safe_repr(witness_run)
         )
     carriage = {
         "witness_run": _base_dict_get(witness_run, "run_identifier"),
@@ -1521,7 +1625,8 @@ def search_record_covers_hostile_kinds(record, family_record_kinds):
         if not _stands_numeric(fixed) or not _stands_numeric(ran):
             covered[kind] = False
         else:
-            covered[kind] = ran >= fixed
+            covered[kind] = _plain_number(ran) >= _plain_number(
+                fixed)
     return covered
 
 

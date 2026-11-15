@@ -1132,12 +1132,12 @@ def verdict_record(claim_id, standard="exact replay alone", outcome="rests"):
         raise NamedReplicationFailure(
             "verdict record requires a claim identifier: no claim identifier stands supplied"
         )
-    if standard not in STANDARDS:
+    if not _base_str_member(standard, STANDARDS):
         raise NamedReplicationFailure(
             "unknown replication standard: " + _safe_str(standard)
             + "; the stated standard stands as exact replay alone, "
             "and no verdict record stands made")
-    if outcome not in ("rests", "does not rest"):
+    if not _base_str_member(outcome, ("rests", "does not rest")):
         raise NamedReplicationFailure(
             "unknown verdict outcome: " + _safe_str(outcome)
             + "; the stated outcomes stand as rests and does not "

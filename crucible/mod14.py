@@ -54,6 +54,22 @@ _FREEZE_TOO_DEEP = (
     "and stands not copied whole")
 
 
+def _freeze_member(item, items):
+    """Whether an item already stands among the frozen items
+    of a set part, judged element by element. An element whose
+    equality reading raises stands as not the item, so a set
+    carrying such an element stands frozen whole in list form
+    by the set limb's own fallback, and no bare error escapes
+    the freeze on that reading."""
+    for existing in items:
+        try:
+            if item is existing or item == existing:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _freeze(value, _depth=0, _memo=None):
     """Copy a value under a depth bound of 100 with a cycle
     guard. A container standing deeper than the bound stands
@@ -151,7 +167,7 @@ def _freeze(value, _depth=0, _memo=None):
         copied_items = []
         for item in base_iter(value):
             frozen_item = _freeze(item, _depth + 1, memo)
-            if frozen_item in copied_items:
+            if _freeze_member(frozen_item, copied_items):
                 counter = 2
                 while True:
                     if isinstance(frozen_item, str):
@@ -160,7 +176,7 @@ def _freeze(value, _depth=0, _memo=None):
                             + str(counter) + ")")
                     else:
                         distinct_item = (frozen_item, counter)
-                    if distinct_item not in copied_items:
+                    if not _freeze_member(distinct_item, copied_items):
                         frozen_item = distinct_item
                         break
                     counter += 1
@@ -169,13 +185,13 @@ def _freeze(value, _depth=0, _memo=None):
             try:
                 for frozen_item in copied_items:
                     placeholder.add(frozen_item)
-            except TypeError:
+            except Exception:
                 memo[id(value)] = copied_items
                 return copied_items
             return placeholder
         try:
             copied = plain_constructor(copied_items)
-        except TypeError:
+        except Exception:
             copied = copied_items
         if id(value) in memo:
             return memo[id(value)]
@@ -311,6 +327,18 @@ def _key_error_message_text(raw_message):
     return raw_message
 
 
+def _safe_repr(value):
+    """Render a handed value for a refusal sentence: through
+    its repr reading where that reading stands, and through
+    the base object repr where the repr reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return repr(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def error_carriage(failure, run_id=None, stage=None):
     """The error carriage of the shell: a named failure reaches
     the operator as a named failure with its run identifier and
@@ -318,7 +346,7 @@ def error_carriage(failure, run_id=None, stage=None):
     an empty result, and no command exits cleanly over a failed
     run."""
     if isinstance(failure, str):
-        raw_message = failure
+        raw_message = _safe_text(failure)
         class_name = None
     else:
         raw_message = _safe_text(failure)
@@ -339,7 +367,10 @@ def error_carriage(failure, run_id=None, stage=None):
         fields["name"] = "failure in text form"
         fields["message"] = raw_message
     if not isinstance(failure, str):
-        carried = getattr(failure, "failure", None)
+        try:
+            carried = getattr(failure, "failure", None)
+        except Exception:
+            carried = None
         if isinstance(carried, dict):
             fields.update(_freeze(carried))
             if isinstance(failure, NamedShellFailure):
@@ -350,12 +381,15 @@ def error_carriage(failure, run_id=None, stage=None):
                 fields["message"] = raw_message
         elif carried is not None:
             fields["failure"] = carried
-        gate = getattr(failure, "gate", None)
+        try:
+            gate = getattr(failure, "gate", None)
+        except Exception:
+            gate = None
         if gate is not None:
             fields["gate"] = gate
         try:
             failure_vars = vars(failure)
-        except TypeError:
+        except Exception:
             failure_vars = {}
         for key, value in failure_vars.items():
             if key not in fields and key != "failure":
@@ -399,17 +433,19 @@ def run_command(command, payload=None, run_id=None):
                 "fields stands required as the payload of every "
                 "shell command"),
             run_id=run_id, stage=command)
+    command_text = (
+        _stored_text(command) if isinstance(command, str) else None)
     try:
-        if command == "start_run":
+        if command_text == "start_run":
             return _mod12.start_run(
                 run_class=dict.get(payload, "run_class"),
                 family_id=dict.get(payload, "family_id"),
             )
-        if command == "start_sweep":
+        if command_text == "start_sweep":
             return _mod12.start_sweep(family_id=dict.get(payload, "family_id"))
-        if command == "store_kind_check":
+        if command_text == "store_kind_check":
             return store_kind_check_with_reason(dict.get(payload, "kind"))
-        if command == "read_store":
+        if command_text == "read_store":
             run_id_value = dict.get(payload, "run_id")
             if run_id_value is None:
                 raise NamedShellFailure(
@@ -426,7 +462,7 @@ def run_command(command, payload=None, run_id=None):
             return _mod10.read_run_record(
                 run_id_value,
                 store_kind=dict.get(payload, "store_kind", "sweep"))
-        if command == "write_store":
+        if command_text == "write_store":
             record = dict.get(payload, "record")
             if record is None:
                 raise NamedShellFailure(
@@ -438,27 +474,35 @@ def run_command(command, payload=None, run_id=None):
                     "write_store stands refused: the record stands "
                     "in no mapping form: a record in mapping form "
                     "stands required, and nothing stands written")
+            record_id = dict.get(record, "run_id") or dict.get(
+                record, "run_identifier")
+            if record_id is not None and not isinstance(record_id, str):
+                raise NamedShellFailure(
+                    "write_store stands refused: the run_id stands "
+                    "in no identifier form: a run identifier in "
+                    "text form stands required, and no run record "
+                    "stands written without it")
             return _mod10.retain_run_record(
                 record, store_kind=dict.get(payload, "store_kind", "sweep"))
-        if command == "run_pilot":
+        if command_text == "run_pilot":
             return pilot_run(dict.get(payload, "use"), dict.get(payload, "artefact"))
-        if command == "assemble_report":
+        if command_text == "assemble_report":
             raise NamedShellFailure(
                 "report assembly stands not built: no report assembly "
                 "act stands in MOD-11, whose picked reporting artefacts "
                 "stand partial on their own record")
-        if command == "outside_call_check":
+        if command_text == "outside_call_check":
             return outside_call_check(
                 dict.get(payload, "dependency_manifest"),
                 dict.get(payload, "call_log"))
-        if command == "flag_evaluation":
+        if command_text == "flag_evaluation":
             return flag_evaluation(
                 dict.get(payload, "summary_record"),
                 inputs=dict.get(payload, "inputs"),
                 outcome=dict.get(payload, "outcome"),
                 tier=dict.get(payload, "tier"),
                 actor=dict.get(payload, "actor", "program"))
-        if command == "weekly_headline_count":
+        if command_text == "weekly_headline_count":
             return {
                 "count": weekly_headline_count(
                     dict.get(payload, "summary_records"),
@@ -466,7 +510,7 @@ def run_command(command, payload=None, run_id=None):
                 "week": dict.get(payload, "week"),
             }
         raise NamedShellFailure(
-            "unknown shell command: " + str(command)
+            "unknown shell command: " + _safe_text(command)
             + "; the shell commands stand as start_run, start_sweep, "
             "read_store, write_store, run_pilot, assemble_report, "
             "outside_call_check, store_kind_check, "
@@ -474,12 +518,12 @@ def run_command(command, payload=None, run_id=None):
             "shell command stands run")
     except NamedShellFailure as failure:
         carriage = error_carriage(failure, run_id=run_id, stage=command)
-        if command == "assemble_report":
+        if command_text == "assemble_report":
             carriage["not_built"] = True
             carriage["stands_on_record"] = (
                 "the MOD-11 reporting artefacts item, Purple 2 "
                 "element E-49, PARTIAL")
-        if command == "run_pilot":
+        if command_text == "run_pilot":
             carriage["confinement_bar"] = (
                 "pilot work stands confined to timing, conformance, "
                 "and procedure rates, under the pilot confined label")
@@ -1071,17 +1115,23 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
             "flag evaluation by a person is barred: the flag rule "
             "stands evaluated by a program alone, and no flag "
             "evaluation stands performed")
-    if outcome == "promote":
+    outcome_text = (
+        _stored_text(outcome) if isinstance(
+            outcome, (str, bytes, bytearray, memoryview)) else None)
+    if outcome_text == "promote":
         tier_text = (
-            _stored_text(tier) if isinstance(tier, str) else None)
+            _stored_text(tier) if isinstance(
+                tier, (str, bytes, bytearray, memoryview)) else None)
         if tier is not None and tier_text not in RETENTION_TIERS:
             raise NamedShellFailure(
                 "flag evaluation tier outside the tiers the rule "
                 "names: " + _safe_text(tier) + "; the tiers the rule names "
-                "stand as Tier 0, Tier 1, Tier 2, and Tier 3")
+                "stand as Tier 0, Tier 1, Tier 2, and Tier 3, and no flag "
+                "evaluation stands performed")
         current = _base_get(summary_record, "retention_tier")
         current_text = (
-            _stored_text(current) if isinstance(current, str)
+            _stored_text(current) if isinstance(
+                current, (str, bytes, bytearray, memoryview))
             else None)
         if tier_text in RETENTION_TIERS and (
                 current_text in RETENTION_TIERS) and (
@@ -1126,6 +1176,12 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
     )
 
 
+def _week_stands_equal(stored_week, handed_week):
+    if isinstance(stored_week, str) and isinstance(handed_week, str):
+        return str.__eq__(stored_week, handed_week)
+    return stored_week == handed_week
+
+
 def weekly_headline_count(summary_records, week):
     """The weekly headline count program check, counted from the
     stored summary records alone as distinct headline unit
@@ -1164,7 +1220,7 @@ def weekly_headline_count(summary_records, week):
             raise NamedShellFailure(
                 "summary record carries no week field, so its weekly "
                 "headline count cannot stand read")
-        if _base_get(record, "week") != week:
+        if not _week_stands_equal(_base_get(record, "week"), week):
             continue
         if not _base_contains(record, "headline_unit_identifiers"):
             raise NamedShellFailure(
@@ -1192,7 +1248,7 @@ def weekly_headline_count(summary_records, week):
                 # The bound of row R14-072, stated in the open: a
                 # container element in place of an identifier
                 # still counts as one.
-                key = ("container", repr(unit_id))
+                key = ("container", _safe_repr(unit_id))
             elif isinstance(unit_id, str) and \
                     _HEADLINE_IDENTIFIER_PATTERN.fullmatch(
                         str.__str__(unit_id)) is not None:
@@ -1202,7 +1258,7 @@ def weekly_headline_count(summary_records, week):
                     "summary record for the week carries an "
                     "identifier standing in no unit identifier "
                     "form, and no count stands stated over "
-                    "unvalidated contents: " + repr(unit_id))
+                    "unvalidated contents: " + _safe_repr(unit_id))
             if key not in seen:
                 seen.append(key)
     return len(seen)
@@ -1250,7 +1306,8 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
             "call log in record form stands required, and no "
             "outside call standing stands certified without it")
     for key in list(dict.keys(call_log)):
-        if key not in ("calls", "entries"):
+        if not (isinstance(key, str) and (
+                str.__eq__(key, "calls") or str.__eq__(key, "entries"))):
             raise NamedShellFailure(
                 "outside call check stands refused: the call log "
                 "carries a key the check cannot read: " + _safe_text(key)

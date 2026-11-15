@@ -156,7 +156,12 @@ def make_family_record(family_id="family-under-test", claims=None,
     The completeness items the seal path checks stand on the
     record by name. The record stands unsealed until
     seal_family_record seals it."""
-    claims = list(claims or ("headline claim 1",))
+    if claims is None:
+        claims = ["headline claim 1"]
+    elif isinstance(claims, (list, tuple, set, frozenset)):
+        claims = list(_base_iter(claims)) or ["headline claim 1"]
+    else:
+        claims = ["headline claim 1"]
     record = _mod01.minimal_valid_family_record()
     record["family_identifier"] = family_id
     record["headline_claims"] = claims
@@ -186,7 +191,12 @@ def make_family_record(family_id="family-under-test", claims=None,
 def sweep_manifest(record):
     """The sweep manifest of one family record, in the Form 23
     fields: the family identifier, the family version, and the
-    sealed family record hash, each as the record carries it."""
+    sealed family record hash, each as the record carries it.
+    Each copied value stands under the same depth bound and
+    cycle guard as the sister family acts of this module,
+    checked before the copy: a value past the bound or carrying
+    a cycle stands refused in the named form, never copied as a
+    bare RecursionError."""
     if not isinstance(record, dict):
         record = {}
     seal = dict.get(record, "seal")
@@ -199,11 +209,19 @@ def sweep_manifest(record):
         if _stored_value_present(candidate):
             sealed_hash = candidate
             break
+    identifier_value = dict.get(
+        record, "family_identifier", dict.get(record, "family_id"))
+    version_value = dict.get(record, "family_version")
+    for subject, field_value in (
+            ("family identifier value", identifier_value),
+            ("family version value", version_value),
+            ("sealed family record hash value", sealed_hash)):
+        if _shape_exceeds_bounds(field_value):
+            raise NamedControllerFailure(_shape_refusal(
+                subject, field_value, "sweep manifest refused"))
     return {
-        "family_identifier": _freeze(dict.get(
-            record, "family_identifier",
-            dict.get(record, "family_id"))),
-        "family_version": _freeze(dict.get(record, "family_version")),
+        "family_identifier": _freeze(identifier_value),
+        "family_version": _freeze(version_value),
         "sealed_family_record_hash": _freeze(sealed_hash),
     }
 
@@ -314,6 +332,25 @@ def seal_family_record(record):
     return sealed
 
 
+def _edit_claim_stands(claim, standing):
+    """Whether one explicit kill check claim stands among the
+    standing claims, judged on the stored contents each side
+    carries, in the claim reading form of this module: a claim
+    and a standing claim in bytes, buffer, or split container
+    dress stand judged as the texts they store and on stored
+    values equality, never by plain membership on the handed
+    claim value itself."""
+    for part in standing:
+        if _stored_values_equal(claim, part):
+            return True
+        claim_texts = _key_stored_texts(claim)
+        part_texts = _key_stored_texts(part)
+        if any(text != "" and text in part_texts
+               for text in claim_texts):
+            return True
+    return False
+
+
 def apply_family_edit(record, change=None):
     """Apply an edit to a family record. An edit to a sealed record
     creates a new family identifier, and runs under the new
@@ -376,7 +413,8 @@ def apply_family_edit(record, change=None):
         for check in explicit_checks:
             if isinstance(check, dict) \
                     and dict.get(check, "claim") is not None \
-                    and dict.get(check, "claim") not in standing:
+                    and not _edit_claim_stands(
+                        dict.get(check, "claim"), standing):
                 raise NamedControllerFailure(
                     "family edit refused: a kill check field names "
                     "a claim that no longer stands: "
@@ -389,7 +427,8 @@ def apply_family_edit(record, change=None):
             for check in explicit_checks:
                 if isinstance(check, dict) \
                         and dict.get(check, "claim") is not None \
-                        and dict.get(check, "claim") not in standing_now:
+                        and not _edit_claim_stands(
+                            dict.get(check, "claim"), standing_now):
                     raise NamedControllerFailure(
                         "family edit refused: a kill check field "
                         "names a claim that no longer stands: "
@@ -813,26 +852,47 @@ def _key_stored_texts(key, _depth=0):
     the composed texts pass the stated bound, the reading
     falls back to the one deterministic text of
     _key_stored_text for that key, and no further text of
-    that key stands composed."""
+    that key stands composed. The combination total of the
+    parts texts stands computed before any join stands
+    built, in the form the sister reading at MOD-13 states:
+    where that total passes the stated bound, the fallback
+    stands taken at once and no cross product past the
+    bound stands ever built. An unordered container
+    holding more than seven parts stands under the same
+    discipline: it contributes the one deterministic text
+    of _key_stored_text alone, so no ordering enumeration
+    past seven parts stands ever run."""
     text = _stored_text(key)
     if text is not None:
         return {text}
     if _depth > _MAX_BARRED_READ_DEPTH:
         return {""}
     if isinstance(key, (tuple, list)):
+        options = [
+            _key_stored_texts(part, _depth + 1)
+            for part in _base_iter(key)]
+        total = 1
+        for part_options in options:
+            total *= len(part_options)
+            if total > _DRESS_TEXTS_BOUND:
+                return {_key_stored_text(key, _depth)}
         texts = {""}
-        for part in _base_iter(key):
-            options = _key_stored_texts(part, _depth + 1)
+        for part_options in options:
             texts = {
                 head + option
-                for head in texts for option in options}
-            if len(texts) > _DRESS_TEXTS_BOUND:
-                return {_key_stored_text(key, _depth)}
+                for head in texts for option in part_options}
         return texts
     if isinstance(key, (frozenset, set)):
         parts = list(_base_iter(key))
+        if len(parts) > 7:
+            return {_key_stored_text(key, _depth)}
         options = [
             _key_stored_texts(part, _depth + 1) for part in parts]
+        total = 1
+        for part_options in options:
+            total *= len(part_options)
+            if total > _DRESS_TEXTS_BOUND:
+                return {_key_stored_text(key, _depth)}
         texts = set()
         for order in itertools.permutations(range(len(parts))):
             composed = {""}
@@ -1046,6 +1106,24 @@ def _folded_name_matches(key, folded_target):
             if not positions:
                 break
         if len(folded_target) in positions:
+            return True
+    return False
+
+
+def _anchor_values_field_matches(key):
+    """True where a key reads as the anchor scenario values
+    field, judged on every text the key composes beside the
+    one sorted text: a field name split across the parts of
+    an unordered container key composes the name in one
+    order of its parts, and that composed text, folded as
+    the count limb folds a name, stands judged as the field
+    in the dress judgement form of settlement S-15."""
+    if _ANCHOR_VALUES_FIELD_FOLDED in _folded_money_variants(key) \
+            or _folded_name_matches(key, _ANCHOR_VALUES_FIELD_FOLDED):
+        return True
+    for text in _key_stored_texts(key):
+        if _ANCHOR_VALUES_FIELD_FOLDED in _folded_money_variants(text) \
+                or _folded_name_matches(text, _ANCHOR_VALUES_FIELD_FOLDED):
             return True
     return False
 
@@ -1509,71 +1587,171 @@ def _stored_ids_equal(first, second):
     dress, stands judged on the text it stores against a text
     form value alone, and containers stand judged part by part
     under this same reading, so no identifier stands conflated
-    with one of another kind on a plain equality reading."""
-    first_text = _stored_text(first)
-    second_text = _stored_text(second)
-    if first_text is not None or second_text is not None:
-        if first_text is None or second_text is None:
-            return False
-        result = str.__eq__(first_text, second_text)
-        return result if result is not NotImplemented else False
-    if first is None or second is None:
-        return first is None and second is None
-    if isinstance(first, bool) or isinstance(second, bool):
-        return isinstance(first, bool) and isinstance(second, bool) \
-            and first is second
-    if isinstance(first, int) and isinstance(second, int):
-        return int.__eq__(first, second) is True
-    if isinstance(first, float) and isinstance(second, float):
-        return float.__eq__(first, second) is True
-    if _carries_cycle(first) or _carries_cycle(second):
-        return first is second
-    if isinstance(first, dict) and isinstance(second, dict):
-        if dict.__len__(first) != dict.__len__(second):
-            return False
-        remaining = list(dict.items(second))
-        for key, item in dict.items(first):
-            matched = None
-            for index, (other_key, other_item) in enumerate(remaining):
-                if _stored_ids_equal(key, other_key):
-                    matched = index
-                    matched_item = other_item
-                    break
-            if matched is None:
-                return False
-            if not _stored_ids_equal(item, matched_item):
-                return False
-            remaining.pop(matched)
-        return True
-    if isinstance(first, (list, tuple)) \
-            and isinstance(second, (list, tuple)):
-        if type(first) is not type(second):
-            return False
-        first_parts = _base_sequence(first)
-        second_parts = _base_sequence(second)
-        if len(first_parts) != len(second_parts):
-            return False
-        return all(
-            _stored_ids_equal(one, two)
-            for one, two in zip(first_parts, second_parts))
-    if isinstance(first, (set, frozenset)) \
-            and isinstance(second, (set, frozenset)):
-        first_parts = _base_sequence(first)
-        second_parts = _base_sequence(second)
-        if len(first_parts) != len(second_parts):
-            return False
-        remaining = list(second_parts)
-        for part in first_parts:
-            matched = None
-            for index, other in enumerate(remaining):
-                if _stored_ids_equal(part, other):
-                    matched = index
-                    break
-            if matched is None:
-                return False
-            remaining.pop(matched)
-        return True
-    return first is second
+    with one of another kind on a plain equality reading. The
+    part by part judgement stands walked on an explicit stack,
+    in the walk form this module states for its other deep
+    walks, so a deep identifier answers under this reading at
+    any depth and never escapes as a bare RecursionError; a
+    cyclic identifier stands answered by identity, in the cured
+    form of row R15-059, before the walk begins on it."""
+    result = False
+    stack = [{"first": first, "second": second, "state": "enter",
+              "awaiting": False}]
+
+    def deliver(value):
+        nonlocal result
+        result = value
+        stack.pop()
+
+    while stack:
+        frame = stack[-1]
+        state = frame["state"]
+        if state == "enter":
+            one = frame["first"]
+            two = frame["second"]
+            one_text = _stored_text(one)
+            two_text = _stored_text(two)
+            if one_text is not None or two_text is not None:
+                if one_text is None or two_text is None:
+                    deliver(False)
+                else:
+                    eq = str.__eq__(one_text, two_text)
+                    deliver(eq if eq is not NotImplemented else False)
+                continue
+            if one is None or two is None:
+                deliver(one is None and two is None)
+                continue
+            if isinstance(one, bool) or isinstance(two, bool):
+                deliver(isinstance(one, bool)
+                        and isinstance(two, bool) and one is two)
+                continue
+            if isinstance(one, int) and isinstance(two, int):
+                deliver(int.__eq__(one, two) is True)
+                continue
+            if isinstance(one, float) and isinstance(two, float):
+                deliver(float.__eq__(one, two) is True)
+                continue
+            if _carries_cycle(one) or _carries_cycle(two):
+                deliver(one is two)
+                continue
+            if isinstance(one, dict) and isinstance(two, dict):
+                if dict.__len__(one) != dict.__len__(two):
+                    deliver(False)
+                    continue
+                frame["items"] = list(dict.items(one))
+                frame["remaining"] = list(dict.items(two))
+                frame["index"] = 0
+                frame["state"] = "dict_next"
+                continue
+            if isinstance(one, (list, tuple)) \
+                    and isinstance(two, (list, tuple)):
+                if type(one) is not type(two):
+                    deliver(False)
+                    continue
+                one_parts = _base_sequence(one)
+                two_parts = _base_sequence(two)
+                if len(one_parts) != len(two_parts):
+                    deliver(False)
+                    continue
+                frame["pairs"] = list(zip(one_parts, two_parts))
+                frame["index"] = 0
+                frame["state"] = "seq_next"
+                continue
+            if isinstance(one, (set, frozenset)) \
+                    and isinstance(two, (set, frozenset)):
+                one_parts = _base_sequence(one)
+                two_parts = _base_sequence(two)
+                if len(one_parts) != len(two_parts):
+                    deliver(False)
+                    continue
+                frame["items"] = one_parts
+                frame["remaining"] = two_parts
+                frame["index"] = 0
+                frame["state"] = "set_next"
+                continue
+            deliver(one is two)
+            continue
+        if state == "seq_next":
+            if frame["awaiting"]:
+                frame["awaiting"] = False
+                if not result:
+                    deliver(False)
+                    continue
+                frame["index"] += 1
+            if frame["index"] >= len(frame["pairs"]):
+                deliver(True)
+                continue
+            pair = frame["pairs"][frame["index"]]
+            frame["awaiting"] = True
+            stack.append({"first": pair[0], "second": pair[1],
+                          "state": "enter", "awaiting": False})
+            continue
+        if state == "dict_next":
+            if frame["index"] >= len(frame["items"]):
+                deliver(True)
+                continue
+            frame["candidate"] = 0
+            frame["state"] = "dict_key"
+            continue
+        if state == "dict_key":
+            if frame["awaiting"]:
+                frame["awaiting"] = False
+                if result:
+                    frame["state"] = "dict_value"
+                    continue
+                frame["candidate"] += 1
+            if frame["candidate"] >= len(frame["remaining"]):
+                deliver(False)
+                continue
+            frame["awaiting"] = True
+            stack.append({
+                "first": frame["items"][frame["index"]][0],
+                "second": frame["remaining"][frame["candidate"]][0],
+                "state": "enter", "awaiting": False})
+            continue
+        if state == "dict_value":
+            if frame["awaiting"]:
+                frame["awaiting"] = False
+                if result:
+                    frame["remaining"].pop(frame["candidate"])
+                    frame["index"] += 1
+                    frame["state"] = "dict_next"
+                    continue
+                frame["candidate"] += 1
+                frame["state"] = "dict_key"
+                continue
+            frame["awaiting"] = True
+            stack.append({
+                "first": frame["items"][frame["index"]][1],
+                "second": frame["remaining"][frame["candidate"]][1],
+                "state": "enter", "awaiting": False})
+            continue
+        if state == "set_next":
+            if frame["index"] >= len(frame["items"]):
+                deliver(True)
+                continue
+            frame["candidate"] = 0
+            frame["state"] = "set_part"
+            continue
+        if state == "set_part":
+            if frame["awaiting"]:
+                frame["awaiting"] = False
+                if result:
+                    frame["remaining"].pop(frame["candidate"])
+                    frame["index"] += 1
+                    frame["state"] = "set_next"
+                    continue
+                frame["candidate"] += 1
+            if frame["candidate"] >= len(frame["remaining"]):
+                deliver(False)
+                continue
+            frame["awaiting"] = True
+            stack.append({
+                "first": frame["items"][frame["index"]],
+                "second": frame["remaining"][frame["candidate"]],
+                "state": "enter", "awaiting": False})
+            continue
+    return result
 
 
 def _printed_int_name_matches(name, kept):
@@ -1593,16 +1771,17 @@ def _printed_int_name_matches(name, kept):
 
 def _check_claim_value(check):
     """The claim one kill check stores, found by scanning its
-    stored pairs and judging each stored key by its stored
-    text, so a key whose hash or equality reading names another
-    field still stands found under the name it stores. A check
-    storing no claim stands as None."""
+    stored pairs and judging each stored key by every text it
+    composes, so a key whose hash or equality reading names
+    another field still stands found under the name it stores,
+    and a field name split across the parts of an unordered
+    container key stands found in the order its parts compose
+    it, in the dress judgement form of settlement S-15. A
+    check storing no claim stands as None."""
     for key, item in dict.items(check):
-        key_text = _stored_text(key)
-        if key_text is None:
-            key_text = _key_stored_text(key)
-        if key_text is not None and str.__eq__(key_text, "claim"):
-            return item
+        for key_text in _key_stored_texts(key):
+            if str.__eq__(key_text, "claim"):
+                return item
     return None
 
 
@@ -1646,7 +1825,11 @@ def _kill_check_names_absent(record):
     dress text each side stores and on the stored values
     equality of this module, never through an equality reading
     a handed claim itself supplies and never through a plain
-    membership test on frozen copies: a claim and a standing
+    membership test on frozen copies: the standing claims stand
+    read in bare form as the one claim that form carries, as
+    well as in list, tuple, set, frozenset, and dict carriage,
+    so no carriage of the standing claims stands passed over
+    in silence: a claim and a standing
     claim in bytes, buffer, or split container dress stand
     judged as the text they store, on either side alike, and
     a claim or a standing claim in set or frozenset dress
@@ -1656,14 +1839,22 @@ def _kill_check_names_absent(record):
     standing_claims = dict.get(record, "headline_claims")
     if not isinstance(
             standing_claims, (list, tuple, set, frozenset, dict)):
-        standing_claims = dict.get(record, "claims")
-    if not isinstance(
-            standing_claims, (list, tuple, set, frozenset, dict)):
-        return False
+        claims_fallback = dict.get(record, "claims")
+        if isinstance(
+                claims_fallback, (list, tuple, set, frozenset, dict)):
+            standing_claims = claims_fallback
     if isinstance(standing_claims, dict):
         standing_parts = list(dict.keys(standing_claims))
-    else:
+    elif isinstance(
+            standing_claims, (list, tuple, set, frozenset)):
         standing_parts = _base_sequence(standing_claims)
+    elif standing_claims is not None:
+        standing_parts = [standing_claims]
+    else:
+        claims_fallback = dict.get(record, "claims")
+        if claims_fallback is None:
+            return False
+        standing_parts = [claims_fallback]
     standing_texts = [
         _key_stored_texts(part) for part in standing_parts]
     for claim in _kill_check_claim_values(record):
@@ -1702,17 +1893,18 @@ def _base_sequence(value):
 
 def _run_field(run, name):
     """The value a run record stores under a field name, found by
-    scanning its stored pairs and judging each stored key by its
-    stored text, so a key whose hash or equality reading names
-    another field still stands found under the name it stores,
-    in the stored pairs scan form of the sister modules. A field
-    the record does not store stands as None."""
+    scanning its stored pairs and judging each stored key by
+    every text it composes, so a key whose hash or equality
+    reading names another field still stands found under the
+    name it stores, in the stored pairs scan form of the sister
+    modules, and a field name split across the parts of an
+    unordered container key stands found in the order its parts
+    compose it, in the dress judgement form of settlement S-15.
+    A field the record does not store stands as None."""
     for key, item in dict.items(run):
-        key_text = _stored_text(key)
-        if key_text is None:
-            key_text = _key_stored_text(key)
-        if key_text is not None and str.__eq__(key_text, name):
-            return item
+        for key_text in _key_stored_texts(key):
+            if str.__eq__(key_text, name):
+                return item
     return None
 
 
@@ -1768,9 +1960,7 @@ def run_record_validation_failures(run):
             "a barred money pair stands in the record: an amount "
             "and currency pair (barred money value)"]
     for key, values in dict.items(run):
-        if _ANCHOR_VALUES_FIELD_FOLDED not in _folded_money_variants(key) \
-                and not _folded_name_matches(
-                    key, _ANCHOR_VALUES_FIELD_FOLDED):
+        if not _anchor_values_field_matches(key):
             continue
         try:
             count = _base_count(values)
@@ -1819,9 +2009,7 @@ def validate_run_record(run):
     if _carries_barred_money_value(run):
         return False
     for key, values in dict.items(run):
-        if _ANCHOR_VALUES_FIELD_FOLDED not in _folded_money_variants(key) \
-                and not _folded_name_matches(
-                    key, _ANCHOR_VALUES_FIELD_FOLDED):
+        if not _anchor_values_field_matches(key):
             continue
         try:
             count = _base_count(values)
@@ -2019,15 +2207,18 @@ def sample_statement(runs=None):
     words with no count invented."""
     counts = {run_class: 0 for run_class in RUN_CLASSES}
     named = []
-    handed = _base_sequence(runs) if isinstance(
-        runs, (list, tuple, set, frozenset)) else runs
+    if isinstance(runs, dict):
+        handed = list(dict.values(runs))
+    elif isinstance(runs, (list, tuple, set, frozenset)):
+        handed = _base_sequence(runs)
+    else:
+        handed = runs
     for run in handed or ():
         if not isinstance(run, dict):
             continue
-        class_text = _dress_text(dict.get(run, "run_class"))
         matched = None
         for stated in RUN_CLASSES:
-            if str.__eq__(class_text, stated):
+            if _dress_eq(dict.get(run, "run_class"), stated):
                 matched = stated
                 break
         if matched is None:
@@ -2067,10 +2258,13 @@ def _sample_name_text(name):
     stored identifier text, quoted where that text itself
     carries the separator the sentence joins its names with,
     so one run whose identifier carries that separator stands
-    named as one run and never read as two."""
+    named as one run and never read as two. A quote the name
+    itself carries stands escaped inside that quoting, so a
+    name carrying the separator in its quoted form still stands
+    named as the one run it is."""
     text = _stored_id_text(name)
     if ", " in text:
-        return '"' + text + '"'
+        return '"' + text.replace('"', '\\"') + '"'
     return text
 
 
@@ -2117,13 +2311,13 @@ def winning_regime(daily_shares):
         except (TypeError, ValueError):
             raise NamedControllerFailure(
                 "winning regime entry is not an attacker and honest pair: "
-                + repr(entry))
+                + _safe_repr(entry))
         if not isinstance(attacker, (int, float)) \
                 or not isinstance(honest, (int, float)) \
                 or isinstance(attacker, bool) or isinstance(honest, bool):
             raise NamedControllerFailure(
                 "winning regime entry carries a non numeric share: "
-                + repr(entry))
+                + _safe_repr(entry))
         if not attacker > honest:
             return False
     return True
@@ -2154,7 +2348,7 @@ def top_up_applies(winning_probability, replicates_after_top_up):
             or isinstance(replicates_after_top_up, bool):
         raise NamedControllerFailure(
             "top up rule inputs are not numbers: "
-            + repr((winning_probability, replicates_after_top_up)))
+            + _safe_repr((winning_probability, replicates_after_top_up)))
     return bool(
         0.1 < winning_probability < 0.9
         and replicates_after_top_up >= 30

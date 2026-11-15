@@ -526,7 +526,13 @@ def append_reading(log, choice):
     if isinstance(log, (list, tuple)):
         entries = _base_sequence(log)
     else:
-        entries = log
+        try:
+            entries = list(log)
+        except Exception:
+            raise ValueError(
+                "append_reading stands refused: the log stands in "
+                "no list form, a log stands as a list of records, "
+                "and no reading stands appended") from None
     for entry in entries:
         if not isinstance(entry, dict):
             raise ValueError(
@@ -566,8 +572,9 @@ def choice_approval_stands(choice):
     if not _stored_text_eq(
             dict.get(approval, "approver"), "Project Manager"):
         return False
-    if _stored_copy(dict.get(approval, "choice_identifier")) \
-            != _stored_copy(dict.get(choice, "choice_identifier")):
+    if not _stored_pair_equal(
+            dict.get(approval, "choice_identifier"),
+            dict.get(choice, "choice_identifier")):
         return False
     if not _value_present(dict.get(approval, "effects")):
         return False
@@ -613,6 +620,30 @@ def seam_status():
     }
 
 
+def _safe_repr(value):
+    """Render a handed value for a refusal sentence: through
+    its repr reading where that reading stands, and through
+    the base object repr where the repr reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return repr(value)
+    except Exception:
+        return object.__repr__(value)
+
+
+def _safe_str(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def make_tracer_passage_record(item, point_in_run, what_in_fact_passed,
                                result):
     """Build one TracerPassageRecord in the Form 29 field order
@@ -620,7 +651,7 @@ def make_tracer_passage_record(item, point_in_run, what_in_fact_passed,
     if not any(_stored_text_eq(result, stated)
                for stated in TRACER_RESULTS):
         raise ValueError(
-            "tracer result outside the stated set: " + str(result)
+            "tracer result outside the stated set: " + _safe_str(result)
             + "; a tracer result stands among "
             + ", ".join(TRACER_RESULTS))
     return {
@@ -644,8 +675,8 @@ def tracer_passage_records(run_id, results=None):
         outcome = stated.get(item, "not attempted")
         records.append(make_tracer_passage_record(
             item,
-            "seam point of " + str(item) + " in run " + str(run_id),
-            "recorded value for " + str(item),
+            "seam point of " + _safe_str(item) + " in run " + _safe_str(run_id),
+            "recorded value for " + _safe_str(item),
             outcome,
         ))
     return records
@@ -880,13 +911,17 @@ def _stored_pair_stands(run, choice):
         (entry for entry in run_entries
          if _stored_copy(_bget(entry, "choice_identifier"))
          == identifier), None)
-    if log_entry is None and run_entry is None:
-        return validate_choice_pair(
-            interpretation_log_entry(choice), run_record_entry(choice))
-    if log_entry is None:
-        log_entry = interpretation_log_entry(choice)
-    if run_entry is None:
-        run_entry = run_record_entry(choice)
+    try:
+        if log_entry is None and run_entry is None:
+            return validate_choice_pair(
+                interpretation_log_entry(choice),
+                run_record_entry(choice))
+        if log_entry is None:
+            log_entry = interpretation_log_entry(choice)
+        if run_entry is None:
+            run_entry = run_record_entry(choice)
+    except ValueError:
+        return False
     return validate_choice_pair(log_entry, run_entry)
 
 
@@ -1140,7 +1175,9 @@ def record_folding(choice, rulings_touched):
     return {
         "choice_identifier": _stored_copy(
             _bget(choice, "choice_identifier")),
-        "rulings_recorded": _base_sequence(rulings_touched),
+        "rulings_recorded": [
+            _stored_copy(part) for part in _base_sequence(
+                rulings_touched)],
         "recorded_ruling_by_ruling": True,
         "gaps_carried_open": list(RULING_TEXT_GAPS),
         "gaps_filled_by_inference": [],
@@ -1221,7 +1258,8 @@ def classify_seam_feedback(item, treatment_choice, standings):
         "treatment_choice_identifier": _stored_copy(_bget(
             treatment_choice, "choice_identifier")) if isinstance(
             treatment_choice, dict) else None,
-        "both_standings_carried": _base_sequence(standings),
+        "both_standings_carried": [
+            _stored_copy(part) for part in _base_sequence(standings)],
         "pricing": "priced per seam item",
         "paired_sensitivity_runs_required": 1,
         "headline_may_rest": False,

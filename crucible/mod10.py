@@ -62,6 +62,30 @@ GROUP_OWNERS = {
 
 ONE_LOOKUP_FAILURE_NAME = "one lookup resolution failure"
 
+
+def _safe_repr(value):
+    """Render a handed value for a refusal sentence: through
+    its repr reading where that reading stands, and through
+    the base object repr where the repr reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return repr(value)
+    except Exception:
+        return object.__repr__(value)
+
+
+def _safe_str(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
 FORM_ONLY = "form_only"
 
 
@@ -81,11 +105,11 @@ class LookupFailure(KeyError):
         }
         if record_kind is not None:
             self.failure["record_kind"] = record_kind
-        text = ONE_LOOKUP_FAILURE_NAME + ": " + str(run_id)
+        text = ONE_LOOKUP_FAILURE_NAME + ": " + _safe_str(run_id)
         if record_kind is not None:
             text = (
-                ONE_LOOKUP_FAILURE_NAME + ": " + str(run_id)
-                + " for record kind " + str(record_kind))
+                ONE_LOOKUP_FAILURE_NAME + ": " + _safe_str(run_id)
+                + " for record kind " + _safe_str(record_kind))
         super().__init__(text)
 
 
@@ -2130,7 +2154,7 @@ class RecorderStore:
         if not (isinstance(store_kind, str) and any(
                 str.__eq__(store_kind, kind) for kind in STORE_KINDS)):
             raise ValueError(
-                "unknown store kind: " + str(store_kind)
+                "unknown store kind: " + _safe_str(store_kind)
                 + "; a store kind stands among sweep, pilot, and "
                 "live, and no store stands created")
         self.store_kind = store_kind
@@ -2203,6 +2227,12 @@ class RecorderStore:
             raise ValueError(
                 "identity less record: no run identifier stands on the "
                 "record, and no record stands retained under no identifier")
+        if not isinstance(rid, str):
+            raise ValueError(
+                "identity less record: the run identifier stands in "
+                "no identifier form: a run identifier in text form "
+                "stands required, and no record stands retained "
+                "under it")
         try:
             hash(rid)
         except TypeError as exc:
@@ -2217,7 +2247,7 @@ class RecorderStore:
                 "a real money value stands refused at retention, by "
                 "field name and by amount and currency shape")
         if rid in self._records:
-            raise ValueError("second record for the same run is rejected: " + str(rid))
+            raise ValueError("second record for the same run is rejected: " + _safe_str(rid))
         try:
             stored = _safe_copy(record)
         except RecursionError as exc:
@@ -2317,13 +2347,13 @@ def _canonical_store_kind(store_kind):
     supplies."""
     if not _store_kind_stands(store_kind):
         raise ValueError(
-            "unknown store kind: " + str(store_kind)
+            "unknown store kind: " + _safe_str(store_kind)
             + "; a store kind stands among sweep, pilot, and live")
     for kind in STORE_KINDS:
         if str.__eq__(store_kind, kind):
             return kind
     raise ValueError(
-        "unknown store kind: " + str(store_kind)
+        "unknown store kind: " + _safe_str(store_kind)
         + "; a store kind stands among sweep, pilot, and live")
 
 
@@ -3398,7 +3428,7 @@ def close_run_retention(run_id, tier, store_kind="sweep"):
     checkpoint and its state standing untouched by the close."""
     if tier not in ("Tier 0", "Tier 1", "Tier 2", "Tier 3"):
         raise ValueError(
-            "unknown retention tier for the close act: " + str(tier)
+            "unknown retention tier for the close act: " + _safe_str(tier)
             + "; a retention tier stands among Tier 0, Tier 1, "
             "Tier 2, and Tier 3, and no close stands performed")
     store_kind = _canonical_store_kind(store_kind)
@@ -3523,7 +3553,15 @@ def restore_check(portable, present_identifiers):
     identifier = (
         dict.get(portable, "relative_identifier")
         if isinstance(portable, dict) else None)
-    return identifier in set(present_identifiers)
+    try:
+        present_set = set(present_identifiers)
+    except Exception:
+        raise ValueError(
+            "restore_check stands refused: the present identifiers "
+            "stand in no iterable form, a set of present identifiers "
+            "stands required, and no restore standing stands "
+            "returned") from None
+    return identifier in present_set
 
 
 def replay_check(original, resumed):
@@ -3556,7 +3594,7 @@ def retain_gc08_record(kind, record, owner_id):
     call check outcome carried in the record itself."""
     if kind not in ("dependency_manifest", "call_log"):
         raise ValueError(
-            "unknown GC-08 record kind: " + str(kind)
+            "unknown GC-08 record kind: " + _safe_str(kind)
             + "; a GC-08 record kind stands among "
             "dependency_manifest and call_log, and no record "
             "stands retained")
@@ -3819,6 +3857,10 @@ def summary_record_for_run(run_id="run-under-test"):
     run class and no stated tier stands. Where neither stands
     retained, the form stands returned with a form only marker
     inside it."""
+    try:
+        hash(run_id)
+    except TypeError as exc:
+        raise LookupFailure(run_id) from exc
     if run_id in _SUMMARY_RECORDS:
         return _safe_copy(_SUMMARY_RECORDS[run_id])
     record = None
@@ -3833,7 +3875,7 @@ def summary_record_for_run(run_id="run-under-test"):
             "record_found": False,
             "statement": (
                 "no summary record and no run record was found for "
-                "run " + str(run_id)),
+                "run " + _safe_str(run_id)),
         }
     groups = record.get("groups") or {}
     outcome = groups.get("outcome_and_retention") or {}
@@ -4599,11 +4641,12 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
             "stands evaluated by a program alone, and no flag "
             "evaluation stands performed")
     outcome_text = (
-        _stored_text(outcome) if isinstance(outcome, str) else None)
+        _stored_text(outcome) if isinstance(
+            outcome, (str, bytes, bytearray, memoryview)) else None)
     if outcome is not None and outcome_text not in _FLAG_OUTCOMES:
         raise ValueError(
             "flag evaluation outcome outside the stated vocabulary: "
-            + str(outcome)
+            + _safe_str(outcome)
             + "; the outcomes the rule names stand as promote and "
             "demote, and no flag evaluation stands performed")
     if outcome_text == "demote":
@@ -4612,15 +4655,18 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
             "stands as demote, and no demotion stands effected "
             "by it")
     tier_text = (
-        _stored_text(tier) if isinstance(tier, str) else None)
+        _stored_text(tier) if isinstance(
+            tier, (str, bytes, bytearray, memoryview)) else None)
     if tier is not None and tier_text not in _TIER_RANKS:
         raise ValueError(
             "flag evaluation tier outside the tiers the rule names: "
-            + str(tier) + "; the tiers the rule names stand as "
-            "Tier 0, Tier 1, Tier 2, and Tier 3")
+            + _safe_str(tier) + "; the tiers the rule names stand as "
+            "Tier 0, Tier 1, Tier 2, and Tier 3, and no flag "
+            "evaluation stands performed")
     current = dict.get(record, "retention_tier")
     current_text = (
-        _stored_text(current) if isinstance(current, str) else None)
+        _stored_text(current) if isinstance(
+            current, (str, bytes, bytearray, memoryview)) else None)
     if (tier is not None and current_text in _TIER_RANKS
             and _TIER_RANKS[tier_text] < _TIER_RANKS[current_text]):
         raise ValueError(
@@ -4657,9 +4703,9 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
         if current_text in _TIER_RANKS and _TIER_RANKS[tier_text] <= _TIER_RANKS[current_text]:
             raise ValueError(
                 "a promote outcome with no effected promotion stands "
-                "refused: the stated tier " + str(tier)
+                "refused: the stated tier " + _safe_str(tier)
                 + " does not rise above the standing tier "
-                + str(current)
+                + _safe_str(current)
                 + ", a promotion must rise above the standing tier, "
                 "and no promotion stands effected by it")
     updated = _safe_copy(record)
@@ -4706,6 +4752,10 @@ def reserve_hold_for_run(run_id, current_day=None):
     and 18 stands expired by that stated act, for every family
     form including a family that never states headline results,
     and never reads held without an end."""
+    try:
+        hash(run_id)
+    except TypeError as exc:
+        raise LookupFailure(run_id) from exc
     hold = _RESERVE_HOLDS.get(run_id)
     if hold is None:
         return None
@@ -4729,13 +4779,17 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
     if firing not in (1, 2):
         raise ValueError(
             "apply_deferred_evaluation stands refused: the firing "
-            + repr(firing) + " stands outside the stated firings "
+            + _safe_repr(firing) + " stands outside the stated firings "
             "1 and 2, a run receives two firings (firings 1 and 2) "
             "and no other firing, and no evaluation stands written")
     updated = _safe_copy(summary_record)
     evaluations = updated.setdefault("deferred_evaluations", [])
     if any(item.get("firing") == firing for item in evaluations):
-        raise ValueError("this firing already stands written")
+        raise ValueError(
+            "apply_deferred_evaluation stands refused: this firing "
+            "already stands written, a run receives two firings "
+            "(firings 1 and 2) and no firing stands written twice, "
+            "and no evaluation stands written")
     if firing == 2 and not family_states_headlines:
         updated["second_firing"] = "does not fire"
         return updated
@@ -4790,6 +4844,10 @@ def retention_record_for_run(run_id, store_kind="sweep"):
     """Return the retention record of a run in pointer form: the
     later evaluation as written into the summary record, and the
     forms retained for the run that this record points to."""
+    try:
+        hash(run_id)
+    except TypeError as exc:
+        raise LookupFailure(run_id) from exc
     summary = summary_record_for_run(run_id)
     evaluations = summary.get("deferred_evaluations") or []
     later = evaluations[-1] if evaluations else None
@@ -5065,7 +5123,7 @@ def validate_retention_sizing(sizing):
 def retention_met(record):
     if not isinstance(record, dict):
         return False
-    if _stored_stands(dict.get(record, "declaration_only")) or dict.get(record, "state") == "DECLARED NOT CLOSED":
+    if _stored_stands(dict.get(record, "declaration_only")) or _stored_text(dict.get(record, "state")) == "DECLARED NOT CLOSED":
         return False
     later = dict.get(record, "later_evaluation")
     if not isinstance(later, dict):
@@ -5077,9 +5135,13 @@ def retention_met(record):
         conditions = list(_base_iter(conditions))
     elif isinstance(conditions, dict):
         conditions = list(dict.__iter__(conditions))
+    elif isinstance(conditions, str):
+        conditions = list(str.__iter__(conditions))
+    elif isinstance(conditions, (bytes, bytearray, memoryview)):
+        conditions = list(bytes(conditions))
     else:
-        conditions = list(conditions)
-    if conditions != [1, 2, 3]:
+        conditions = []
+    if not _base_value_eq(conditions, [1, 2, 3]):
         return False
     if not _stored_stands(dict.get(later, "inputs")) or not _stored_stands(dict.get(later, "outcome")):
         return False
@@ -5116,7 +5178,7 @@ def validate_sample_record(sample):
 def validate_retention_record(record):
     if not isinstance(record, dict):
         return False
-    governing = str(dict.get(record, "governing_rule") or "")
+    governing = _safe_str(dict.get(record, "governing_rule") or "")
     if governing.startswith("DQ7-08") and dict.get(record, "reliance") == "governing":
         return False
     return True
@@ -5146,11 +5208,14 @@ def store_lookup(store_kinds=None, key=None, store_kind=None):
     if kinds is None:
         kinds = ()
     if len(tuple(kinds)) != 1:
-        raise ValueError("a lookup that resolves across stores in one step is rejected")
+        raise ValueError(
+            "a lookup that resolves across stores in one step is "
+            "rejected: exactly one store kind stands required, and "
+            "no record lookup stands performed")
     kind = tuple(kinds)[0]
     if not _store_kind_stands(kind):
         raise ValueError(
-            "unknown store kind: " + str(kind) + "; a store kind stands "
+            "unknown store kind: " + _safe_str(kind) + "; a store kind stands "
             "among sweep, pilot, and live, and no record lookup stands "
             "performed on an unknown kind")
     return _STORES[_canonical_store_kind(kind)].read_run_record(key)
@@ -5414,7 +5479,13 @@ def _is_barred_view_key(key):
     key form, and a single part container carries the reading
     of its one part. A bytes part inside a container key stands
     read on its decoded stored bytes, as a bare bytes key
-    stands read."""
+    stands read. A dict stands judged at its own node beside
+    its parts and its whole joined text: a barred exact name
+    split across two or more consecutive keys of the dict, in
+    stored order, stands barred on the tiling of those keys
+    folded readings, so the exact form names stand judged at
+    a node carrying further keys beside the split, in the
+    joined reading form settlement S-14 states."""
     if isinstance(key, _CONTAINER_KEY_FORMS + (dict,)):
         stack = [key]
         seen = set()
@@ -5455,6 +5526,21 @@ def _is_barred_view_key(key):
                 tuple(_VIEW_BARRED_KEYS_FOLDED),
                 tuple(_VIEW_BARRED_KEY_PARTS_FOLDED)):
             return True
+        if isinstance(key, dict):
+            pairs = list(dict.items(key))
+            if len(pairs) >= 2:
+                readings = []
+                for node_key, node_value in pairs:
+                    options = set(_fold_variants(node_key))
+                    if isinstance(node_key, _CONTAINER_KEY_FORMS
+                                  + (dict,)):
+                        options.update(_fold_variants(
+                            _joined_stored_text(node_key)))
+                    readings.append(options)
+                for target in _VIEW_BARRED_KEYS_FOLDED:
+                    if _dict_keys_tile_exact(
+                            readings, pairs, target, False):
+                        return True
         joined = _joined_stored_text(key)
         if joined:
             return _is_barred_view_key(joined)
@@ -5647,4 +5733,8 @@ def retain_view_record(record, tier=None):
 def view_records_for_run(run_id):
     """Read the retained ViewRecords of a run. Reading never
     writes."""
+    try:
+        hash(run_id)
+    except TypeError as exc:
+        raise LookupFailure(run_id) from exc
     return _safe_copy(_VIEW_RECORDS.get(run_id, []))

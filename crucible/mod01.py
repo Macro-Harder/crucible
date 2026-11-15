@@ -450,8 +450,20 @@ _EVENTLOG_BASE_FIELDS = (
 )
 
 
+def _safe_str(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def _fid(form_id):
-    return str(form_id)
+    return _safe_str(form_id)
 
 
 def form_name(form_id):

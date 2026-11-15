@@ -214,6 +214,18 @@ def _refusal_repr(value):
         return object.__repr__(value)
 
 
+def _safe_str(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def _canonical_text(key, letter_map=None):
     mapping = _HOMOGLYPH_MAP if letter_map is None else letter_map
     chars = []
@@ -1681,11 +1693,25 @@ def archetype_catalogue(records=None):
     typed catalogue.
     """
     entries = {}
-    if records is not None and isinstance(records, (str, bytes)):
-        raise ValueError(
-            "catalogue rejected: the record set stands in no record "
-            "list form, a record set stands as records, and no "
-            "catalogue stands delivered")
+    if records is not None and not isinstance(
+            records, (list, tuple, set, frozenset)):
+        # A record set handed in a form the act refuses stands
+        # refused in the same named sentence: a text, bytes, or
+        # mapping form, a number or any other form standing in
+        # no iterable form at all, and an iterator form, whose
+        # contents stand as a one shot stream and not as a
+        # record set. An iterable object in no container form
+        # and in no iterator form stands unread under the
+        # _record_sequence standing, as that reading states,
+        # and delivers the empty catalogue of that standing.
+        if (
+                isinstance(records, (str, bytes, dict))
+                or hasattr(records, "__next__")
+                or not hasattr(records, "__iter__")):
+            raise ValueError(
+                "catalogue rejected: the record set stands in no "
+                "record list form, a record set stands as records, "
+                "and no catalogue stands delivered")
     for record in _record_sequence(records):
         if not isinstance(record, dict):
             raise ValueError(
@@ -1700,7 +1726,7 @@ def archetype_catalogue(records=None):
         if identifier in entries:
             raise ValueError(
                 "catalogue rejected: a duplicate archetype identifier "
-                "stands in the record set: " + str(identifier)
+                "stands in the record set: " + _safe_str(identifier)
             )
         rows = _guarded_copy(
             _base_get(record, "parameter_rows") or ())
@@ -1746,7 +1772,14 @@ def run_headline_reportable(archetype_ids, records=None):
     headline reportable.
     """
     entries = archetype_catalogue(records)["entries"]
-    return all(identifier in entries for identifier in archetype_ids)
+    if not isinstance(archetype_ids, (list, tuple, set, frozenset)):
+        raise ValueError(
+            "run_headline_reportable stands refused: the archetype "
+            "identifiers stand in no list form, a list of archetype "
+            "identifiers stands required, and no headline reportable "
+            "standing stands returned")
+    identifiers = list(_base_iter(archetype_ids))
+    return all(identifier in entries for identifier in identifiers)
 
 
 def canonical_scale_set():
@@ -1869,7 +1902,7 @@ def build_cast(point, archetype_records, stream_state=None,
                 mix_count, int) or mix_count < 0:
             raise NamedGeneratorFailure(
                 "cast rejected: the mix count for "
-                + str(mix_identifier) + " is not a non negative "
+                + _safe_str(mix_identifier) + " is not a non negative "
                 "whole count: " + _refusal_repr(mix_count))
     if sum(count for _identifier, count in mix_items) != population:
         raise NamedGeneratorFailure(
@@ -1883,7 +1916,7 @@ def build_cast(point, archetype_records, stream_state=None,
         if identifier not in by_id:
             raise NamedGeneratorFailure(
                 "cast rejected: archetype in the mix stands outside "
-                "the records supplied: " + str(identifier))
+                "the records supplied: " + _safe_str(identifier))
     agent_ids = ["agent-%04d" % index for index in range(population)]
     order = list(agent_ids)
     cast_values = _stream_values(stream_state, "cast")
@@ -2218,7 +2251,7 @@ def zero_edge_society(point, archetype_records, stream_state=None,
     cast["summed_stake"] = sum(
         edge.get("stake", 0) for edge in built_edges)
     cast["anchor_scenario"] = anchor_scenario(
-        "AN-1", point.get("anchor_set_description", "scenario setting"))
+        "AN-1", _base_get(point, "anchor_set_description", "scenario setting"))
     return cast
 
 

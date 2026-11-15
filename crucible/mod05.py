@@ -122,11 +122,11 @@ _EXTENSION_SLICES = (
 def _stored_list(value):
     """The stored elements of a handed container, read through the
     base iteration of its form, never through an iteration the
-    value itself supplies. A value in no container form stands
-    read through the plain list construction."""
+    value itself supplies. A value in no container form stores
+    no elements and stands as an empty list."""
     if isinstance(value, (list, tuple, set, frozenset)):
         return list(_base_iter(value))
-    return list(value)
+    return []
 
 
 def _get(record, *names, default=None):
@@ -266,7 +266,17 @@ def work_credit(events):
     each proportion stands stored as its numerator and denominator
     apart, per Shape 14.
     """
-    events = _stored_list(events)
+    if isinstance(events, (list, tuple, set, frozenset)):
+        events = _stored_list(events)
+    else:
+        try:
+            iter(events)
+        except Exception:
+            raise ValueError(
+                "work_credit stands refused: the events stand in no "
+                "list form, a list of work events stands required, "
+                "and no work credit stands computed") from None
+        events = []
     per_agent = {}
     for event in events:
         agent = _get(event, "agent_identifier", "agent")
@@ -404,7 +414,7 @@ def component_cap_check(edges, cap_edges):
     """The component cap counts edges, not stake weight: a component
     passes the cap only where its edge count is at or under the cap,
     whatever its stake total."""
-    for group in _components(list(edges)):
+    for group in _components(_stored_list(edges)):
         if group["edge_count"] > cap_edges:
             return False
     return True
@@ -424,7 +434,7 @@ def realised_degree_distribution(edges, by_epoch=None):
     result = {"by_graph": distribution(edges)}
     if by_epoch is not None:
         result["by_epoch"] = {
-            epoch: distribution(_stored_list(epoch_edges)) for epoch, epoch_edges in (dict.items(by_epoch) if isinstance(by_epoch, dict) else by_epoch.items())
+            epoch: distribution(_stored_list(epoch_edges)) for epoch, epoch_edges in (dict.items(by_epoch) if isinstance(by_epoch, dict) else ())
         }
     return result
 
@@ -483,7 +493,7 @@ def graph_facts(edges, by_epoch=None, component_definition_version=None):
     """The graph facts the core hands on: the edge list reference,
     the component list, the largest mutually vouching component size,
     and the realised degree distribution by graph and by epoch."""
-    edges = list(edges)
+    edges = _stored_list(edges)
     snapshot = graph_snapshot(
         edges, component_definition_version=component_definition_version)
     facts = {
@@ -609,7 +619,7 @@ def band_membership(score, bands, evaluation_order=None):
     record; the highest band whose minimum the score reaches holds."""
     order_record = evaluation_order if isinstance(evaluation_order, dict) else evaluation_order_record(evaluation_order)
     if not validate_evaluation_order(order_record):
-        if not isinstance(order_record, dict) or not order_record.get("order"):
+        if not isinstance(order_record, dict) or not dict.get(order_record, "order"):
             raise ValueError(
                 "band_membership stands refused: no order stands "
                 "stated in the evaluation order, eligibility "
@@ -809,10 +819,10 @@ def validate_band_transition_result(result):
 def gate_passing_share(eligible, passing, epoch=None):
     """The gate passing share computed per epoch by this core, as a
     proportion stored with its numerator and denominator apart."""
-    eligible = list(eligible)
+    eligible = _stored_list(eligible)
     if not eligible:
         return UNKNOWN_SHARE
-    passing_set = set(passing)
+    passing_set = set(_stored_list(passing))
     numerator = sum(1 for item in eligible if item in passing_set)
     share = proportion_record(numerator, len(eligible))
     share["epoch"] = epoch
@@ -2545,6 +2555,42 @@ def validate_panel_inputs(inputs):
         return False
 
 
+def _split_panel_barred_name(keys):
+    """Return the barred key a split node carries, named on
+    the joined reading's own terms, or None where no group of
+    the node's keys forms one. The node's keys stand read in
+    stored order: every group of two or more neighbouring keys
+    stands joined with no separator and judged as a single key
+    stands judged, the smallest such group first, so a barred
+    name split across neighbouring keys stands named by the
+    keys that form it alone, never by the whole joined text of
+    a node carrying further keys. Where a joined group stands
+    barred only because it carries a barred part inside it,
+    the part itself, as it stands in the joined text, stands
+    named, in the same form. A group standing as a barred name
+    whole, in its plain form or in a folded reading, stands
+    named whole."""
+    texts = [_stored_text(key) for key in keys]
+    for size in range(2, len(keys) + 1):
+        for start in range(0, len(keys) - size + 1):
+            joined = "".join(texts[start:start + size])
+            if not joined or not _panel_key_barred(joined):
+                continue
+            lowered = joined.lower()
+            if lowered in _PANEL_BARRED_KEYS:
+                return joined
+            if any(
+                    reading in _PANEL_BARRED_FOLDED_EXACT
+                    for reading in _folded_readings(joined)):
+                return joined
+            for part in ("ground_truth", "groundtruth", "membership"):
+                index = lowered.find(part)
+                if 0 <= index and len(part) < len(lowered):
+                    return joined[index:index + len(part)]
+            return joined
+    return None
+
+
 def _panel_barred_keys(value, _depth=0, _seen=None):
     found = []
     if isinstance(value, dict):
@@ -2555,7 +2601,11 @@ def _panel_barred_keys(value, _depth=0, _seen=None):
         if _panel_key_barred(value) and not any(
                 _panel_key_barred(key)
                 for key in dict.keys(value)):
-            found.append(_joined_stored_text(value))
+            named = _split_panel_barred_name(list(dict.keys(value)))
+            if named is not None:
+                found.append(named)
+            else:
+                found.append(_joined_stored_text(value))
         for key, item in dict.items(value):
             if _panel_key_barred(key):
                 found.append(str(key))
@@ -2568,6 +2618,18 @@ def _panel_barred_keys(value, _depth=0, _seen=None):
         for item in value:
             found.extend(_panel_barred_keys(item, _depth + 1, seen))
     return found
+
+
+def _safe_repr(value):
+    """Render a handed value for a refusal sentence: through
+    its repr reading where that reading stands, and through
+    the base object repr where the repr reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return repr(value)
+    except Exception:
+        return object.__repr__(value)
 
 
 def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
@@ -2602,7 +2664,7 @@ def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
     if isinstance(accuracy_value, bool) or not isinstance(accuracy_value, (int, float)):
         fail(
             "adjudicate stands refused: the accuracy value stands "
-            "in no numeric form: " + repr(accuracy_value)
+            "in no numeric form: " + _safe_repr(accuracy_value)
             + ", an accuracy value stands as a number, and no "
             "adjudication stands returned")
     if not 0 <= accuracy_value <= 1:
@@ -2614,7 +2676,7 @@ def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
             or str.__eq__(outcome, "not slashable"))):
         fail(
             "the adjudication outcome stands outside the stated "
-            "vocabulary: " + repr(outcome)
+            "vocabulary: " + _safe_repr(outcome)
             + "; an outcome stands among slashable and not slashable")
     try:
         formed = panel_inputs(case)

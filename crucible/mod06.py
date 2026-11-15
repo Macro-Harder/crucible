@@ -2274,6 +2274,31 @@ def _payload_carries_barred(value, _depth=0, _seen=None, _walked=None):
     return result
 
 
+def _key_reading_stands_empty(text):
+    """Whether one key reading stands empty in the walk folded
+    forms: under every letter map the plain reading of the key,
+    with digits dropped, stands empty, so the key contributes
+    no character to a joined folded reading. A separator only,
+    space only, or dash only key folds to no reading at all,
+    and a digit only key folds to a reading its digits dropped
+    form leaves empty, so both forms stand empty here, as the
+    sibling money walks read them, while a key carrying any
+    letter reading under any map stands read on that letter."""
+    for letter_map in (
+        _HOMOGLYPH_MAP, _TRANSLITERATION_MAP,
+        _HOMOGLYPH_MAP_VO, _TRANSLITERATION_MAP_VO,
+    ):
+        base = "".join(
+            letter_map.get(character, character)
+            for character in _decomposed_characters(text)
+            if not unicodedata.category(character).startswith("M"))
+        plain = "".join(
+            character for character in base if character.isalnum())
+        if any(not character.isdigit() for character in plain):
+            return False
+    return True
+
+
 def _dict_node_split_barred(value):
     """Whether a barred marker stands split across two or more
     keys of one dict, in the form settlement S-11 states: the
@@ -2301,9 +2326,14 @@ def _dict_node_split_barred(value):
     spaces.append((
         [{text.lower()} if text else {""} for text in texts],
         (("anchor_set", False), ("real_money", True))))
+    folded_space = []
+    for text in texts:
+        readings = set(_folded_readings(text)) if text else {""}
+        if text and _key_reading_stands_empty(text):
+            readings.add("")
+        folded_space.append(readings)
     spaces.append((
-        [set(_folded_readings(text)) if text else {""}
-         for text in texts],
+        folded_space,
         (("anchorset", False), ("realmoney", True),
          ("realmani", True))))
     for readings, patterns in spaces:
@@ -2398,6 +2428,8 @@ def _dict_node_pair_barred(value):
         text = _joined_stored_text(key)
         plain.append({text.lower()} if text else {""})
         readings = set(_folded_readings(text)) if text else set()
+        if text and _key_reading_stands_empty(text):
+            readings.add("")
         folded.append(readings if readings else {""})
     for target in ("amount", "currency"):
         if not (
@@ -2667,31 +2699,35 @@ def _run_instruction_act(name, variant="B-4", context=None):
         context = {key: item for key, item in dict.items(context)}
     else:
         context = {}
-    name_text = _refusal_text(name)
+    stored_name = _stored_text(name)
+    name_is_text = isinstance(
+        name, (str, bytes, bytearray, memoryview))
+    judged_name = stored_name if name_is_text else None
+    name_text = stored_name if name_is_text else _refusal_text(name)
     if context.get("claims_dq_answer") or context.get("dq_answer") is not None:
-        raise GuessedAnswer("no case encodes a guess at any DQ-5 to DQ-30 item")
+        raise GuessedAnswer("no case encodes a guess at any DQ-5 to DQ-30 item, and no instruction stands run")
     if context.get("asserts_floor_under_n") or context.get("asserts_clock_scope_as_answer"):
-        raise GuessedAnswer("no floor under N and no clock scope reading stands as a DQ answer")
+        raise GuessedAnswer("no floor under N and no clock scope reading stands as a DQ answer, and no instruction stands run")
     if (
-        "pool" in name_text
-        or name == EXCLUDED_PROFILE
-        or context.get("profile") == EXCLUDED_PROFILE
+        "pool" in stored_name
+        or _base_member(judged_name, (EXCLUDED_PROFILE,))
+        or _base_member(context.get("profile"), (EXCLUDED_PROFILE,))
         or _reads_as_excluded_profile(name)
         or _reads_as_excluded_profile(context.get("profile"))
     ):
         raise ExcludedSubpath("a construction excluded on a DQ ground stays excluded on that ground: " + name_text)
-    if name not in _ALLOWED:
-        raise UnnamedInstruction("instruction stands unnamed in the cited set of 12 core instructions, with no exercised case standing for it: " + name_text)
-    item = _ALLOWED[name].split(",")[0]
-    result_payload = {"instruction": name, "dq_item": _ALLOWED[name]}
+    if judged_name is None or judged_name not in _ALLOWED:
+        raise UnnamedInstruction("instruction stands unnamed in the cited set of 12 core instructions, with no exercised case standing for it: " + name_text + ", and no instruction stands run")
+    item = _ALLOWED[judged_name].split(",")[0]
+    result_payload = {"instruction": judged_name, "dq_item": _ALLOWED[judged_name]}
     result_payload["contested_entries"] = contested_entries_for(item)
     result_payload["claims_dq_answer"] = False
     result_payload["traversal_claim"] = None
-    if name == "replace_backup_key":
+    if judged_name == "replace_backup_key":
         if not context.get("backup_key_registered_at_setup"):
-            raise ValueError("refused: replace_backup_key stands refused, because it runs only with backup key registration at setup")
+            raise ValueError("refused: replace_backup_key stands refused, because it runs only with backup key registration at setup, and no key stands replaced")
         result_payload["backup_key_registered_at_setup"] = True
-    if name == "open_request":
+    if judged_name == "open_request":
         additions = [key for key in ("countersigning", "bound", "verification") if context.get(key)]
         if additions:
             raise ValueError(
@@ -2721,20 +2757,20 @@ def _run_instruction_act(name, variant="B-4", context=None):
             "sensitivity_range": context.get("sensitivity_range", "about 0.1 to about 10 on a log spacing, range estimated"),
         }
         result_payload["additions"] = []
-    if name in ("check_in", "claim_lost_contact"):
+    if judged_name in ("check_in", "claim_lost_contact"):
         if not context.get("clause_on"):
             raise ValueError(
-                name + " stands refused: the clause_on context stands missing, "
-                + name + " runs only for a contract that turns the clause on, and no "
-                + name + " stands performed")
+                judged_name + " stands refused: the clause_on context stands missing, "
+                + judged_name + " runs only for a contract that turns the clause on, and no "
+                + judged_name + " stands performed")
         if context.get("window_n") is None:
             raise ValueError(
-                name + " stands refused: the window value N stands missing, no window value was handed for the contract, and no "
-                + name + " stands performed")
+                judged_name + " stands refused: the window value N stands missing, no window value was handed for the contract, and no "
+                + judged_name + " stands performed")
         result_payload["window_n"] = context["window_n"]
         result_payload["window_n_form"] = "labelled assumption in the standard for that contract"
         result_payload["contact_clocks_tracked"] = True
-    return escrow_result(name, variant=variant, payload=result_payload)
+    return escrow_result(judged_name, variant=variant, payload=result_payload)
 
 
 def _reads_as_excluded_profile(value):
@@ -2974,7 +3010,7 @@ def validate_dq_arrival_table(rows):
     """The blank form integrity check: 26 rows, the fixture
     standings, and every final column cell empty. A form with any
     final column cell filled before its ruling arrives fails."""
-    rows = list(_base_iter(rows)) if isinstance(rows, (list, tuple, set, frozenset)) else list(rows)
+    rows = list(_base_iter(rows)) if isinstance(rows, (list, tuple, set, frozenset)) else []
     if len(rows) != 26:
         return False
     expected = {row["item"]: row["standing"] for row in dq_arrival_table()}
