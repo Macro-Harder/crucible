@@ -449,31 +449,11 @@ def family_record_validation_failures(record):
                 "sealed and edited record carries no identifier "
                 "change: the sealed and edited identifier gate "
                 "stands refused")
-    kill_named = False
-    for field in ("kill_check_fields", "kill_checks"):
-        checks = dict.get(record, field)
-        if not isinstance(checks, (list, tuple)):
-            continue
-        standing_claims = dict.get(record, "headline_claims")
-        if not isinstance(standing_claims, (list, tuple)):
-            standing_claims = dict.get(record, "claims")
-        if not isinstance(standing_claims, (list, tuple)):
-            continue
-        frozen_claims = _freeze(standing_claims)
-        check_items = (
-            list.__iter__(checks) if isinstance(checks, list)
-            else tuple.__iter__(checks))
-        for check in check_items:
-            if isinstance(check, dict) \
-                    and dict.get(check, "claim") is not None \
-                    and _freeze(dict.get(check, "claim")) \
-                    not in frozen_claims:
-                kill_named = True
-    if kill_named:
+    if _kill_check_names_absent(record):
         failures.append(
             "a kill check names a claim standing nowhere among "
             "the record claims: the kill check gate stands refused")
-    if _freeze(dict.get(record, "ecology_point")) == "fixed" \
+    if _dress_eq(dict.get(record, "ecology_point"), "fixed") \
             and not _stored_value_present(
                 dict.get(record, "amendment_landed")):
         failures.append(
@@ -513,26 +493,9 @@ def validate_family_record(record):
         if not _stored_value_present(
                 dict.get(record, "identifier_changed")):
             return False
-    for field in ("kill_check_fields", "kill_checks"):
-        checks = dict.get(record, field)
-        if not isinstance(checks, (list, tuple)):
-            continue
-        standing_claims = dict.get(record, "headline_claims")
-        if not isinstance(standing_claims, (list, tuple)):
-            standing_claims = dict.get(record, "claims")
-        if not isinstance(standing_claims, (list, tuple)):
-            continue
-        frozen_claims = _freeze(standing_claims)
-        check_items = (
-            list.__iter__(checks) if isinstance(checks, list)
-            else tuple.__iter__(checks))
-        for check in check_items:
-            if isinstance(check, dict) \
-                    and dict.get(check, "claim") is not None \
-                    and _freeze(dict.get(check, "claim")) \
-                    not in frozen_claims:
-                return False
-    if _freeze(dict.get(record, "ecology_point")) == "fixed" \
+    if _kill_check_names_absent(record):
+        return False
+    if _dress_eq(dict.get(record, "ecology_point"), "fixed") \
             and not _stored_value_present(
                 dict.get(record, "amendment_landed")):
         return False
@@ -1309,6 +1272,88 @@ def _stored_values_equal(first, second):
     return _freeze(first) == _freeze(second)
 
 
+def _check_claim_value(check):
+    """The claim one kill check stores, found by scanning its
+    stored pairs and judging each stored key by its stored
+    text, so a key whose hash or equality reading names another
+    field still stands found under the name it stores. A check
+    storing no claim stands as None."""
+    for key, item in dict.items(check):
+        key_text = _stored_text(key)
+        if key_text is None:
+            key_text = _key_stored_text(key)
+        if key_text is not None and str.__eq__(key_text, "claim"):
+            return item
+    return None
+
+
+def _kill_check_claim_values(record):
+    """Every claim the kill check fields of one family record
+    name, in list, tuple, and dict carriage alike: a check in
+    list or tuple carriage stands judged on the claim it
+    stores, a dict standing as one check stands judged on the
+    claim that check stores, and a dict keyed by claim names
+    stands judged on every key it carries and on the claim of
+    any check it carries as a value, so no dict carriage of a
+    kill check stands passed over in silence."""
+    values = []
+    for field in ("kill_check_fields", "kill_checks"):
+        checks = dict.get(record, field)
+        if isinstance(checks, dict):
+            single = _check_claim_value(checks)
+            if single is not None:
+                values.append(single)
+                continue
+            for key, item in dict.items(checks):
+                values.append(key)
+                if isinstance(item, dict):
+                    nested = _check_claim_value(item)
+                    if nested is not None:
+                        values.append(nested)
+            continue
+        if not isinstance(checks, (list, tuple)):
+            continue
+        for check in _base_sequence(checks):
+            if isinstance(check, dict):
+                claim = _check_claim_value(check)
+                if claim is not None:
+                    values.append(claim)
+    return values
+
+
+def _kill_check_names_absent(record):
+    """Whether any kill check of one family record names a claim
+    standing nowhere among the record claims, judged on the
+    dress text each side stores and on the stored values
+    equality of this module, never through an equality reading
+    a handed claim itself supplies and never through a plain
+    membership test on frozen copies: a claim and a standing
+    claim in bytes, buffer, or split container dress stand
+    judged as the text they store, on either side alike."""
+    standing_claims = dict.get(record, "headline_claims")
+    if not isinstance(standing_claims, (list, tuple)):
+        standing_claims = dict.get(record, "claims")
+    if not isinstance(standing_claims, (list, tuple)):
+        return False
+    standing_parts = _base_sequence(standing_claims)
+    standing_texts = [_dress_text(part) for part in standing_parts]
+    for claim in _kill_check_claim_values(record):
+        if claim is None:
+            continue
+        claim_text = _dress_text(claim)
+        matched = False
+        for part, text in zip(standing_parts, standing_texts):
+            if claim_text != "" and str.__eq__(claim_text, text):
+                matched = True
+                break
+            if _stored_values_equal(claim, part):
+                matched = True
+                break
+        if not matched:
+            return True
+    return False
+
+
 def _base_sequence(value):
     """The stored parts of a handed sequence, read through the
     base iteration of its form, as a list. A value in no sequence
@@ -1649,6 +1694,10 @@ def sample_statement(runs=None):
         if not _stored_value_present(name):
             continue
         if any(_stored_values_equal(name, kept) for kept in named):
+            continue
+        if any(str.__eq__(
+                _stored_id_text(name), _stored_id_text(kept))
+                for kept in named):
             continue
         counts[matched] += 1
         named.append(name)
@@ -2017,7 +2066,9 @@ def start_run(run_class=None, family_id=None):
                for stated in RUN_CLASSES):
         stated_text = _stored_text(run_class)
         return _input_failure(
-            "start run", "run class missing or outside the stated classes: "
+            "start run", "run class missing or outside the stated "
+            "classes (screening, confirmation, headline, and "
+            "validation): "
             + (stated_text if stated_text is not None
                else "not a text value"))
     if not _stored_value_present(family_id):

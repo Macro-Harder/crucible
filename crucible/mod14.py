@@ -292,9 +292,16 @@ def error_carriage(failure, run_id=None, stage=None):
             len(raw_message) >= 2 and raw_message.startswith("'")
             and raw_message.endswith("'")):
         raw_message = raw_message[1:-1]
+    elif (
+            len(raw_message) >= 2 and raw_message.startswith('"')
+            and raw_message.endswith('"')):
+        raw_message = raw_message[1:-1]
     name = raw_message if class_name is None else (
         class_name + ": " + raw_message)
     fields = {}
+    if isinstance(failure, str):
+        fields["name"] = "failure in text form"
+        fields["message"] = raw_message
     if not isinstance(failure, str):
         carried = getattr(failure, "failure", None)
         if isinstance(carried, dict):
@@ -336,7 +343,16 @@ def run_command(command, payload=None, run_id=None):
     """Run one shell command. The command carries its inputs to
     its named module and returns that module outputs, or its
     named failure in the error carriage form."""
-    payload = payload or {}
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        return error_carriage(
+            NamedShellFailure(
+                "shell command stands refused: the payload stands "
+                "in no mapping form: a mapping of input fields "
+                "stands required as the payload of every shell "
+                "command"),
+            run_id=run_id, stage=command)
     try:
         if command == "start_run":
             return _mod12.start_run(
@@ -464,6 +480,29 @@ def _container_parts(value):
     if isinstance(value, set):
         return list(set.__iter__(value))
     return []
+
+
+def _fired_stands(fired):
+    """Whether a fired value stands supplied, judged by its
+    stored contents and never by a truth reading the value
+    itself supplies: a value in a container form stands where
+    it stores at least one entry, read through the base
+    iteration of its form, a text or bytes form stands where
+    it stores at least one character or byte, and no value
+    stands nowhere. A value in no such form stands judged by
+    the plain truth of the value itself, the one limb this
+    reading does not reach."""
+    if fired is None:
+        return False
+    if isinstance(fired, (list, tuple, set, frozenset)):
+        return len(_container_parts(fired)) > 0
+    if isinstance(fired, str):
+        return len(str.__str__(fired)) > 0
+    if isinstance(fired, (bytes, bytearray, memoryview)):
+        return len(bytes(fired)) > 0
+    if isinstance(fired, dict):
+        return dict.__len__(fired) > 0
+    return bool(fired)
 
 
 def _pilot_key_form(key, _seen=None, _depth=0):
@@ -621,9 +660,9 @@ def validate_pilot_claim(claim):
     rates by the pilot in any wording."""
     if not isinstance(claim, dict):
         return False
-    if claim.get("cites_pilot_output") and claim.get("kind") == "behaviour":
+    if dict.get(claim, "cites_pilot_output") and dict.get(claim, "kind") == "behaviour":
         return False
-    if claim.get("settles_population_behaviour_rate"):
+    if dict.get(claim, "settles_population_behaviour_rate"):
         return False
     return True
 
@@ -634,8 +673,8 @@ def validate_pilot_claim(claim):
 
 def _pilot_confined(material):
     return isinstance(material, dict) and (
-        material.get("material_class") == "pilot confined"
-        or material.get("confinement_label") == "pilot confined"
+        dict.get(material, "material_class") == "pilot confined"
+        or dict.get(material, "confinement_label") == "pilot confined"
     )
 
 
@@ -730,7 +769,7 @@ def store_kind_check_with_reason(kind):
     }
 
 
-RETENTION_TIERS = ("Tier 1", "Tier 2", "Tier 3")
+RETENTION_TIERS = ("Tier 0", "Tier 1", "Tier 2", "Tier 3")
 
 
 def _has_stated_condition(fired):
@@ -919,22 +958,39 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
         raise NamedShellFailure(
             "flag evaluation in named form: the evaluation stands "
             "on a summary record, and no other form stands evaluated")
+    if _normalise_actor(actor) == "person":
+        raise ValueError(
+            "flag evaluation by a person is barred: the flag rule "
+            "stands evaluated by a program alone, and no flag "
+            "evaluation stands performed")
     if outcome == "promote":
+        if tier is None:
+            raise NamedShellFailure(
+                "a promote outcome with no tier stands refused: no "
+                "promotion stands effected by it")
         if tier not in RETENTION_TIERS:
             raise NamedShellFailure(
                 "flag evaluation tier outside the tiers the rule "
-                "names: " + str(tier))
+                "names: " + str(tier) + "; the tiers the rule names "
+                "stand as Tier 0, Tier 1, Tier 2, and Tier 3")
         if inputs is None:
             raise NamedShellFailure(
                 "flag promotion with no inputs supplied: a promotion "
                 "stands only with inputs actually supplied, and no "
                 "promotion stands effected by it")
-        fired = []
+        if not isinstance(inputs, dict):
+            raise NamedShellFailure(
+                "flag promotion with its inputs standing in no "
+                "record form: a promotion stands only with its "
+                "inputs handed as a mapping carrying "
+                "flag_conditions_fired, and no promotion stands "
+                "effected by it")
+        fired = None
         if isinstance(inputs, dict):
-            fired = _base_get(inputs, "flag_conditions_fired") or []
-        if not fired:
+            fired = _base_get(inputs, "flag_conditions_fired")
+        if not _fired_stands(fired):
             fired = _base_get(
-                summary_record, "flag_conditions_fired") or []
+                summary_record, "flag_conditions_fired")
         if not _has_stated_condition(fired):
             raise NamedShellFailure(
                 "flag promotion with no stated flag condition "
@@ -959,9 +1015,22 @@ def weekly_headline_count(summary_records, week):
     stands at None, or in a form the count cannot read as a list
     of identifiers, fails in the same named form. A bare string
     identifier field counts as the one identifier it states,
-    never as its characters."""
-    if summary_records is not None and not isinstance(
-            summary_records, (list, tuple, set, frozenset)):
+    never as its characters. Both inputs stand required: an
+    absent records argument or an absent week stands refused in
+    named form, and no clean zero stands returned for a count
+    that never ran."""
+    if summary_records is None:
+        raise NamedShellFailure(
+            "weekly_headline_count stands refused: no "
+            "summary_records stand supplied: a list of summary "
+            "records stands required, and no weekly headline "
+            "count stands certified without it")
+    if week is None:
+        raise NamedShellFailure(
+            "weekly_headline_count stands refused: no week stands "
+            "supplied: a week stands required, and no weekly "
+            "headline count stands certified without it")
+    if not isinstance(summary_records, (list, tuple, set, frozenset)):
         raise NamedShellFailure(
             "weekly_headline_count stands refused: the "
             "summary_records argument stands in no list form: "
@@ -1012,7 +1081,13 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
     inputs stand required in record form: an input standing
     absent or in no record form stands refused in the named
     form, and no clean outcome stands returned for a check
-    that examined nothing."""
+    that examined nothing. A lawful call log carries its calls
+    under the key calls or the key entries, and no other key;
+    each call entry stands as a record carrying an
+    outside_call mark, whose value stands as true or false,
+    stated as a boolean or as the text true, false, yes, or
+    no. A log or an entry in any other form stands refused in
+    named form, never read as an empty log."""
     if extra_source is not None:
         raise NamedShellFailure(
             "outside call check computed from a third source is barred"
@@ -1027,14 +1102,63 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
             "outside call check carries no call log to read: a "
             "call log in record form stands required, and no "
             "outside call standing stands certified without it")
-    calls = []
-    if isinstance(call_log, dict):
-        calls = _base_get(call_log, "calls") or _base_get(
-            call_log, "entries") or []
-    outside = [
-        call for call in calls
-        if isinstance(call, dict) and _base_get(call, "outside_call")
-    ]
+    for key in list(dict.keys(call_log)):
+        if key not in ("calls", "entries"):
+            raise NamedShellFailure(
+                "outside call check stands refused: the call log "
+                "carries a key the check cannot read: " + str(key)
+                + ": a call log carries its calls under the key "
+                "calls or the key entries, and no outside call "
+                "standing stands certified on a log the check "
+                "cannot read whole")
+    calls = _base_get(call_log, "calls")
+    if calls is None:
+        calls = _base_get(call_log, "entries")
+    if calls is None:
+        calls = []
+    if not isinstance(calls, (list, tuple, set, frozenset)):
+        raise NamedShellFailure(
+            "outside call check stands refused: the call log "
+            "carries its calls in no list form under the key "
+            "calls or the key entries: a list of call entries "
+            "stands required, and no outside call standing "
+            "stands certified without it")
+    outside = []
+    for call in _container_parts(calls):
+        if not isinstance(call, dict) or not _base_contains(
+                call, "outside_call"):
+            raise NamedShellFailure(
+                "outside call check stands refused: a call entry "
+                "carries no outside_call mark: each call entry "
+                "stands as a record carrying an outside_call "
+                "mark, and no outside call standing stands "
+                "certified on an entry the check cannot read")
+        mark = _base_get(call, "outside_call")
+        if isinstance(mark, bool):
+            stands_outside = mark
+        elif isinstance(mark, str):
+            word = mark.strip().lower()
+            if word in ("true", "yes"):
+                stands_outside = True
+            elif word in ("false", "no"):
+                stands_outside = False
+            else:
+                raise NamedShellFailure(
+                    "outside call check stands refused: a call "
+                    "entry carries an outside_call value outside "
+                    "the stated values: true or false, stated as "
+                    "a boolean or as the text true, false, yes, "
+                    "or no")
+        elif isinstance(mark, int) and mark in (0, 1):
+            stands_outside = bool(mark)
+        else:
+            raise NamedShellFailure(
+                "outside call check stands refused: a call entry "
+                "carries an outside_call value outside the stated "
+                "values: true or false, stated as a boolean or as "
+                "the text true, false, yes, or no")
+        if stands_outside:
+            outside.append(call)
     outcome = "outside calls present" if outside else "no outside calls read"
     manifest_entries = ()
     if isinstance(dependency_manifest, dict):
@@ -2001,8 +2125,8 @@ def _bar_on_target(protected, act, path):
 def _operator_action_bar(action):
     if not isinstance(action, dict):
         return "the action is not a record of an act and a target"
-    raw_kind = action.get("kind")
-    raw_target = action.get("target")
+    raw_kind = dict.get(action, "kind")
+    raw_target = dict.get(action, "target")
     if raw_kind is not None and not isinstance(raw_kind, str):
         return (
             "the action kind stands in a form the boundary cannot "
@@ -2015,7 +2139,7 @@ def _operator_action_bar(action):
             + ", not a stated target")
     kind = _normalise_name(raw_kind)
     target = _normalise_name(raw_target)
-    path = _normalise_name(action.get("path"))
+    path = _normalise_name(dict.get(action, "path"))
     path = _RULE_PATHS_BY_FOLDED.get(
         _folded_reading(path), path)
     touched = _touched_protected_targets(target)

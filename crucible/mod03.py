@@ -202,6 +202,18 @@ def _stored_text(value):
     return ""
 
 
+def _refusal_repr(value):
+    """Render a handed value for a refusal sentence: through
+    its repr reading where that reading stands, and through
+    the base object repr where the repr reading the value
+    itself supplies raises, so the refusal stands as a full
+    named refusal and never escapes bare on that reading."""
+    try:
+        return repr(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def _canonical_text(key, letter_map=None):
     mapping = _HOMOGLYPH_MAP if letter_map is None else letter_map
     chars = []
@@ -1621,7 +1633,7 @@ def _record_sequence(records):
         return []
     if isinstance(records, (list, tuple, set, frozenset)):
         return list(_base_iter(records))
-    return list(records)
+    return []
 
 
 def _stored_rows(value):
@@ -1632,7 +1644,7 @@ def _stored_rows(value):
         return []
     if isinstance(value, (list, tuple)):
         return list(_base_iter(value))
-    return list(value)
+    return []
 
 
 def make_archetype_record(archetype_id=None, behaviour=None,
@@ -2026,10 +2038,16 @@ def _stored_member_key(name):
     one name. For a text name, the key stands as the stored text
     of the name, read character by character through the base
     string reading, so a hash or equality reading the name
-    supplies directs nothing. For a plain scalar name of an
-    exact base kind, whose readings stand as the base class
-    readings and cannot be supplied by the name, the key stands
-    as the name itself. For every other name, the key stands as
+    supplies directs nothing. For a bytes form name, the key
+    stands as the plain bytes the name stores, read through
+    the base bytes reading, so a bytes subclass member stands
+    judged on its stored bytes in the same form as a plain
+    bytes member. For a plain scalar name, the key stands as
+    the plain scalar the name stores, read through the base
+    class reading of its kind, so an int, float, or complex
+    subclass member stands judged on its stored value in the
+    same form as a plain member of that kind, and a boolean
+    stands as itself. For every other name, the key stands as
     an identity pair built from a fixed marker and the identity
     of the name object, read through the base identity reading,
     so the name stands judged as the member it is in itself and
@@ -2039,8 +2057,16 @@ def _stored_member_key(name):
         return "".join(
             str.__getitem__(name, index)
             for index in range(str.__len__(name)))
-    if type(name) in (bool, int, float, complex, bytes):
+    if isinstance(name, bytes):
+        return bytes(name)
+    if isinstance(name, bool):
         return name
+    if isinstance(name, int):
+        return int.__int__(name)
+    if isinstance(name, float):
+        return float.__float__(name)
+    if isinstance(name, complex):
+        return complex.__complex__(name)
     return ("non text name", id(name))
 
 
@@ -2125,18 +2151,18 @@ def construct_farm(member_ids, farm_size=None, edges=None):
                 raise NamedGeneratorFailure(
                     "farm rejected: an edge carries no voucher, "
                     "not as a voucher and vouchee pair: "
-                    + repr(edge))
+                    + _refusal_repr(edge))
             if dict.get(edge, "vouchee") is None:
                 raise NamedGeneratorFailure(
                     "farm rejected: an edge carries no vouchee, "
                     "not as a voucher and vouchee pair: "
-                    + repr(edge))
+                    + _refusal_repr(edge))
             first, second = (
                 dict.get(edge, "voucher"), dict.get(edge, "vouchee"))
         elif isinstance(edge, (str, bytes)):
             raise NamedGeneratorFailure(
                 "farm rejected: an edge stands as text, not as a "
-                "voucher and vouchee pair: " + repr(edge))
+                "voucher and vouchee pair: " + _refusal_repr(edge))
         elif isinstance(edge, (list, tuple)):
             if isinstance(edge, list):
                 pair_size = list.__len__(edge)
@@ -2147,12 +2173,12 @@ def construct_farm(member_ids, farm_size=None, edges=None):
             if pair_size != 2:
                 raise NamedGeneratorFailure(
                     "farm rejected: an edge is not a voucher and "
-                    "vouchee pair of size two: " + repr(edge))
+                    "vouchee pair of size two: " + _refusal_repr(edge))
             first, second = pair_item(edge, 0), pair_item(edge, 1)
         else:
             raise NamedGeneratorFailure(
                 "farm rejected: an edge stands in no pair form, "
-                "not as a voucher and vouchee pair: " + repr(edge))
+                "not as a voucher and vouchee pair: " + _refusal_repr(edge))
         farm_id = farm_of.get(_stored_member_key(first))
         if farm_id is not None and farm_id == farm_of.get(
                 _stored_member_key(second)):

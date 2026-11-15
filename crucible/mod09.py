@@ -293,6 +293,9 @@ def _stored_match(first, second):
             return False
         result = str.__eq__(first, second)
         return result if result is not NotImplemented else False
+    if isinstance(first, (bytes, bytearray, memoryview)) \
+            and isinstance(second, (bytes, bytearray, memoryview)):
+        return bytes(first) == bytes(second)
     return _base_value_eq(first, second)
 
 
@@ -468,6 +471,54 @@ def catalogue_gaps():
     return tuple(_mod03.catalogue_gaps())
 
 
+def _catalogue_repr(name):
+    """Return a content derived representation of one identifier
+    in a container form, built from the stored parts alone. A
+    set or frozenset part stands represented by the sorted
+    representations of its stored parts, so the representation
+    stands the same at every hash seed, where the printed form
+    of the set itself prints its parts in iteration order. A
+    tuple or list part stands represented by the representations
+    of its stored parts in stored order, so a frozenset carried
+    inside a tuple carries its seed stable form with it. A text
+    part stands represented by the plain text it stores, a
+    bytes form part by the plain bytes it stores, and a plain
+    scalar part by the plain scalar it stores, each read through
+    the base class reading of its kind. Every other part stands
+    represented by its base representation in the standing
+    form, so two parts whose kind name and base representation
+    tie still tie here, and no order rule for such tied parts
+    stands stated by this act."""
+    if isinstance(name, (set, frozenset)):
+        parts = sorted(
+            _catalogue_repr(part) for part in (
+                set.__iter__(name) if isinstance(name, set)
+                else frozenset.__iter__(name)))
+        return "%s({%s})" % (type(name).__name__, ", ".join(parts))
+    if isinstance(name, tuple):
+        parts = [
+            _catalogue_repr(part)
+            for part in tuple.__iter__(name)]
+        return "(%s%s)" % (
+            ", ".join(parts), "," if len(parts) == 1 else "")
+    if isinstance(name, list):
+        return "[%s]" % ", ".join(
+            _catalogue_repr(part) for part in list.__iter__(name))
+    if isinstance(name, str):
+        return repr(str.__str__(name))
+    if isinstance(name, (bytes, bytearray, memoryview)):
+        return repr(bytes(name))
+    if isinstance(name, bool):
+        return repr(name)
+    if isinstance(name, int):
+        return repr(int.__int__(name))
+    if isinstance(name, float):
+        return repr(float.__float__(name))
+    if isinstance(name, complex):
+        return repr(complex.__complex__(name))
+    return repr(name)
+
+
 def _catalogue_order_key(name):
     """Return the stated order key for one identifier of an
     unordered identifier container. A text identifier stands
@@ -477,7 +528,9 @@ def _catalogue_order_key(name):
     stands ordered after text identifiers, by the text its
     stored bytes decode to, by its kind name, and by its raw
     stored bytes as the tie break. Every other identifier stands
-    ordered last, by its kind name and its base representation."""
+    ordered last, by its kind name and its content derived
+    representation under _catalogue_repr, which stands the same
+    at every hash seed for an identifier in a container form."""
     if isinstance(name, str):
         return (0, "".join(
             str.__getitem__(name, index)
@@ -494,7 +547,7 @@ def _catalogue_order_key(name):
         # identical as well.
         return (1, bytes(name).decode("utf-8", "ignore"),
                 type(name).__name__, bytes(name))
-    return (2, type(name).__name__, repr(name))
+    return (2, type(name).__name__, _catalogue_repr(name))
 
 
 def strategy_catalogue(extra_identifiers=None):
@@ -508,7 +561,12 @@ def strategy_catalogue(extra_identifiers=None):
     in the stated content derived order of _catalogue_order_key,
     so the same identifier content gives the same catalogue order
     at every hash seed. Identifiers handed in an ordered container
-    stand appended in the order handed.
+    stand appended in the order handed. Whether an identifier
+    already stands listed stands judged through _base_contains
+    on the stored forms of the listed identifiers, as every
+    other membership judgement of this module stands judged,
+    never through an equality reading a handed identifier
+    itself supplies.
     """
     identifiers = list(NAMED_STRATEGIES)
     record = mod03_catalogue_record()
@@ -517,13 +575,13 @@ def strategy_catalogue(extra_identifiers=None):
             if isinstance(entry, dict) and entry.get(
                     "archetype_id") is not None:
                 name = entry["archetype_id"]
-                if name not in identifiers:
+                if not _base_contains(identifiers, name):
                     identifiers.append(name)
     extras = extra_identifiers or []
     if isinstance(extras, (set, frozenset)):
         extras = sorted(extras, key=_catalogue_order_key)
     for name in extras:
-        if name not in identifiers:
+        if not _base_contains(identifiers, name):
             identifiers.append(name)
     return {
         "identifiers": identifiers,
@@ -1081,6 +1139,11 @@ def build_search_record(run_carriage, points_tried,
     uses = []
     for use in _base_items(case_uses):
         entry = _stored_copy(use)
+        if not isinstance(entry, dict):
+            raise NamedAttackerFailure(
+                "search record rejected: a case use stands in "
+                "no record form: " + repr(entry)
+            )
         if entry.get("fixture") == "F-26":
             entry["use"] = "strategy search point only"
             entry["standings_carried"] = list(
@@ -1091,7 +1154,7 @@ def build_search_record(run_carriage, points_tried,
     record = {
         "run_record": _stored_copy(run_carriage),
         "search_record": {
-            "search_budget": budget,
+            "search_budget": _stored_copy(budget),
             "points_tried": _stored_copy(points_tried),
             "neighbourhood_definition_and_step_sizes": (
                 _stored_copy(neighbourhood)),
@@ -1104,9 +1167,11 @@ def build_search_record(run_carriage, points_tried,
         "bond_parameter_search": bond_search(
             bond_candidates, griefing_evaluator),
         "case_uses": uses,
-        "external_profit_swept_values": list(
-            _base_sequence(external_profit_swept_values)),
-        "mid_run_strategies": list(mid_run_strategies or []),
+        "external_profit_swept_values": [
+            _stored_copy(part)
+            for part in _base_sequence(external_profit_swept_values)],
+        "mid_run_strategies": list(
+            _base_sequence(mid_run_strategies)),
         "stopping_rule": stopping_rule_state(
             _base_dict_get(run_carriage, "ladder_position")),
         "units": UNITS,
@@ -1132,6 +1197,44 @@ def search(*args, **kwargs):
     return run_search(*args, **kwargs)
 
 
+def _wording_claim_text(value):
+    """The text a handed wording carries, read on its stored
+    form: a text value on the text it stores, a buffer value on
+    the text its stored bytes decode to, and a list or tuple
+    value on the texts its stored parts carry, joined by single
+    spaces. A value in no such form carries no wording text."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value).decode("utf-8", "ignore")
+    if isinstance(value, (list, tuple)):
+        return " ".join(
+            _wording_claim_text(part)
+            for part in _base_items(value))
+    return ""
+
+
+def _normalised_claim_text(value):
+    """The wording claim text of a handed wording in normalised
+    dress: lower case, with each hyphen standing as a space and
+    every run of whitespace standing as one space, so a claim
+    phrase stands judged in the dress it was written in."""
+    text = str.lower(_wording_claim_text(value))
+    return " ".join(text.replace("-", " ").split())
+
+
+def _outcome_stands_failure(value):
+    """Whether a stored per point outcome stands as the failure
+    outcome: a text value on the text it stores, and a buffer
+    value on the bytes it stores, each judged against the
+    failure outcome in its own form."""
+    if isinstance(value, str):
+        return _stored_eq(value, "failure found")
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value) == b"failure found"
+    return False
+
+
 def readout(search_record, found_failure=True, wording="",
             established=False):
     """State one readout reporting an attacker search result.
@@ -1148,10 +1251,13 @@ def readout(search_record, found_failure=True, wording="",
     protocol result only, never as an economic security result,
     and the unit states its result kind in both cases. The no
     failure sentence stands added only where the search record
-    itself records no failure at its points, whatever the
-    caller's flag states, and a wording that carries an
-    established claim or an economic security claim stands
-    refused in the same form as the established flag.
+    itself records per point outcomes in record form and none
+    of them records a failure, whatever the caller's flag
+    states, and a wording that carries an established claim or
+    an economic security claim stands refused in the same form
+    as the established flag, the claim judged on the text the
+    wording stores in text, buffer, list, or tuple form, in
+    normalised whitespace and hyphen dress.
     """
     if not isinstance(search_record, dict):
         raise NamedAttackerFailure(
@@ -1172,16 +1278,15 @@ def readout(search_record, found_failure=True, wording="",
             "established while DQ7-10 stands open, and none "
             "before its stopping conditions stand met"
         )
-    if isinstance(wording, str):
-        wording_text = str.lower(str.__str__(wording))
-        if "established" in wording_text or (
-                "economically secure" in wording_text) or (
-                "economic security" in wording_text):
-            raise NamedAttackerFailure(
-                "readout rejected: no readout stands reported as "
-                "established while DQ7-10 stands open, and none "
-                "before its stopping conditions stand met"
-            )
+    wording_text = _normalised_claim_text(wording)
+    if "established" in wording_text or (
+            "economically secure" in wording_text) or (
+            "economic security" in wording_text):
+        raise NamedAttackerFailure(
+            "readout rejected: no readout stands reported as "
+            "established while DQ7-10 stands open, and none "
+            "before its stopping conditions stand met"
+        )
     if not stopping_rule_state(position)["readout_point"]:
         status = "not at the readout point"
     else:
@@ -1209,15 +1314,21 @@ def readout(search_record, found_failure=True, wording="",
     )
     search_limb = _base_dict_get(search_record, "search_record", {})
     recorded_failure = False
+    outcomes_recorded = False
     if isinstance(search_limb, dict):
         outcomes = _base_dict_get(
             search_limb, "per_point_outcome", [])
-        for entry in _base_sequence(outcomes):
-            if isinstance(entry, dict) and _stored_eq(
-                    _base_dict_get(entry, "outcome"),
-                    "failure found"):
-                recorded_failure = True
-                break
+        if isinstance(outcomes, dict):
+            entries = [outcomes]
+        else:
+            entries = _base_sequence(outcomes)
+        for entry in entries:
+            if isinstance(entry, dict):
+                outcomes_recorded = True
+                if _outcome_stands_failure(
+                        _base_dict_get(entry, "outcome")):
+                    recorded_failure = True
+                    break
     unit = {
         "wording": wording,
         "coverage_sentence": COVERAGE_SENTENCE,
@@ -1225,7 +1336,8 @@ def readout(search_record, found_failure=True, wording="",
         "readout_status": status,
         "units": UNITS,
     }
-    if not found_failure and not recorded_failure:
+    if not found_failure and not recorded_failure and (
+            outcomes_recorded):
         unit["no_failure_sentence"] = NO_FAILURE_SENTENCE
     if in_protocol_only:
         unit["result_kind"] = "in protocol result only"

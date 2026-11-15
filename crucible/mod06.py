@@ -646,6 +646,91 @@ def _key_matches_multi_reading(key, target):
     return False
 
 
+def _unordered_scalar_parts_read_as(key, folded_name):
+    """Whether some joined candidate of an unordered container
+    whose direct parts all stand in short scalar text form
+    reads as the folded name, judged without listing any
+    candidate: a candidate stands judged, in the scalar limb
+    of _key_reads_as, on its whole map readings and on its
+    position by position combined readings, and each of those
+    readings stands built character by character under one
+    map or one mode taken whole. The judgement therefore
+    stands as an exact tiling of the name over the parts, one
+    tiling per map and mode family, in the form
+    _seg_tiles_exact states, with every part placed exactly
+    once and a part whose segment stands empty placed without
+    advancing. The form stands stated for a container of at
+    most the unordered join part bound of seven direct parts,
+    each storing at most two characters of ASCII text; a key
+    in any other form stands answered by the standing
+    candidate enumeration, and this act returns None for it,
+    stating no decision."""
+    if not isinstance(key, (set, frozenset)):
+        return None
+    parts = _join_container_parts(key)
+    if not 2 <= len(parts) <= _UNORDERED_JOIN_PART_BOUND:
+        return None
+    texts = []
+    for part in parts:
+        if isinstance(part, (dict, list, tuple, set, frozenset)):
+            return None
+        text = _stored_text(part)
+        if len(text) > 2 or not text.isascii():
+            return None
+        texts.append(text)
+    targets = [folded_name]
+    if "realmoney" in folded_name:
+        targets.append(folded_name.replace("realmoney", "realmani"))
+    for letter_map in (
+        _HOMOGLYPH_MAP, _TRANSLITERATION_MAP,
+        _HOMOGLYPH_MAP_VO, _TRANSLITERATION_MAP_VO,
+    ):
+        for mode in (None, _LEET_MAP, _LEET_MAP_I, "drop"):
+            options = []
+            for text in texts:
+                base = "".join(
+                    letter_map.get(character, character)
+                    for character in _decomposed_characters(text)
+                    if not unicodedata.category(
+                        character).startswith("M"))
+                plain = "".join(
+                    character for character in base
+                    if character.isalnum())
+                if mode is None:
+                    segment = plain
+                elif mode == "drop":
+                    segment = "".join(
+                        character for character in plain
+                        if not character.isdigit())
+                else:
+                    segment = "".join(
+                        mode.get(character, character)
+                        for character in plain)
+                options.append({segment})
+            if any(
+                _seg_tiles_exact(options, target)
+                for target in targets
+            ):
+                return True
+    for mode in _MULTI_FOLDED_MODES:
+        options = []
+        for text in texts:
+            segments = {""}
+            for character in _fold_characters(text):
+                segments = {
+                    head + _multi_folded_segment(option, mode)
+                    for head in segments
+                    for option in _character_reading_options(
+                        character)}
+            options.append(segments)
+        if any(
+            _seg_tiles_exact(options, target)
+            for target in targets
+        ):
+            return True
+    return False
+
+
 def _key_reads_as(key, folded_name):
     if isinstance(key, (dict, list, tuple, set, frozenset)):
         if _has_unordered_split(key):
@@ -665,10 +750,16 @@ def _key_reads_as(key, folded_name):
                     low += min(lengths)
                     high += max(lengths)
             if low <= len(folded_name) <= high:
-                for candidate in _joined_text_candidates(key):
-                    if candidate and _key_reads_as(
-                            candidate, folded_name):
+                decided = _unordered_scalar_parts_read_as(
+                    key, folded_name)
+                if decided is not None:
+                    if decided:
                         return True
+                else:
+                    for candidate in _joined_text_candidates(key):
+                        if candidate and _key_reads_as(
+                                candidate, folded_name):
+                            return True
         if _seg_exact(key, folded_name):
             return True
         joined = _joined_stored_text(key)
@@ -735,15 +826,30 @@ def _base_member(value, options):
     return any(_base_str_eq(value, option) for option in options)
 
 
+def _refusal_text(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string or repr reading the
+    value itself supplies raises, so the refusal stands as a
+    full named refusal and never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def _undirected_copy(value, _memo=None):
     """Copy a checked payload through base class readings only.
 
     Dict parts stand read through the base dict items reading,
     and list, tuple, set and frozenset parts through their base
     iteration readings, so no copy protocol a part supplies is
-    ever invoked. A part in no container form stands copied as
-    itself, so a part that stands inert at the screen stays inert
-    in the stored copy and never materialises as another value.
+    ever invoked. The buffer forms stand carried as stored: a
+    bytearray as a fresh bytearray and a memoryview as a
+    memoryview over fresh bytes. A part in no container form and
+    no buffer form stands copied as itself, so a part that stands
+    inert at the screen stays inert in the stored copy and never
+    materialises as another value.
     """
     if _memo is None:
         _memo = {}
@@ -794,6 +900,10 @@ def _undirected_copy(value, _memo=None):
             return _memo[id(value)]
         _memo[id(value)] = copied
         return copied
+    if isinstance(value, bytearray):
+        return bytearray(bytes(value))
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
     return value
 
 
@@ -2147,7 +2257,11 @@ def _dict_node_split_barred(value):
     as an exact piece of it, and the last key contributing a
     reading that begins with its closing. A marker standing
     inside one key alone stands judged by the per key acts,
-    never here. The money marker bars only where a value
+    never here. A key whose reading stands empty contributes
+    no character to the joined reading, so an occurrence may
+    cross such a key: the walk steps past a middle key on its
+    empty reading, and that key stands unused by the
+    occurrence. The money marker bars only where a value
     stands under every key the occurrence uses, as the walk
     states for a money name; the anchor marker bars on its
     reading alone, as the walk states for it."""
@@ -2190,6 +2304,7 @@ def _dict_node_split_barred(value):
                                 pairs[index][1] is not None)
                             for option in readings[index]:
                                 if not option:
+                                    stack.append((index + 1, pos, ok))
                                     continue
                                 if option == pattern[pos:pos + len(option)]:
                                     stack.append((
@@ -2199,6 +2314,72 @@ def _dict_node_split_barred(value):
                                     if not money or next_ok:
                                         return True
     return False
+
+
+def _dict_keys_tile_exact(readings, target):
+    """Whether a run of two or more consecutive dict keys, in
+    stored order, joins exactly to the target on one reading
+    of each key it uses, in the joined reading form settlement
+    S-14 states: the first key of the run contributes the
+    opening piece, each later key one whole reading as the
+    next piece, and a key whose reading stands empty may
+    stand inside the run, stepped past on that empty reading
+    and contributing no piece. A name standing inside one key
+    alone stands judged by the per key acts, never here, so a
+    run stands only on two or more pieces."""
+    visited = set()
+    stack = [(0, 0, 0)]
+    while stack:
+        index, pos, pieces = stack.pop()
+        if pos == len(target):
+            if pieces >= 2:
+                return True
+            continue
+        if index >= len(readings):
+            continue
+        state = (index, pos, pieces >= 2)
+        if state in visited:
+            continue
+        visited.add(state)
+        if pieces == 0:
+            stack.append((index + 1, 0, 0))
+        for option in readings[index]:
+            if not option:
+                stack.append((index + 1, pos, pieces))
+            elif option == target[pos:pos + len(option)]:
+                stack.append((
+                    index + 1, pos + len(option), pieces + 1))
+    return False
+
+
+def _dict_node_pair_barred(value):
+    """Whether the amount and currency pair stands barred at
+    the dict node itself, in the form settlement S-14 states:
+    the walk frames the pair at dict level, across the keys of
+    one dict together, so each name stands judged on the
+    joined reading of the dict's keys in stored order, in the
+    plain and folded forms in which the walk judges a single
+    key, and a name split across two keys of the dict stands
+    judged on that joined reading."""
+    pairs = list(dict.items(value))
+    if len(pairs) < 2:
+        return False
+    plain = []
+    folded = []
+    for key, item in pairs:
+        text = _joined_stored_text(key)
+        plain.append({text.lower()} if text else {""})
+        readings = set(_folded_readings(text)) if text else set()
+        folded.append(readings if readings else {""})
+    for target in ("amount", "currency"):
+        if not (
+            _dict_keys_tile_exact(plain, target)
+            or _dict_keys_tile_exact(folded, target)
+            or any(
+                _key_reads_as(key, target) for key, item in pairs)
+        ):
+            return False
+    return True
 
 
 def _payload_walk_barred(value, _depth=0, _seen=None, _walked=None):
@@ -2226,6 +2407,8 @@ def _payload_walk_barred(value, _depth=0, _seen=None, _walked=None):
             any(_key_reads_as(key, "amount") for key in all_keys)
             and any(_key_reads_as(key, "currency") for key in all_keys)
         ):
+            return True
+        if _dict_node_pair_barred(value):
             return True
         for key, item in dict.items(value):
             for key_form in _key_and_parts(key):
@@ -2332,7 +2515,7 @@ def escrow_result(kind, variant="B-4", payload=None, contract_state=None):
     if not _base_member(variant, ("B-3", "B-4")):
         raise ValueError(
             "escrow_result stands refused: the escrow variant stands outside the B-3 and B-4 set: "
-            + str(variant) + ", and no escrow result stands returned")
+            + _refusal_text(variant) + ", and no escrow result stands returned")
     if _payload_carries_barred(payload):
         raise ValueError(
             "escrow_result stands refused: the payload carries a barred value, "
@@ -2344,8 +2527,8 @@ def escrow_result(kind, variant="B-4", payload=None, contract_state=None):
         "variant": variant,
         "core_only_qualifier": True,
         "payload": _undirected_copy(payload),
-        "k1_and_l2_state": state.get("k1_and_l2_state", "carried; value set open at OP-21 G-10"),
-        "lien_state": state.get("lien_state"),
+        "k1_and_l2_state": dict.get(state, "k1_and_l2_state", "carried; value set open at OP-21 G-10"),
+        "lien_state": dict.get(state, "lien_state"),
         "verification_limit": VERIFICATION_LIMIT,
         "real_money_value": None,
     }
@@ -2367,12 +2550,12 @@ def escrow_contract_state(contract_identifier, variant="B-4", lien_state="no lie
     if not _base_member(variant, ("B-3", "B-4")):
         raise ValueError(
             "escrow_contract_state stands refused: the escrow variant "
-            "stands outside the B-3 and B-4 set: " + str(variant)
+            "stands outside the B-3 and B-4 set: " + _refusal_text(variant)
             + ", and no escrow contract state stands returned")
     if not _base_member(lien_state, mod01.LIEN_STATES):
         raise ValueError(
             "escrow_contract_state stands refused: the lien state "
-            "stands outside the closed four value set: " + str(lien_state)
+            "stands outside the closed four value set: " + _refusal_text(lien_state)
             + ", and no escrow contract state stands returned")
     state = {
         "contract_identifier": contract_identifier,
@@ -2380,8 +2563,8 @@ def escrow_contract_state(contract_identifier, variant="B-4", lien_state="no lie
         "standard_or_profile_identifier": standard_or_profile_identifier,
         "variant": variant,
         "lien_state": lien_state,
-        "estimated_cost_value": estimated_cost_value,
-        "pause_state": pause_state,
+        "estimated_cost_value": _undirected_copy(estimated_cost_value),
+        "pause_state": _undirected_copy(pause_state),
         "pause_cap_value": _undirected_copy(pause_cap_value) if pause_cap_value is not None else pause_cap(variant)["per_variant_pause_value"],
         "k1_and_l2_state": "carried; value set open at OP-21 G-10",
         "lost_contact_clause_on": bool(lost_contact_clause_on),
@@ -2583,21 +2766,21 @@ def validate_pause_result(result):
     fails validation."""
     if not isinstance(result, dict):
         return False
-    value = result.get("per_variant_pause_value")
+    value = dict.get(result, "per_variant_pause_value")
     if value is None:
-        payload = result.get("payload")
+        payload = dict.get(result, "payload")
         if isinstance(payload, dict):
-            value = payload.get("per_variant_pause_value")
+            value = dict.get(payload, "per_variant_pause_value")
     if value is None:
         return False
-    variant = result.get("variant")
-    if variant is None and isinstance(result.get("payload"), dict):
-        variant = result["payload"].get("variant")
+    variant = dict.get(result, "variant")
+    if variant is None and isinstance(dict.get(result, "payload"), dict):
+        variant = dict.get(dict.get(result, "payload"), "variant")
     if variant == "B-4":
         if not isinstance(value, dict):
             return False
-        return (value.get("extension_percent") == PAUSE_CAP_B4["extension_percent"]
-                and value.get("total_percent") == PAUSE_CAP_B4["total_percent"])
+        return (dict.get(value, "extension_percent") == PAUSE_CAP_B4["extension_percent"]
+                and dict.get(value, "total_percent") == PAUSE_CAP_B4["total_percent"])
     return True
 
 
@@ -2690,17 +2873,21 @@ def validate_folding_record(record):
     that folding, and no ruling text gap supplied by inference."""
     if not isinstance(record, dict):
         return False
-    entries = record.get("entries")
+    entries = dict.get(record, "entries")
     if not entries:
         return False
+    if isinstance(entries, list):
+        entries = list(list.__iter__(entries))
+    elif isinstance(entries, tuple):
+        entries = list(tuple.__iter__(entries))
     for entry in entries:
         if not isinstance(entry, dict):
             return False
-        if entry.get("filled_by_inference"):
+        if dict.get(entry, "filled_by_inference"):
             return False
-        if not entry.get("checked_by_independent_reader"):
+        if not dict.get(entry, "checked_by_independent_reader"):
             return False
-        if not entry.get("ruling"):
+        if not dict.get(entry, "ruling"):
             return False
     return True
 
@@ -2775,7 +2962,7 @@ def validate_dq_arrival_table(rows):
 def enter_ruling(rows, item, ruling_text):
     """Enter a ruling in the final column of its row, verbatim,
     when the ruling for that item arrives."""
-    updated = _undirected_copy(list(rows))
+    updated = _undirected_copy(rows)
     for row in updated:
         if row.get("item") == item:
             row["final_column"] = ruling_text

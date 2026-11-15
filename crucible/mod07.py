@@ -337,19 +337,57 @@ def dependency_record():
     }
 
 
+def _dict_carriage_edges(edges):
+    """The edges a dict carriage carries, read through the base
+    dict items reading: a pair standing under the source and
+    target names stands as one edge, an edge standing as a key
+    stands as that edge, a target set standing under one source
+    stands as one edge per target, and every other stored pair
+    stands as one edge from its key to its value, so a dict
+    carriage stands judged on the edges it stores and never
+    read as no edges."""
+    items = list(dict.items(edges))
+    key_texts = [_stored_text(key) for key, _item in items]
+    if "source" in key_texts and "target" in key_texts:
+        return [(_bget(edges, "source"), _bget(edges, "target"))]
+    carried = []
+    for key, item in items:
+        if isinstance(key, (list, tuple, set, frozenset)):
+            carried.append(key)
+        elif isinstance(item, (list, tuple, set, frozenset)) \
+                and not isinstance(
+                    item, (str, bytes, bytearray, memoryview)):
+            for target in _base_sequence(item):
+                carried.append((key, target))
+        else:
+            carried.append((key, item))
+    return carried
+
+
 def validate_dependency_record(record):
     """Return True only where the record carries no direct core to
     core edge and MOD-07 stands as the sole joint dependent."""
     if not isinstance(record, dict):
         return False
+    raw_edges = _bget(record, "edges")
+    if isinstance(raw_edges, dict):
+        edge_values = _dict_carriage_edges(raw_edges)
+    else:
+        edge_values = _base_sequence(raw_edges)
     edges = []
-    for edge in _base_sequence(_bget(record, "edges")):
-        if not isinstance(edge, (list, tuple)):
-            return False
-        parts = _base_sequence(edge)
-        if len(parts) != 2:
-            return False
-        edges.append(tuple(_stored_edge_text(part) for part in parts))
+    try:
+        for edge in edge_values:
+            if not isinstance(edge, (list, tuple)):
+                return False
+            parts = _base_sequence(edge)
+            if len(parts) != 2:
+                return False
+            edges.append(
+                tuple(_stored_edge_text(part) for part in parts))
+        joint_text = _stored_edge_text(
+            _bget(record, "joint_dependent"))
+    except ValueError:
+        return False
     for source, target in edges:
         if {source, target} == {"MOD-05", "MOD-06"}:
             return False
@@ -357,7 +395,7 @@ def validate_dependency_record(record):
         module for module in ("MOD-05", "MOD-06", "MOD-07", "MOD-08")
         if ("MOD-05", module) in edges and ("MOD-06", module) in edges
     ]
-    if not _stored_text_eq(_bget(record, "joint_dependent"), "MOD-07"):
+    if not _stored_text_eq(joint_text, "MOD-07"):
         return False
     return joint in ([], ["MOD-07"])
 
@@ -447,7 +485,8 @@ def validate_choice_pair(log_entry, run_entry):
                     dict.get(log_entry, field),
                     dict.get(run_entry, field)):
                 return False
-        elif _stored_copy(dict.get(log_entry, field)) != _stored_copy(
+        elif not _stored_pair_equal(
+                dict.get(log_entry, field),
                 dict.get(run_entry, field)):
             return False
     return True
@@ -621,11 +660,39 @@ def _stored_edge_text(value):
     dress: a scalar part by its stored text, and a list or
     tuple part by the stored text of its parts joined in
     order, so an edge part handed in split container dress
-    stands judged as the text it stores."""
-    if isinstance(value, (list, tuple)):
-        return "".join(
-            _stored_edge_text(part) for part in _base_sequence(value))
-    return _stored_text(value)
+    stands judged as the text it stores. The container walk
+    runs on an explicit stack with a cycle guard on the
+    containers standing on the current path: a part carrying
+    a cycle stands refused in named form as a ValueError,
+    and no bare RecursionError escapes the reading, while a
+    container shared from two places on different paths
+    carries no cycle and stands read at each place."""
+    if not isinstance(value, (list, tuple)):
+        return _stored_text(value)
+    pieces = []
+    on_path = {id(value)}
+    stack = [[value, _base_sequence(value), 0]]
+    while stack:
+        frame = stack[-1]
+        container, parts, index = frame
+        if index >= len(parts):
+            on_path.discard(id(container))
+            stack.pop()
+            continue
+        frame[2] = index + 1
+        part = parts[index]
+        if isinstance(part, (list, tuple)):
+            if id(part) in on_path:
+                raise ValueError(
+                    "adapter edge text stands refused in named "
+                    "form: an edge part carries a cycle, and no "
+                    "edge text stands read")
+            on_path.add(id(part))
+            stack.append([part, _base_sequence(part), 0])
+        else:
+            pieces.append(_stored_text(part))
+    return "".join(pieces)
+
 
 
 def _passage_text_states_something(text):
@@ -886,7 +953,10 @@ def seam_headline_claim_stands(run, items_touched):
     }
     touched = _base_sequence(items_touched) if isinstance(
         items_touched, (list, tuple, set, frozenset)) else items_touched
-    return all(_stored_copy(item) in by_item for item in touched)
+    try:
+        return all(_stored_copy(item) in by_item for item in touched)
+    except TypeError:
+        return False
 
 
 def seam_effect_report(effect):
@@ -915,7 +985,11 @@ def validate_cross_seam_effect(effect):
     if not isinstance(effect, dict):
         return False
     state = dict.get(effect, "lien_state", COMPUTED_NOT_SETTLED)
-    return mod01.validate_lien_state(state, cross_seam=True)
+    try:
+        state_text = _stored_edge_text(state)
+    except ValueError:
+        return False
+    return mod01.validate_lien_state(state_text, cross_seam=True)
 
 
 def _wording_claims(lowered):

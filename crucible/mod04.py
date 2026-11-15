@@ -21,6 +21,58 @@ through the MOD-10 paired store.
 import itertools
 import unicodedata
 
+__all__ = [
+    "BARRED_PROJECTION_KEYS",
+    "CANARY_VALUE",
+    "CLEANING_DEPTH_BOUND",
+    "COMPLETENESS_STATES",
+    "EVENT_KINDS",
+    "GATED_FAILURE_NAME",
+    "GATE_EXECUTABLE_RUNS",
+    "PROCESSING_TYPES",
+    "PROJECTION_KEYS",
+    "PROTOTYPE_ORDER",
+    "VALUE_APPEARS_DEPTH_BOUND",
+    "VIEW_CLOSED_FIELDS",
+    "VIEW_COPY_DEPTH_BOUND",
+    "VIEW_EXCLUDED_CONTENT",
+    "AlterationBarred",
+    "ContractAHandover",
+    "DeliveryPoint",
+    "DetectionLayerDeliveryPoint",
+    "GatedRun",
+    "NamedFailure",
+    "RuleCoreDeliveryPoint",
+    "TickEngine",
+    "apply_event_to_state",
+    "build_tracer_run_record",
+    "build_view_record",
+    "canary_appears_in_projection",
+    "delivery_completeness",
+    "divergence_companion",
+    "exercise_f09_canary",
+    "flip_trial_record",
+    "headline_order_stands",
+    "hold_view",
+    "is_processing_type",
+    "measure_order_sensitivity",
+    "per_viewer_components",
+    "process_day_events",
+    "project_detection_input",
+    "projection_passed_for_run",
+    "release_view",
+    "run",
+    "run_is_reportable",
+    "run_record_with_order",
+    "run_tracer_cut",
+    "scheduling_order_record",
+    "select_view_records",
+    "tick",
+    "validate_run_scheduling_order",
+    "view_record_carries_barred_field",
+    "write_checkpoint",
+]
+
 GATE_EXECUTABLE_RUNS = "DQ7-02"
 
 BARRED_PROJECTION_KEYS = frozenset([
@@ -251,8 +303,8 @@ class DetectionLayerDeliveryPoint(DeliveryPoint):
 def _state_field(state, names, default=None):
     if isinstance(state, dict):
         for name in names:
-            if name in state:
-                return state[name]
+            if dict.__contains__(state, name):
+                return dict.__getitem__(state, name)
         return default
     for name in names:
         if hasattr(state, name):
@@ -1780,7 +1832,8 @@ def _clean_value(value, _depth=0, _seen=None, _path=""):
                 + str(CLEANING_DEPTH_BOUND)
                 + ", counting every container standing around the "
                 "handed value within the value being cleaned toward "
-                "that bound"
+                "that bound, and no cleaning stands performed on "
+                "the handed value"
             )
         if isinstance(_seen, dict):
             state = _seen

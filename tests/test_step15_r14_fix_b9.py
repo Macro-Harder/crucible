@@ -218,9 +218,8 @@ class TestMod10FlagSentences(unittest.TestCase):
         self.assertEqual(
             text,
             "the flag rule never demotes: the stated tier stands "
-            "below the record tier")
-
-
+            "below the record tier, and no demotion stands "
+            "effected by it")
 class TestShellFlagSentencesMatchMod10(unittest.TestCase):
     """R13-054: one failure, one wording, at shell and at MOD-10."""
 

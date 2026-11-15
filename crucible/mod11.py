@@ -108,12 +108,21 @@ def validate_publication_record(record):
     key set stands read through the base dict keys reading, so
     the stored pairs decide completeness, and each verdict
     stands read against the stated verdict set, passed, failed,
-    or not applicable, on its stored text."""
+    or not applicable, on its stored text. The test run and
+    version limbs stand only where each carries a non empty
+    stored text, never on a truth reading the handed value
+    supplies. The recorded failures stand read through the
+    base iteration of a list, tuple, set, or frozenset form
+    alone, and a set form stands judged against the expected
+    failures as a set, so its answer does not follow the
+    process hash order."""
     if not isinstance(record, dict):
         return False
-    if not dict.get(record, "test_run") \
-            or not dict.get(record, "version"):
-        return False
+    for naming_field in ("test_run", "version"):
+        naming_value = dict.get(record, naming_field)
+        if not isinstance(naming_value, str) \
+                or not str.strip(str.__str__(naming_value)):
+            return False
     verdicts = dict.get(record, "verdicts")
     if not isinstance(verdicts, dict):
         return False
@@ -126,17 +135,38 @@ def validate_publication_record(record):
                    for stated in ("passed", "failed",
                                   "not applicable")):
             return False
-    recorded_failures = list(
-        dict.get(record, "failures_recorded") or [])
+    raw_failures = dict.get(record, "failures_recorded")
+    if raw_failures is None:
+        recorded_failures = []
+    elif isinstance(raw_failures, list):
+        recorded_failures = list(list.__iter__(raw_failures))
+    elif isinstance(raw_failures, tuple):
+        recorded_failures = list(tuple.__iter__(raw_failures))
+    elif isinstance(raw_failures, (set, frozenset)):
+        if isinstance(raw_failures, set):
+            recorded_failures = list(set.__iter__(raw_failures))
+        else:
+            recorded_failures = list(
+                frozenset.__iter__(raw_failures))
+    else:
+        return False
     expected = [
         check for check in RETIREMENT_CHECKS
         if _verdict_text_stands(dict.get(verdicts, check), "failed")
     ]
     if len(recorded_failures) != len(expected):
         return False
-    return all(
-        _verdict_text_stands(item, check)
-        for item, check in zip(recorded_failures, expected))
+    remaining = list(recorded_failures)
+    for check in expected:
+        matched_index = None
+        for index, item in enumerate(remaining):
+            if _verdict_text_stands(item, check):
+                matched_index = index
+                break
+        if matched_index is None:
+            return False
+        del remaining[matched_index]
+    return not remaining
 
 
 def unit_is_publishable(unit):
@@ -409,7 +439,10 @@ def make_headline_unit(values):
             "make_headline_unit stands refused: the headline unit "
             "stands in no record form, a headline unit stands as a "
             "field mapping, and no unit stands built")
-    extra = [key for key in values if key not in HEADLINE_UNIT_FIELDS]
+    stored = {}
+    for stored_key, stored_value in dict.items(values):
+        stored[stored_key] = stored_value
+    extra = [key for key in stored if key not in HEADLINE_UNIT_FIELDS]
     if extra:
         raise ValueError(
             "make_headline_unit stands refused: fields beyond the "
@@ -418,12 +451,12 @@ def make_headline_unit(values):
             + ", and no unit stands built")
     unit = {}
     for field in HEADLINE_UNIT_FIELDS:
-        if field not in values or values[field] is None:
+        if field not in stored or stored[field] is None:
             raise ValueError(
                 "make_headline_unit stands refused: headline unit "
                 "field absent: " + field
                 + ", and no unit stands built")
-        unit[field] = _quoted_copy(values[field])
+        unit[field] = _quoted_copy(stored[field])
     return unit
 
 
@@ -902,9 +935,14 @@ def _readable_stem(word):
     limb yielding its ate base and the ibility limb yielding
     its ible base. The able limb stands as a derivation limb
     beside those, yielding its base in the plain form and in
-    the e dropping form. The s limb refuses the bases whose plural
+    the e dropping form. The ible limb stands beside the able
+    limb, yielding its base in the plain form and in the e
+    dropping form, and the ability limb yields the able form
+    its noun stands on. The s limb refuses the bases whose plural
     stands in no s form, and the ed limb refuses the bases
-    whose past form stands in no ed form."""
+    whose past form stands in no ed form. The es and ies limbs
+    carry the same refusal as the s limb, so a barred base
+    yields no stem in those spellings either."""
     stems = []
 
     def undoubled(stem):
@@ -932,7 +970,7 @@ def _readable_stem(word):
     # the papers name as no regular formation of the language.
     no_gradable = frozenset(
         ("sun", "dog", "table", "chair", "book", "house",
-         "window", "good"))
+         "window", "good", "much", "many", "wrong", "real"))
     no_y_derivation = frozenset(
         ("book", "chair", "house", "window"))
     # Bases whose plural stands in no s form at all.
@@ -950,19 +988,32 @@ def _readable_stem(word):
          "take", "make", "give", "break", "choose", "drive",
          "find", "say", "feel", "keep", "sleep", "leave",
          "rise", "sit", "win", "hold", "stand", "forget",
-         "lose", "draw", "lead"))
+         "lose", "draw", "lead", "hit", "put", "set", "shut",
+         "hurt", "build", "send", "meet", "read", "fight",
+         "deal", "get", "mean", "shake", "shoot", "spend",
+         "stick", "strike", "swing", "wear", "understand",
+         "spread", "split", "spring", "swear", "arise",
+         "become", "begin", "come", "hear", "undergo",
+         "withdraw", "bear", "input", "output", "let", "spin",
+         "took", "gave", "made", "told", "knew", "held",
+         "heard", "left", "sold", "thought", "led", "shot",
+         "built", "reran"))
 
     if word.startswith("un") and len(word) > 4:
         stems.append(word[2:])
     if word.endswith("ies") and len(word) > 4:
-        stems.append(word[:-3] + "y")
+        if word[:-3] not in no_s_plural:
+            stems.append(word[:-3] + "y")
     if word.endswith("ves") and len(word) > 4:
         stems.append(word[:-3] + "f")
         stems.append(word[:-3] + "fe")
     if word.endswith("es") and len(word) > 3:
-        stems.append(word[:-2])
+        if word[:-2] not in no_s_plural:
+            stems.append(word[:-2])
     if word.endswith("s") and len(word) > 3:
-        if word[:-1] not in no_s_plural:
+        if word[:-1] not in no_s_plural and not (
+                word[:-1].endswith("e")
+                and word[:-2] in no_s_plural):
             stems.append(word[:-1])
     if word.endswith("ness") and len(word) > 6:
         stems.append(word[:-4])
@@ -1031,6 +1082,12 @@ def _readable_stem(word):
         stems.append(word[:-3])
     if word.endswith("ism") and len(word) > 5:
         stems.append(word[:-3])
+    if word.endswith("ability") and len(word) > 8:
+        stems.append(word[:-7] + "able")
+        stems.append(word[:-7] + "ible")
+    if word.endswith("ible") and len(word) > 5:
+        stems.append(word[:-4])
+        stems.append(word[:-4] + "e")
     if word.endswith("able") and len(word) > 5:
         stems.append(word[:-4])
         stems.append(word[:-4] + "e")
@@ -1295,6 +1352,37 @@ _PARLEY_GROUND_NUMBERS = {
 }
 
 
+_PARLEY_PIECES = (
+    "questions", "question", "parleys", "parley", "numbered",
+    "number", "first", "second", "fifth", "five", "1st", "2nd",
+    "5th", "one", "two", "q", "1", "2", "5")
+
+
+def _expand_parley_token(token):
+    """Split one joined grounds token into its Parley pieces,
+    where the whole token segments into known grounds pieces:
+    the name in singular or plural form, the question or q
+    limb, an ordinal, and a ground number, in any order. A
+    token that does not segment whole stands as itself."""
+    if token in _PARLEY_PIECES:
+        return [token]
+
+    def segment(rest):
+        if not rest:
+            return []
+        for piece in _PARLEY_PIECES:
+            if rest.startswith(piece):
+                tail = segment(rest[len(piece):])
+                if tail is not None:
+                    return [piece] + tail
+        return None
+
+    pieces = segment(token)
+    if pieces is not None and len(pieces) > 1:
+        return pieces
+    return [token]
+
+
 def _parley_grounds_stated(other):
     """Return the set of Parley dependence grounds, among Q1, Q2,
     and Q5, that the other fields state, in any of their
@@ -1355,7 +1443,14 @@ def _parley_grounds_stated(other):
     before a fused parleyq or parleyquestion token, and the
     fused name and question token standing beside a spaced
     number stand read beside those forms."""
-    tokens = _ground_tokens(other)
+    tokens = []
+    for raw_token in _ground_tokens(other):
+        for piece in _expand_parley_token(raw_token):
+            if piece == "parleys":
+                piece = "parley"
+            if piece == "questions":
+                piece = "question"
+            tokens.append(piece)
     grounds = set()
     ordinal_numbers = {
         "first": "1", "second": "2", "fifth": "5",
@@ -1681,6 +1776,10 @@ def _parley_grounds_stated(other):
         if first in ("parleyquestion", "parleyquestions") \
                 and second in _PARLEY_GROUND_NUMBERS:
             grounds.add(_PARLEY_GROUND_NUMBERS[second])
+    if "parley" in tokens and "q" in tokens:
+        for token in tokens:
+            if token in ordinal_numbers:
+                grounds.add(ordinal_numbers[token])
     return grounds
 
 
@@ -1783,7 +1882,9 @@ def _quoted_copy(value, _memo=None, _depth=0):
     the base readings show, never as content its own override
     supplies. A part in no container form and no plain scalar
     form stands quoted as itself, so no copy protocol of the
-    part itself is ever invoked. A value nested past the depth
+    part itself is ever invoked. The buffer forms stand carried
+    as stored: a bytearray as a fresh bytearray and a memoryview
+    as a memoryview over fresh bytes. A value nested past the depth
     bound stands refused in named form. The bound counts
     containers only, on the stated basis of R3-056: a chain of
     101 containers over a scalar leaf stands within the bound,
@@ -1799,7 +1900,7 @@ def _quoted_copy(value, _memo=None, _depth=0):
     if _memo is None:
         _memo = {}
     if isinstance(value, memoryview):
-        return value.tobytes()
+        return memoryview(bytes(value))
     if isinstance(value, dict):
         if id(value) in _memo:
             return _memo[id(value)]
@@ -1844,7 +1945,9 @@ def _quoted_copy(value, _memo=None, _depth=0):
             return _memo[id(value)]
         _memo[id(value)] = copied
         return copied
-    if isinstance(value, (str, bytes, bytearray, int, float, complex,
+    if isinstance(value, bytearray):
+        return bytearray(bytes(value))
+    if isinstance(value, (str, bytes, int, float, complex,
                           bool)) or value is None:
         return value
     return value
@@ -1872,6 +1975,65 @@ def _headline_unit_refusal(unit):
         return (
             "quote_headline_unit stands refused: the headline unit fields "
             "stand out of the closed unit order, and no unit stands quoted")
+    prefix = "quote_headline_unit stands refused: "
+    suffix = ", and no unit stands quoted"
+    try:
+        identifier = dict.get(
+            unit, "headline_unit_identifier_and_issue_date")
+        if isinstance(identifier, str) \
+                and F01_UNIT_MARK in str.__str__(identifier):
+            return (
+                prefix + "headline unit field "
+                "headline_unit_identifier_and_issue_date carries "
+                "the centre only fixture mark" + suffix)
+        for field in HEADLINE_UNIT_FIELDS:
+            if not _envelope_part_stands(dict.get(unit, field)):
+                return (
+                    prefix + "headline unit field " + field
+                    + " stands empty, hidden, or in no standing "
+                    "content form" + suffix)
+        for field in ("holding_region", "failure_region"):
+            if not _region_stands(dict.get(unit, field)):
+                return (
+                    prefix + "headline unit field " + field
+                    + " does not carry its sampled point "
+                    "enumeration in standing form" + suffix)
+        claim_value = dict.get(unit, "claim_sentence")
+        claim_text = claim_value
+        if isinstance(claim_text, str):
+            claim_text = str.__str__(claim_text)
+        claim_lower = str(claim_text).lower()
+        if "everywhere" in claim_lower or "all points" in claim_lower:
+            return (
+                prefix + "headline unit field claim_sentence "
+                "claims the result everywhere or over all points"
+                + suffix)
+        if not _field10_stands(
+                dict.get(unit, "qualifiers_and_markings_block")):
+            return (
+                prefix + "headline unit field "
+                "qualifiers_and_markings_block does not carry "
+                "its stated marks" + suffix)
+        if not _field10_matches_grounds(unit):
+            return (
+                prefix + "headline unit field "
+                "qualifiers_and_markings_block does not carry "
+                "the mark a ground stated in the unit requires"
+                + suffix)
+        if not _has_plain_scope_limits_sentence(
+                dict.get(unit, "claim_sentence")):
+            return (
+                prefix + "headline unit field claim_sentence "
+                "carries no plain scope and limits sentence"
+                + suffix)
+        if not _has_plain_scope_limits_sentence(
+                dict.get(unit, "grounding_sentence")):
+            return (
+                prefix + "headline unit field grounding_sentence "
+                "carries no plain scope and limits sentence"
+                + suffix)
+    except Exception:
+        pass
     return (
         "quote_headline_unit stands refused: the headline unit does not "
         "validate as a quotable unit whole, and no unit stands quoted")
@@ -1882,9 +2044,9 @@ def quote_headline_unit(unit):
     is not quoted at all. The quotation copies the validated unit
     through base class readings only, never through a copy
     protocol a part of the unit overrides. A standing memoryview
-    part stands quoted as the bytes content it carries, so
-    quotation of a standing unit never fails in the copy act
-    itself."""
+    part stands quoted as a memoryview over fresh bytes holding
+    the content it carries, so quotation of a standing unit
+    never fails in the copy act itself."""
     if not validate_headline_unit(unit):
         raise ValueError(_headline_unit_refusal(unit))
     return _quoted_copy(unit)
@@ -1929,20 +2091,29 @@ def validate_bounding_headline(headline, family_record, run_record):
     bound the family record states."""
     if not isinstance(headline, dict):
         return False
-    if tuple(headline.get("axes") or ()) != AXES:
+    axes_value = dict.get(headline, "axes") or ()
+    if isinstance(axes_value, (list, tuple, set, frozenset)):
+        axes_value = tuple(_base_iter(axes_value))
+    else:
+        axes_value = tuple(axes_value)
+    if axes_value != AXES:
         return False
-    traces = headline.get("traces") or []
-    if len(traces) != 3:
+    traces = dict.get(headline, "traces") or []
+    if isinstance(traces, (list, tuple)):
+        if (list.__len__(traces) if isinstance(traces, list) else tuple.__len__(traces)) != 3:
+            return False
+        traces = list(_base_iter(traces))
+    elif len(traces) != 3:
         return False
     for trace in traces:
-        if not isinstance(trace, dict) or "moved" not in trace:
+        if not isinstance(trace, dict) or not dict.__contains__(trace, "moved"):
             return False
-    needs_witness = headline.get("rests_on_axis") == "external work issuance"
-    edge_count = (run_record or {}).get("farm_internal_edge_count")
-    bound = (family_record or {}).get("near_zero_bound")
+    needs_witness = dict.get(headline, "rests_on_axis") == "external work issuance"
+    edge_count = dict.get(run_record, "farm_internal_edge_count") if isinstance(run_record, dict) else None
+    bound = dict.get(family_record, "near_zero_bound") if isinstance(family_record, dict) else None
     if edge_count is not None and bound is not None and edge_count <= bound:
         needs_witness = True
-    if needs_witness and not headline.get("zero_edge_witness_shape"):
+    if needs_witness and not dict.get(headline, "zero_edge_witness_shape"):
         return False
     return True
 
@@ -1954,20 +2125,20 @@ def validate_envelope_claim(claim):
     nothing about values between sampled points."""
     if not isinstance(claim, dict):
         return False
-    if "holding_region" in claim or "claim_sentence" in claim:
+    if dict.__contains__(claim, "holding_region") or dict.__contains__(claim, "claim_sentence"):
         if not validate_headline_unit(claim):
             return False
-        if claim.get("failure_region") and not _region_stands(
-                claim.get("witness_block")):
+        if dict.get(claim, "failure_region") and not _region_stands(
+                dict.get(claim, "witness_block")):
             return False
         return True
-    if claim.get("scope") != "sampled points and stated ranges only":
+    if dict.get(claim, "scope") != "sampled points and stated ranges only":
         return False
-    if claim.get("claims_between_points"):
+    if dict.get(claim, "claims_between_points"):
         return False
-    if claim.get("monotonicity_claimed") or claim.get("interpolation_claimed"):
+    if dict.get(claim, "monotonicity_claimed") or dict.get(claim, "interpolation_claimed"):
         return False
-    if claim.get("holds") is False and not claim.get("failure_witness"):
+    if dict.get(claim, "holds") is False and not dict.get(claim, "failure_witness"):
         return False
     return True
 
@@ -2070,11 +2241,17 @@ def location_for_endpoint(figure, regime, band_endpoint):
     where cumulative incidence by the horizon does not reach the
     endpoint: no location stands reported for that endpoint at
     that point."""
-    entry = (figure.get("cumulative_incidence") or {}).get(regime)
-    if entry is None or entry["share"] < band_endpoint:
+    if not isinstance(figure, dict):
+        return None
+    incidence = dict.get(figure, "cumulative_incidence") or {}
+    entry = dict.get(incidence, regime) if isinstance(incidence, dict) else None
+    if entry is None:
+        return None
+    share = dict.get(entry, "share") if isinstance(entry, dict) else entry["share"]
+    if share < band_endpoint:
         return None
     return {"regime": regime, "endpoint": band_endpoint,
-            "share": entry["share"]}
+            "share": share}
 
 
 def record_first_observed(previous_evaluation_day, observed_day,
@@ -2097,10 +2274,10 @@ def validate_observation_time(record):
     interval form. An exact event time fails."""
     if not isinstance(record, dict):
         return False
-    if record.get("exact_event_time") is not None:
+    if dict.get(record, "exact_event_time") is not None:
         return False
-    interval = record.get("interval")
-    return isinstance(interval, (list, tuple)) and len(interval) == 2
+    interval = dict.get(record, "interval")
+    return isinstance(interval, (list, tuple)) and (list.__len__(interval) if isinstance(interval, list) else tuple.__len__(interval)) == 2
 
 
 def _grid_pair(location, act):
@@ -2167,22 +2344,31 @@ def validate_transition_report(report):
     if not isinstance(report, dict):
         return False
     try:
-        if not report.get("distribution_near_threshold"):
+        if not dict.get(report, "distribution_near_threshold"):
             return False
-        counts = report.get("regime_class_counts") or {}
-        if len(counts) != 3:
+        counts = dict.get(report, "regime_class_counts") or {}
+        if isinstance(counts, dict):
+            counts_len = dict.__len__(counts)
+        elif isinstance(counts, (list, tuple)):
+            counts_len = list.__len__(counts) if isinstance(counts, list) else tuple.__len__(counts)
+        else:
+            counts_len = len(counts)
+        if counts_len != 3:
             return False
-        rate = report.get("honest_loss_rate") or {}
-        if rate.get("form") != "H1":
+        rate = dict.get(report, "honest_loss_rate") or {}
+        if not isinstance(rate, dict) or dict.get(rate, "form") != "H1":
             return False
-        for point in report.get("points") or []:
+        points = dict.get(report, "points") or []
+        if isinstance(points, (list, tuple, set, frozenset)):
+            points = list(_base_iter(points))
+        for point in points:
             if not isinstance(point, dict):
                 return False
-            if point.get("near_threshold") and int(point.get("replicates", 0)) < 30:
+            if dict.get(point, "near_threshold") and int(dict.get(point, "replicates", 0)) < 30:
                 return False
-            probability = point.get("winning_probability")
+            probability = dict.get(point, "winning_probability")
             if probability is not None and top_up_applies(probability):
-                if not point.get("top_up_recorded"):
+                if not dict.get(point, "top_up_recorded"):
                     return False
     except (ValueError, TypeError, AttributeError, KeyError):
         return False
@@ -2198,21 +2384,26 @@ def validate_transition_unit(unit):
     every location sentence names its horizon."""
     if not isinstance(unit, dict):
         return False
-    figure = unit.get("transition_figure") or {}
-    if not figure.get("cumulative_incidence"):
+    figure = dict.get(unit, "transition_figure") or {}
+    if not isinstance(figure, dict):
         return False
-    if "right_censored" not in figure:
+    if not dict.get(figure, "cumulative_incidence"):
         return False
-    if unit.get("incidence_label") != "derived from the replicate counts in this unit":
+    if not dict.__contains__(figure, "right_censored"):
         return False
-    horizon = unit.get("horizon")
+    if dict.get(unit, "incidence_label") != "derived from the replicate counts in this unit":
+        return False
+    horizon = dict.get(unit, "horizon")
     if horizon is None:
-        horizon = figure.get("horizon")
+        horizon = dict.get(figure, "horizon")
     if horizon is None:
-        horizon = figure.get("stated_horizon")
+        horizon = dict.get(figure, "stated_horizon")
     if horizon is None:
-        horizon = unit.get("stated_horizon")
-    for sentence in unit.get("location_sentences") or []:
+        horizon = dict.get(unit, "stated_horizon")
+    sentences = dict.get(unit, "location_sentences") or []
+    if isinstance(sentences, (list, tuple, set, frozenset)):
+        sentences = list(_base_iter(sentences))
+    for sentence in sentences:
         if not isinstance(sentence, str) or "horizon" not in sentence:
             return False
         numbers = re.findall(r"[0-9]+(?:\.[0-9]+)?", sentence)
@@ -2240,11 +2431,11 @@ def reporter_inputs_for_family(retained_records):
     the retained records at S-10: the divergence count computed at
     S-04 as it stands, or the blocked family mark where it stands,
     naming the affected family and the affected share."""
-    records = retained_records or {}
+    records = retained_records if isinstance(retained_records, dict) else {}
     return {
-        "divergence_count": records.get("divergence_count"),
-        "blocked_family_mark": copy.deepcopy(
-            records.get("blocked_family_mark")),
+        "divergence_count": dict.get(records, "divergence_count"),
+        "blocked_family_mark": _quoted_copy(
+            dict.get(records, "blocked_family_mark")),
     }
 
 
@@ -2256,9 +2447,9 @@ def share_report_stands(inputs, share):
     family mark stands for a share, with its count nonzero and
     unresolved, the function returns False for that share, and it
     returns True otherwise."""
-    mark = (inputs or {}).get("blocked_family_mark")
-    if isinstance(mark, dict) and mark.get("affected_share") == share:
-        if mark.get("count", 0) and not mark.get("resolved"):
+    mark = dict.get(inputs, "blocked_family_mark") if isinstance(inputs, dict) else None
+    if isinstance(mark, dict) and dict.get(mark, "affected_share") == share:
+        if dict.get(mark, "count", 0) and not dict.get(mark, "resolved"):
             return False
     return True
 
@@ -2323,20 +2514,39 @@ def weekly_count(summary_records, week):
     identifier field stands at None, or in a form the count
     cannot read as a list of identifiers, fails in the same
     named form. A bare string identifier field counts as the
-    one identifier it states, never as its characters."""
+    one identifier it states, never as its characters. The
+    records argument itself stands in list form or the count
+    stands refused in the same named list form its sister act
+    at MOD-14 states. Each record stands read through the base
+    dict readings, never through a get or contains reading the
+    record itself supplies, and the identifier field stands
+    read through the base iteration of its form, with
+    distinctness judged on the stored text of each identifier,
+    never through an iteration or equality reading a handed
+    value supplies. An identifier standing in no headline unit
+    identifier form stands refused in named form, as the weekly
+    container of this module refuses it, so no count stands
+    stated over unvalidated contents."""
+    if not isinstance(summary_records, (list, tuple, set, frozenset)):
+        raise ValueError(
+            "weekly_count stands refused: the summary_records "
+            "argument stands in no list form: a list of summary "
+            "records stands required")
     identifiers = []
-    for record in summary_records or []:
-        if not isinstance(record, dict) or "week" not in record:
+    seen_texts = []
+    for record in _base_iter(summary_records):
+        if not isinstance(record, dict) or not dict.__contains__(
+                record, "week"):
             raise ValueError(
                 "summary record carries no week field, so its "
                 "weekly headline count cannot stand read")
-        if record.get("week") != week:
+        if dict.get(record, "week") != week:
             continue
-        if "headline_unit_identifiers" not in record:
+        if not dict.__contains__(record, "headline_unit_identifiers"):
             raise ValueError(
                 "summary record for the week carries no "
                 "headline_unit_identifiers field")
-        field = record.get("headline_unit_identifiers")
+        field = dict.get(record, "headline_unit_identifiers")
         if field is None:
             raise ValueError(
                 "summary record for the week carries a "
@@ -2349,8 +2559,20 @@ def weekly_count(summary_records, week):
                 "summary record for the week carries a "
                 "headline_unit_identifiers field the count "
                 "cannot read: " + type(field).__name__)
-        for identifier in field:
-            if identifier not in identifiers:
+        for identifier in _base_iter(field):
+            if isinstance(identifier, (list, tuple, set, frozenset,
+                                       dict)):
+                key = ("container", repr(identifier))
+            elif _unit_identifier_stands(identifier):
+                key = ("text", str.__str__(identifier))
+            else:
+                raise ValueError(
+                    "summary record for the week carries an "
+                    "identifier standing in no unit identifier "
+                    "form, and no count stands stated over "
+                    "unvalidated contents: " + repr(identifier))
+            if key not in seen_texts:
+                seen_texts.append(key)
                 identifiers.append(identifier)
     return len(identifiers)
 
@@ -2367,6 +2589,16 @@ def _unit_identifier_stands(item):
         _UNIT_IDENTIFIER_PATTERN.fullmatch(item) is not None
 
 
+def _stored_unit_list(value):
+    """The stored parts of a handed unit container, read through
+    the base iteration of its form, never through an iteration
+    the value itself supplies. A value in no container form
+    stores no units."""
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return list(_base_iter(value))
+    return []
+
+
 def make_weekly_container(week, units):
     """Build the weekly container for one week in arrival order.
     At most 25 whole headline units stand in the container under
@@ -2376,7 +2608,7 @@ def make_weekly_container(week, units):
     before any count stands taken, and an item that does not
     stand in that form stands refused in named form, so no count
     stands stated over unvalidated contents."""
-    ordered = list(units or [])
+    ordered = _stored_unit_list(units)
     for item in ordered:
         if not _unit_identifier_stands(item):
             raise ValueError(
@@ -2411,8 +2643,10 @@ def next_weekly_container(week, previous_container, new_units):
     """Build the next weekly container: units held from the
     previous container stand released into it first, in arrival
     order, ahead of the new units of the week."""
-    released = list((previous_container or {}).get("held_units") or [])
-    return make_weekly_container(week, released + list(new_units or []))
+    released = _stored_unit_list(
+        (previous_container or {}).get("held_units"))
+    return make_weekly_container(
+        week, released + _stored_unit_list(new_units))
 
 
 def claim_enters_family(family_record, claim, results_seen):
@@ -2437,21 +2671,21 @@ def validate_readout(readout):
     published, and this function returns False for it."""
     if not isinstance(readout, dict):
         return False
-    quantities = readout.get("quantities")
-    if not isinstance(quantities, (list, tuple)) or not quantities:
+    quantities = dict.get(readout, "quantities")
+    if not isinstance(quantities, (list, tuple)) or (list.__len__(quantities) if isinstance(quantities, list) else tuple.__len__(quantities)) == 0:
         return False
-    for quantity in quantities:
+    for quantity in _base_iter(quantities):
         if not isinstance(quantity, dict):
             return False
-        name = quantity.get("name")
+        name = dict.get(quantity, "name")
         if not isinstance(name, str) or len(name.strip()) < 2 \
                 or _plain_word_count(name) < 1:
             return False
-        number = quantity.get("recorded_number")
+        number = dict.get(quantity, "recorded_number")
         if isinstance(number, bool) or not isinstance(number, (int, float)):
             return False
-        if quantity.get("class_based"):
-            rule = quantity.get("class_rule")
+        if dict.get(quantity, "class_based"):
+            rule = dict.get(quantity, "class_rule")
             if not isinstance(rule, str) or not rule.strip():
                 return False
             if _plain_word_count(rule) < 3:
@@ -2471,21 +2705,21 @@ def validate_disclosure_form(form):
     function returns False for it."""
     if not isinstance(form, dict):
         return False
-    entries = form.get("entries")
-    if not isinstance(entries, (list, tuple)) or not entries:
+    entries = dict.get(form, "entries")
+    if not isinstance(entries, (list, tuple)) or (list.__len__(entries) if isinstance(entries, list) else tuple.__len__(entries)) == 0:
         return False
-    for entry in entries:
+    for entry in _base_iter(entries):
         if not isinstance(entry, dict):
             return False
-        keys = tuple(entry.keys())
+        keys = tuple(dict.keys(entry))
         if keys not in (("row", "column", "quantity"),
                         ("row", "period", "quantity")):
             return False
-        for identifier in (entry["row"], entry[keys[1]]):
+        for identifier in (dict.__getitem__(entry, "row"), dict.__getitem__(entry, keys[1])):
             if identifier is None or (isinstance(identifier, str)
                                       and not identifier.strip()):
                 return False
-        quantity = entry["quantity"]
+        quantity = dict.__getitem__(entry, "quantity")
         if isinstance(quantity, bool) or not isinstance(
                 quantity, (int, float)):
             return False

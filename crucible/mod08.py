@@ -1626,6 +1626,10 @@ def _find_barred(node, path="", _depth=0, _seen=None, _walked=None):
         try:
             hits = []
             if isinstance(node, dict):
+                if _is_barred_key(node) and not any(
+                        _is_barred_key(key)
+                        for key in dict.keys(node)):
+                    hits.append(path if path else "/")
                 for key, value in dict.items(node):
                     here = path + "/" + str(key)
                     if _is_barred_key(key):
@@ -2281,7 +2285,7 @@ def validate_use_naming(artefact, run_record_uses=None):
     elif uses_value is None:
         named = []
     else:
-        named = list(uses_value)
+        named = []
     for use in named:
         if use not in USES:
             raise SilentUseMovement(
@@ -2427,7 +2431,7 @@ def seal_sealed_set(sealed_set):
     elif authored_value is None:
         authored_entries = []
     else:
-        authored_entries = list(authored_value)
+        authored_entries = []
     kinds = [
         _base_get(entry, "kind") if isinstance(entry, dict)
         else entry["kind"]

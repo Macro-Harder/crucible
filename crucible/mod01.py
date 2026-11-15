@@ -555,12 +555,12 @@ def minimal_valid_instance(form_id, entry_kind=None, condition_holds=None):
     named_disc = None
     if isinstance(condition_holds, dict):
         for candidate in _conditions_for(fid):
-            if candidate["field"] == condition_holds.get("field"):
+            if candidate["field"] == dict.get(condition_holds, "field"):
                 named_disc = candidate["discriminator"]
     for condition in _conditions_for(fid):
         holds = bool(condition_holds) and (
             not isinstance(condition_holds, dict)
-            or condition_holds.get("field") == condition["field"]
+            or dict.get(condition_holds, "field") == condition["field"]
             or (named_disc is not None
                 and condition["discriminator"] == named_disc)
         )
@@ -2229,6 +2229,124 @@ _ANCHOR_VALUES_FIELD_FOLDED = _folded_money_key(
     "anchor_" + "scenario_values")
 
 
+def _dict_keys_carry_split(readings, pairs, pattern):
+    """Whether the folded marker stands split across two or
+    more consecutive keys of one dict, in the joined reading
+    form settlement S-14 states: the first key contributes a
+    tail of one of its readings as the opening of the marker,
+    each middle key one whole reading as an exact piece of
+    it, and the last key a reading that begins with its
+    closing. A key whose reading stands empty contributes no
+    character to the joined reading, so the occurrence may
+    cross such a key, stepped past on its empty reading and
+    unused by the occurrence. The marker bars only where a
+    value stands under every key the occurrence uses, as the
+    walk states for a money name."""
+    for start in range(len(pairs)):
+        for reading in readings[start]:
+            if not reading:
+                continue
+            for cut in range(len(reading)):
+                piece = reading[cut:]
+                if not piece or len(piece) >= len(pattern):
+                    continue
+                if piece != pattern[:len(piece)]:
+                    continue
+                present = pairs[start][1] is not None
+                stack = [(start + 1, len(piece), present)]
+                while stack:
+                    index, pos, ok = stack.pop()
+                    if pos >= len(pattern):
+                        if ok:
+                            return True
+                        continue
+                    if index >= len(pairs):
+                        continue
+                    next_ok = ok and (
+                        pairs[index][1] is not None)
+                    for option in readings[index]:
+                        if not option:
+                            stack.append((index + 1, pos, ok))
+                            continue
+                        if option == pattern[pos:pos + len(option)]:
+                            stack.append((
+                                index + 1,
+                                pos + len(option), next_ok))
+                        elif option.startswith(pattern[pos:]):
+                            if next_ok:
+                                return True
+    return False
+
+
+def _dict_keys_tile_exact(readings, pairs, target, require_value):
+    """Whether a run of two or more consecutive dict keys, in
+    stored order, joins exactly to the target on one folded
+    reading of each key it uses, in the joined reading form
+    settlement S-14 states, a key whose reading stands empty
+    stepped past inside the run on that empty reading. Where
+    require_value stands stated, the name bars only where a
+    value stands under every key the run uses, as the walk
+    states for that name; a stepped past key stands unused.
+    A name standing inside one key alone stands judged by
+    the per key acts, never here, so a run stands only on
+    two or more pieces."""
+    visited = set()
+    stack = [(0, 0, 0, True)]
+    while stack:
+        index, pos, pieces, ok = stack.pop()
+        if pos == len(target):
+            if pieces >= 2 and ok:
+                return True
+            continue
+        if index >= len(pairs):
+            continue
+        state = (index, pos, pieces >= 2, ok)
+        if state in visited:
+            continue
+        visited.add(state)
+        if pieces == 0:
+            stack.append((index + 1, 0, 0, True))
+        next_ok = ok and (
+            pairs[index][1] is not None or not require_value)
+        for option in readings[index]:
+            if not option:
+                stack.append((index + 1, pos, pieces, ok))
+            elif option == target[pos:pos + len(option)]:
+                stack.append((
+                    index + 1, pos + len(option),
+                    pieces + 1, next_ok))
+    return False
+
+
+def _dict_node_money_barred(value):
+    """Whether a dict handed to the money walk stands barred
+    at its own node, in the form settlement S-14 states: the
+    walk judges a dict handed to it at the dict node itself,
+    on the joined reading of the dict's keys in stored order,
+    in the folded form in which the walk judges a single key.
+    The folded money marker split across two keys of the dict
+    stands judged on that joined reading, and the amount and
+    currency pair, which the walk frames at dict level across
+    the keys of one dict together, stands judged where each
+    name stands split across two keys of the same dict."""
+    pairs = list(dict.items(value))
+    if len(pairs) < 2:
+        return False
+    readings = [set(_folded_key_variants(key)) for key, item in pairs]
+    for pattern in (_MONEY_MARKER_FOLDED, "realmani"):
+        if _dict_keys_carry_split(readings, pairs, pattern):
+            return True
+    amount_stands = _dict_keys_tile_exact(
+        readings, pairs, "amount", True) or any(
+            _folded_key_matches(key, "amount") and item is not None
+            for key, item in pairs)
+    currency_stands = _dict_keys_tile_exact(
+        readings, pairs, "currency", False) or any(
+            _folded_key_matches(key, "currency")
+            for key, item in pairs)
+    return amount_stands and currency_stands
+
+
 def _carries_real_money_value(value, _depth=0, _seen=None, _walked=None):
     if _seen is None:
         _seen = set()
@@ -2249,6 +2367,8 @@ def _carries_real_money_value(value, _depth=0, _seen=None, _walked=None):
                 for key in dict.keys(value)
             )
             if amount_carried and currency_carried:
+                result = True
+            elif _dict_node_money_barred(value):
                 result = True
             else:
                 result = False
@@ -3000,7 +3120,7 @@ class ProvenanceBlock:
     block is incomplete fails validation."""
 
     def __init__(self, entries, excluded_class_counts, excluded_class_shares):
-        self._entries = _guarded_copy(list(entries))
+        self._entries = _guarded_copy(entries)
         self._counts = _guarded_copy(excluded_class_counts)
         self._shares = _guarded_copy(excluded_class_shares)
 
@@ -3243,7 +3363,13 @@ class _RecordForm:
     OWNER = None
 
     def __init__(self, values=None):
-        self.values = copy.deepcopy(dict(values or {}))
+        if values is None:
+            stored = {}
+        elif isinstance(values, dict):
+            stored = {key: item for key, item in dict.items(values)}
+        else:
+            stored = dict(values)
+        self.values = _guarded_copy(stored)
 
     def validate(self):
         return validate_record(self.FORM_ID, self.values)

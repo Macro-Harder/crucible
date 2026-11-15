@@ -2276,15 +2276,28 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
     A delivery whose joint outcome components or component
     denominators stand in a non numeric form stands refused at
     retention in named form, so no retained delivery can crash a
-    later rederivation with a bare TypeError."""
-    for delivery in deliveries:
+    later rederivation with a bare TypeError. The deliveries
+    stand read once, through the base iteration of their form
+    where they stand in a container form, and a handed iterator
+    stands read whole by that one reading, so no fabricated
+    delivery stands retained and no valid delivery stands lost
+    to a second reading. The component values stand read
+    through the base iteration of their form on the same
+    ground. A delivery in no record form stands skipped in
+    both loops, so it neither crashes the act nor leaves a
+    partial retention standing behind a crash."""
+    if isinstance(deliveries, (list, tuple, set, frozenset)):
+        stored_deliveries = list(_base_iter(deliveries))
+    else:
+        stored_deliveries = list(deliveries)
+    for delivery in stored_deliveries:
         if not isinstance(delivery, dict):
             continue
         for field in ("joint_outcome_components",
                       "component_denominators"):
             values = dict.get(delivery, field)
             if isinstance(values, (list, tuple)):
-                for component in values:
+                for component in _base_iter(values):
                     if _numeric_component(component):
                         continue
                     where = (
@@ -2305,7 +2318,9 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
                         + repr(component)
                         + "), and that delivery stands not retained")
     stored = _AGGREGATE_DELIVERIES.setdefault(run_id, {})
-    for delivery in deliveries:
+    for delivery in stored_deliveries:
+        if not isinstance(delivery, dict):
+            continue
         key = (
             _retention_day_key(dict.get(delivery, "simulated_day")),
             _stored_form(dict.get(delivery, "viewer_id")))
@@ -2567,24 +2582,41 @@ def rederive_regime_classification(aggregates):
 
 
 def validate_daily_aggregates(aggregates):
+    """Validate daily aggregate records on their stored contents:
+    every record stands read through the base dict readings, its
+    containment judged by the base containment reading, its
+    fields taken by the base get reading, and its component
+    values read through the base iteration of their form, never
+    through a containment, item, or iteration reading the handed
+    record supplies."""
     if not isinstance(aggregates, (list, tuple)):
         return False
-    if not aggregates:
+    stored_records = list(_base_iter(aggregates))
+    if not stored_records:
         return False
-    for record in aggregates:
+    for record in stored_records:
         if not isinstance(record, dict):
             return False
-        if "singular_vector" in record:
+        if dict.__contains__(record, "singular_vector"):
             return False
-        if "viewer_id" not in record:
+        if not dict.__contains__(record, "viewer_id"):
             return False
         for field in ("joint_outcome_components",
                       "component_denominators"):
-            if field in record and not _components_stand_numeric(
-                    record[field]):
+            if dict.__contains__(record, field):
+                values = dict.get(record, field)
+                if isinstance(values, (list, tuple)):
+                    values = list(_base_iter(values))
+                if not _components_stand_numeric(values):
+                    return False
+        if dict.__contains__(record, "joint_outcome_components"):
+            components = dict.get(record, "joint_outcome_components")
+            if isinstance(components, (list, tuple)):
+                components = list(_base_iter(components))
+            if not isinstance(components, (list, tuple)):
                 return False
-        if "joint_outcome_components" in record and len(record["joint_outcome_components"]) != 4:
-            return False
+            if len(components) != 4:
+                return False
     return True
 
 
@@ -2599,21 +2631,26 @@ def build_joint_outcome_vector(components=None, divergence_companion=None):
     computed here: the proportion and the rate stand as handed in,
     as stored parts, and no recomputation rule and no rounding
     rule stands supplied by this act."""
-    components = components or {}
+    if components is None:
+        components = {}
+    if not isinstance(components, dict):
+        raise ValueError(
+            "joint outcome component in named form: the components "
+            "stand as no record of their stored parts")
     record = {}
     viewers = set()
     for field, parts in mod01.JOINT_OUTCOME_COMPONENT_PARTS.items():
-        component = components.get(field)
+        component = dict.get(components, field)
         if not isinstance(component, dict):
             raise ValueError(
                 "joint outcome component in named form: component "
                 + field + " stands as no record of its stored parts")
-        missing = [part for part in parts if component.get(part) is None]
+        missing = [part for part in parts if dict.get(component, part) is None]
         if missing:
             raise ValueError(
                 "joint outcome component in named form: component "
                 + field + " carries no " + ", ".join(missing))
-        viewers.add(component.get("viewer_identifier"))
+        viewers.add(dict.get(component, "viewer_identifier"))
         record[field] = _safe_copy(component)
     if len(viewers) != 1:
         raise ValueError(
@@ -2707,6 +2744,13 @@ def retain_event_log_entry(entry, store_kind="sweep"):
         raise ValueError(
             "identity less entry: no run identifier stands on the "
             "entry, and no entry stands retained under no identifier")
+    try:
+        hash(run_id)
+    except TypeError as exc:
+        raise ValueError(
+            "identity less entry: the run identifier stands in an "
+            "unhashable form, and no entry stands retained under "
+            "it") from exc
     _guard_retention_shape(entry, "retain_event_log_entry", "entry")
     bucket = _EVENT_LOGS.setdefault((store_kind, run_id), [])
     for existing in bucket:
@@ -2739,6 +2783,13 @@ def retain_daily_snapshot(snapshot, store_kind="sweep"):
         raise ValueError(
             "identity less snapshot: no run identifier stands on the "
             "snapshot, and no snapshot stands retained under no identifier")
+    try:
+        hash(run_id)
+    except TypeError as exc:
+        raise ValueError(
+            "identity less snapshot: the run identifier stands in an "
+            "unhashable form, and no snapshot stands retained under "
+            "it") from exc
     _guard_retention_shape(snapshot, "retain_daily_snapshot", "snapshot")
     bucket = _DAILY_SNAPSHOTS.setdefault((store_kind, run_id), [])
     for existing in bucket:
@@ -2874,6 +2925,13 @@ def retain_checkpoint(manifest, store_kind="sweep"):
         raise ValueError(
             "identity less checkpoint: no run identifier stands on the "
             "manifest, and no checkpoint stands retained under no identifier")
+    try:
+        hash(run_id)
+    except TypeError as exc:
+        raise ValueError(
+            "identity less checkpoint: the run identifier stands in "
+            "an unhashable form, and no checkpoint stands retained "
+            "under it") from exc
     _guard_retention_shape(manifest, "retain_checkpoint", "manifest")
     bucket = _CHECKPOINTS.setdefault((store_kind, run_id), [])
     if any(
@@ -3342,18 +3400,25 @@ def gc08_record(kind, owner_id):
 def _stated_count(value, name):
     """Read one count in its stated integer form only. A string, a
     fraction, a boolean, or a negative count stands refused in
-    named form, and no value stands converted silently."""
+    named form, and no value stands converted silently. The
+    count stands returned as a plain integer holding the value
+    the handed count stores, read through the base integer
+    reading, so the sign judgement above and every arithmetic
+    step a consumer runs on the count run on the stored value
+    and never on an operator reading the handed count
+    supplies."""
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(
             "storage accounting count in named form: the count for "
             + str(name) + " stands in a non integer form, and no count "
             "stands converted silently")
-    if value < 0:
+    plain = int.__int__(value)
+    if plain < 0:
         raise ValueError(
             "storage accounting count in named form: the count for "
             + str(name) + " stands negative, and no negative stock "
             "stands accounted")
-    return value
+    return plain
 
 
 def storage_accounting(retained):
@@ -3386,6 +3451,21 @@ def storage_accounting(retained):
     }
 
 
+def _claimed_total(claimed, name):
+    """Read one claimed total through the stated count form, so
+    the total stands judged by the integer it stores and never
+    by an equality reading the claimed value supplies. A total
+    standing in no stated count form, or standing negative,
+    stands as no total, and the claim that carries it stands
+    not validated."""
+    if not dict.__contains__(claimed, name):
+        return None
+    try:
+        return _stated_count(dict.get(claimed, name), name)
+    except ValueError:
+        return None
+
+
 def validate_storage_accounting(claimed):
     if not isinstance(claimed, dict):
         raise ValueError(
@@ -3398,7 +3478,8 @@ def validate_storage_accounting(claimed):
             dict.get(claimed, "daily_snapshots", 0), "daily_snapshots")
         + _stated_count(dict.get(claimed, "event_logs", 0), "event_logs")
     )
-    if dict.get(claimed, "result_count") != expected:
+    claimed_result = _claimed_total(claimed, "result_count")
+    if claimed_result is None or claimed_result != expected:
         return False
     if dict.__contains__(claimed, "checkpoint_count"):
         expected_stock = (
@@ -3406,7 +3487,8 @@ def validate_storage_accounting(claimed):
             + _stated_count(
                 dict.get(claimed, "held_corpus_copies", 0),
                 "held_corpus_copies"))
-        if dict.get(claimed, "checkpoint_count") != expected_stock:
+        claimed_stock = _claimed_total(claimed, "checkpoint_count")
+        if claimed_stock is None or claimed_stock != expected_stock:
             return False
     return True
 
@@ -3490,7 +3572,7 @@ def retention_policy_table():
 def validate_storage_claim(claim):
     if not isinstance(claim, dict):
         return False
-    if claim.get("basis") == "DQ7-08" and claim.get("reliance") == "governing":
+    if dict.get(claim, "basis") == "DQ7-08" and dict.get(claim, "reliance") == "governing":
         return False
     return True
 
@@ -3506,6 +3588,18 @@ def write_summary_record(record):
     _guard_retention_shape(record, "write_summary_record", "record")
     run_id = dict.get(record, "run_id") or dict.get(
         record, "run_identifier")
+    if run_id is None:
+        raise ValueError(
+            "identity less summary record: no run identifier stands "
+            "on the record, and no summary record stands retained "
+            "under no identifier")
+    try:
+        hash(run_id)
+    except TypeError as exc:
+        raise ValueError(
+            "identity less summary record: the run identifier stands "
+            "in an unhashable form, and no summary record stands "
+            "retained under it") from exc
     _SUMMARY_RECORDS[run_id] = _safe_copy(record)
     return _safe_copy(record)
 
@@ -4218,6 +4312,29 @@ def _has_stated_condition(fired):
     return False
 
 
+def _fired_stands(fired):
+    """Whether a fired value stands supplied, judged by its
+    stored contents and never by a truth reading the value
+    itself supplies: a value in a container form stands where
+    it stores at least one entry, read through the base
+    iteration of its form, a text or bytes form stands where
+    it stores at least one character or byte, and no value
+    stands nowhere. A value in no such form stands judged by
+    the plain truth of the value itself, the one limb this
+    reading does not reach."""
+    if fired is None:
+        return False
+    if isinstance(fired, (list, tuple, set, frozenset)):
+        return len(list(_base_iter(fired))) > 0
+    if isinstance(fired, str):
+        return len(str.__str__(fired)) > 0
+    if isinstance(fired, (bytes, bytearray, memoryview)):
+        return len(bytes(fired)) > 0
+    if isinstance(fired, dict):
+        return dict.__len__(fired) > 0
+    return bool(fired)
+
+
 def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inputs=None):
     if not isinstance(record, dict):
         raise ValueError(
@@ -4244,24 +4361,32 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
     if tier is not None and tier not in _TIER_RANKS:
         raise ValueError(
             "flag evaluation tier outside the tiers the rule names: "
-            + str(tier))
+            + str(tier) + "; the tiers the rule names stand as "
+            "Tier 0, Tier 1, Tier 2, and Tier 3")
     current = dict.get(record, "retention_tier")
     if (tier is not None and current in _TIER_RANKS
             and _TIER_RANKS[tier] < _TIER_RANKS[current]):
         raise ValueError(
             "the flag rule never demotes: the stated tier stands below "
-            "the record tier")
+            "the record tier, and no demotion stands effected by it")
     if outcome == "promote":
         if inputs is None:
             raise ValueError(
                 "flag promotion with no inputs supplied: a promotion "
                 "stands only with inputs actually supplied, and no "
                 "promotion stands effected by it")
-        fired = []
+        if inputs is not None and not isinstance(inputs, dict):
+            raise ValueError(
+                "flag promotion with its inputs standing in no "
+                "record form: a promotion stands only with its "
+                "inputs handed as a mapping carrying "
+                "flag_conditions_fired, and no promotion stands "
+                "effected by it")
+        fired = None
         if isinstance(inputs, dict):
-            fired = dict.get(inputs, "flag_conditions_fired") or []
-        if not fired:
-            fired = dict.get(record, "flag_conditions_fired") or []
+            fired = dict.get(inputs, "flag_conditions_fired")
+        if not _fired_stands(fired):
+            fired = dict.get(record, "flag_conditions_fired")
         if not _has_stated_condition(fired):
             raise ValueError(
                 "flag promotion with no stated flag condition fired: "
@@ -4284,7 +4409,7 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
     if outcome == "promote" and tier is not None:
         updated["retention_tier"] = tier
     updated["flag_evaluation"] = {
-        "inputs": inputs,
+        "inputs": _safe_copy(inputs),
         "outcome": outcome,
         "tier": tier,
         "actor": actor,
@@ -4378,7 +4503,7 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
             evaluations.extend(_safe_copy(stored_evaluations))
     evaluations.append({
         "firing": firing,
-        "inputs": inputs,
+        "inputs": _safe_copy(inputs),
         "outcome": outcome,
         "conditions": [1, 2] if firing == 1 else [1, 2, 3],
         "written_into": "summary record",
@@ -4465,7 +4590,7 @@ def retention_record_for_run(run_id, store_kind="sweep"):
 def validate_retention_report(report):
     if not isinstance(report, dict):
         return False
-    if report.get("source") == "interval_records" and report.get("tier_claim") == "final":
+    if dict.get(report, "source") == "interval_records" and dict.get(report, "tier_claim") == "final":
         return False
     return True
 
@@ -4485,9 +4610,11 @@ def annotation_link_at_checkpoint(checkpoint):
     the plan named field annotation_link_identifier where it
     stands, and under the Form 4 carriage name annotation_link
     where that is the name the checkpoint carries."""
+    if not isinstance(checkpoint, dict):
+        return None
     return (
-        checkpoint.get("annotation_link_identifier")
-        or checkpoint.get("annotation_link"))
+        dict.get(checkpoint, "annotation_link_identifier")
+        or dict.get(checkpoint, "annotation_link"))
 
 
 def resume_from_checkpoint(checkpoint, store_kind=None):
@@ -4617,7 +4744,7 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
 def validate_annotation_claim(claim):
     if not isinstance(claim, dict):
         return False
-    if claim.get("claim") == "annotation_state_equal_across_append":
+    if dict.get(claim, "claim") == "annotation_state_equal_across_append":
         return False
     return True
 
@@ -4649,32 +4776,45 @@ def retention_sizing(fixture="F-27", costing_forms="F-19"):
 def validate_retention_sizing(sizing):
     if not isinstance(sizing, dict):
         return False
-    workings = sizing.get("workings") or {}
-    if "central_form" not in workings or "high_form" not in workings:
+    workings = dict.get(sizing, "workings") or {}
+    if not isinstance(workings, dict):
         return False
-    high = workings.get("high_form") or {}
-    if high.get("events_per_agent_per_day") is None:
+    if not dict.__contains__(workings, "central_form") or not dict.__contains__(workings, "high_form"):
         return False
-    wording = sizing.get("wording") or {}
-    for value in wording.values():
+    high = dict.get(workings, "high_form") or {}
+    if not isinstance(high, dict):
+        return False
+    if dict.get(high, "events_per_agent_per_day") is None:
+        return False
+    wording = dict.get(sizing, "wording") or {}
+    if not isinstance(wording, dict):
+        return False
+    for value in dict.values(wording):
         if value in ("forecast", "ceiling"):
             return False
     return True
 
 
 def retention_met(record):
-    if record.get("declaration_only") or record.get("state") == "DECLARED NOT CLOSED":
+    if not isinstance(record, dict):
         return False
-    later = record.get("later_evaluation")
-    if not later:
+    if dict.get(record, "declaration_only") or dict.get(record, "state") == "DECLARED NOT CLOSED":
         return False
-    if list(later.get("conditions") or []) != [1, 2, 3]:
+    later = dict.get(record, "later_evaluation")
+    if not isinstance(later, dict):
         return False
-    if not later.get("inputs") or not later.get("outcome"):
+    conditions = dict.get(later, "conditions") or []
+    if isinstance(conditions, (list, tuple, set, frozenset)):
+        conditions = list(_base_iter(conditions))
+    else:
+        conditions = list(conditions)
+    if conditions != [1, 2, 3]:
         return False
-    if not record.get("summary_record_written"):
+    if not dict.get(later, "inputs") or not dict.get(later, "outcome"):
         return False
-    if not record.get("retained_forms_pointed_to"):
+    if not dict.get(record, "summary_record_written"):
+        return False
+    if not dict.get(record, "retained_forms_pointed_to"):
         return False
     return True
 
@@ -4692,12 +4832,12 @@ def pre_registered_full_log_sample(family_id="family-under-test"):
 def validate_sample_record(sample):
     if not isinstance(sample, dict):
         return False
-    if sample.get("presented_as") == "generator_test_battery_sample":
+    if dict.get(sample, "presented_as") == "generator_test_battery_sample":
         return False
-    if sample.get("kind") == "retention_sample":
-        if not sample.get("in_family_record"):
+    if dict.get(sample, "kind") == "retention_sample":
+        if not dict.get(sample, "in_family_record"):
             return False
-        if sample.get("registration_standing") != "before_runs":
+        if dict.get(sample, "registration_standing") != "before_runs":
             return False
     return True
 
@@ -4705,8 +4845,8 @@ def validate_sample_record(sample):
 def validate_retention_record(record):
     if not isinstance(record, dict):
         return False
-    governing = str(record.get("governing_rule") or "")
-    if governing.startswith("DQ7-08") and record.get("reliance") == "governing":
+    governing = str(dict.get(record, "governing_rule") or "")
+    if governing.startswith("DQ7-08") and dict.get(record, "reliance") == "governing":
         return False
     return True
 
@@ -4718,10 +4858,10 @@ def store_indexes():
 def validate_store_placement(artefact):
     if not isinstance(artefact, dict):
         return False
-    if artefact.get("kind") == "pilot":
-        if artefact.get("store") != "pilot":
+    if dict.get(artefact, "kind") == "pilot":
+        if dict.get(artefact, "store") != "pilot":
             return False
-        if "value" in artefact and not artefact.get("confinement_label"):
+        if dict.__contains__(artefact, "value") and not dict.get(artefact, "confinement_label"):
             return False
     return True
 
@@ -4826,11 +4966,11 @@ def validate_view_carriage(carriage):
     stand."""
     if not isinstance(carriage, dict):
         return False
-    if carriage.get("form") == "singular_vector":
+    if dict.get(carriage, "form") == "singular_vector":
         return False
-    if carriage.get("presented_as") == "one comparable quantity":
+    if dict.get(carriage, "presented_as") == "one comparable quantity":
         return False
-    if carriage.get("form") == "flip_trial_record" and carriage.get("cited_as") == "run_result":
+    if dict.get(carriage, "form") == "flip_trial_record" and dict.get(carriage, "cited_as") == "run_result":
         return False
     return True
 

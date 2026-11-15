@@ -76,11 +76,11 @@ def validate_tracer_wording(wording):
     or makes a replication or verdict claim from it."""
     if not isinstance(wording, dict):
         return False
-    if wording.get("slice_built_because_tracer_ran"):
+    if dict.get(wording, "slice_built_because_tracer_ran"):
         return False
-    if wording.get("headline_result_claimed"):
+    if dict.get(wording, "headline_result_claimed"):
         return False
-    if wording.get("replication_claim_made") or wording.get("verdict_claim_made"):
+    if dict.get(wording, "replication_claim_made") or dict.get(wording, "verdict_claim_made"):
         return False
     return True
 
@@ -266,10 +266,10 @@ def validate_fixture_record(record):
     if not isinstance(record, dict):
         return False
     for key in ("ran", "showed", "does_not_show"):
-        if key not in record:
+        if not dict.__contains__(record, key):
             return False
-    if record.get("ran"):
-        if record.get("value_source") not in ("brief", "brief or evidence register", "evidence register"):
+    if dict.get(record, "ran"):
+        if dict.get(record, "value_source") not in ("brief", "brief or evidence register", "evidence register"):
             return False
     return True
 
@@ -497,13 +497,13 @@ def validate_confirmation_result(run_record):
     validator names and stands refused, never passed on absence."""
     if not isinstance(run_record, dict):
         return False
-    if "run_class" not in run_record:
+    if not dict.__contains__(run_record, "run_class"):
         return False
-    if run_record.get("run_class") != "confirmation":
+    if dict.get(run_record, "run_class") != "confirmation":
         return True
-    if run_record.get("seed_domain") == "screening":
+    if dict.get(run_record, "seed_domain") == "screening":
         return False
-    if run_record.get("domain") == "screening":
+    if dict.get(run_record, "domain") == "screening":
         return False
     return True
 
@@ -516,12 +516,12 @@ def validate_headline_claim(result):
     of the form this validator names and stands refused."""
     if not isinstance(result, dict):
         return False
-    if "headline_claim" not in result:
+    if not dict.__contains__(result, "headline_claim"):
         return False
-    if result.get("headline_claim"):
-        if result.get("material") == "validation":
+    if dict.get(result, "headline_claim"):
+        if dict.get(result, "material") == "validation":
             return False
-        if result.get("validation_material"):
+        if dict.get(result, "validation_material"):
             return False
     return True
 
@@ -546,12 +546,14 @@ def validate_folding_discharge(record):
     carries no seam case, or where the checker folded."""
     if not isinstance(record, dict):
         return False
-    if record.get("discharged_by_slice_tests_alone"):
+    if dict.get(record, "discharged_by_slice_tests_alone"):
         return False
-    if not record.get("checker_distinct_from_folder"):
+    if not dict.get(record, "checker_distinct_from_folder"):
         return False
-    cases = record.get("seam_cases_per_ruling") or {}
-    return all(int(count) >= 1 for count in cases.values()) and bool(cases)
+    cases = dict.get(record, "seam_cases_per_ruling") or {}
+    if not isinstance(cases, dict):
+        return False
+    return all(int(count) >= 1 for count in dict.values(cases)) and dict.__len__(cases) > 0
 
 
 def sham_control_standing():
@@ -599,9 +601,9 @@ def validate_horizon_generalisation(claim):
     validator names and stands refused."""
     if not isinstance(claim, dict):
         return False
-    if "generalised_to_grid" not in claim:
+    if not dict.__contains__(claim, "generalised_to_grid"):
         return False
-    return not claim.get("generalised_to_grid")
+    return not dict.get(claim, "generalised_to_grid")
 
 
 def validate_mixed_patience(run):
@@ -610,12 +612,12 @@ def validate_mixed_patience(run):
     with the falsifier stated against the single value plane."""
     if not isinstance(run, dict):
         return False
-    if not run.get("distribution_shape"):
+    if not dict.get(run, "distribution_shape"):
         return True
     return bool(
-        run.get("labelled_assumption_in_family_record")
-        and run.get("recorded_before_runs")
-        and run.get("falsifier_stated")
+        dict.get(run, "labelled_assumption_in_family_record")
+        and dict.get(run, "recorded_before_runs")
+        and dict.get(run, "falsifier_stated")
     )
 
 

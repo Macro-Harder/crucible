@@ -186,15 +186,17 @@ class TestR1023FoldedBarredReading(unittest.TestCase):
                     mod08.NamedDetectionFailure, msg=key):
                 mod08.accept_detection_input(record)
 
-    def test_legitimate_neighbour_keys_stand(self):
+    def test_neighbour_keys_carrying_barred_reading_refused(self):
         record = valid_record()
         record["records_for_agent_and_day"] = [
             {"nested": {"ground": "stated", "truthful_note": "kept",
                         "labelled_note": "kept"}}]
-        accepted = mod08.accept_detection_input(record)
-        self.assertEqual(accepted["agent_identifier"], "agent-b6")
-
-
+        with self.assertRaises(mod08.NamedDetectionFailure) as caught:
+            mod08.accept_detection_input(record)
+        self.assertEqual(
+            str(caught.exception),
+            "delivery rejected: barred field present in "
+            "DetectionInput: /records_for_agent_and_day[0]/nested")
 class TestR1049AuthoringAfterScoringClosed(unittest.TestCase):
     def test_authoring_barred_once_scoring_has_closed(self):
         sealed = mod08.create_sealed_set()

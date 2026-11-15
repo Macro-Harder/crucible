@@ -354,20 +354,21 @@ class TestR13019StemNextRing(unittest.TestCase):
             "standed", "losed", "drawed", "leaded"])
 
     def test_stated_bound_compound_forms(self):
-        # Bound, stated in the builder paper: forgeted and
-        # informations stand refused at their own stem limbs,
-        # and each still returns True through the closed
-        # compound reading alone, forgeted as for plus geted on
-        # the base get and informations as in plus formations,
-        # neither base nor split standing named in any record,
-        # so no refusal for those paths stands on decided
-        # ground and none is invented here.
-        self.assertEqual(mod11._readable_stem("forgeted"), [])
+        # Bound, stated in the builder paper: informations stands
+        # refused at its own stem limbs, and still returns True
+        # through the closed compound reading alone, informations
+        # as in plus formations, neither base nor split standing
+        # named in any record, so no refusal for that path stands
+        # on decided ground and none is invented here. The
+        # forgeted half of the bound stands closed on the R14-032
+        # ground: that row names the base get in the ed refusal
+        # family, getted standing charged there, so the geted stem
+        # the compound split rested on no longer stands, and
+        # forgeted returns False.
         self.assertEqual(mod11._readable_stem("informations"),
                          [])
-        self.assertTrue(mod11._is_readable_word("forgeted"))
         self.assertTrue(mod11._is_readable_word("informations"))
-
+        self.assertFalse(mod11._is_readable_word("forgeted"))
     def test_er_est_irregular_forms(self):
         assert_none_readable(self, ["gooder", "goodest"])
 

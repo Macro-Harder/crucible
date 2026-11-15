@@ -200,6 +200,18 @@ def _stored_string(value):
     return str(value)
 
 
+def _safe_repr(value):
+    """Render a handed value for a refusal or failure sentence:
+    through its repr reading where that reading stands, and
+    through the base object repr where the repr reading the
+    value itself supplies raises, so a sentence naming the
+    handed value never escapes bare on that reading."""
+    try:
+        return repr(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 COMPARISON_DEPTH_BOUND = 100
 
 
@@ -265,7 +277,14 @@ def _stored_key_texts(value):
     built, and where that total passes 5040 the ordered
     container contributes its stored order join alone, as
     _stored_key_text states it, so no cross product past
-    the bound stands ever built."""
+    the bound stands ever built. The unordered limb stands
+    under the same discipline in the same form: the
+    combination total of its parts' texts stands computed
+    before any join stands built, and where that total
+    passes 5040 the unordered container contributes its
+    sorted join alone, as _stored_key_text states it, so
+    no cross product past the bound stands ever built for
+    any ordering."""
     if isinstance(value, (tuple, list)):
         part_texts = [
             _stored_key_texts(part)
@@ -286,6 +305,11 @@ def _stored_key_texts(value):
         parts = _base_container_items(value)
         if len(parts) <= 7:
             part_texts = [_stored_key_texts(part) for part in parts]
+            total = 1
+            for texts in part_texts:
+                total *= len(texts)
+                if total > 5040:
+                    return {_stored_key_text(value)}
             out = set()
             for order in itertools.permutations(range(len(parts))):
                 combos = {""}
@@ -1129,7 +1153,7 @@ def verdict_record_validation_failures(record):
             dict.get(record, "outcome"), ("rests", "does not rest")):
         failures.append(
             "outcome stands outside the stated outcomes "
-            "(rests, does not rest): " + repr(dict.get(record, "outcome")))
+            "(rests, does not rest): " + _safe_repr(dict.get(record, "outcome")))
     if _base_str_eq(
             dict.get(record, "standard_applied"),
             "distributional equivalence"):
@@ -1142,7 +1166,7 @@ def verdict_record_validation_failures(record):
         failures.append(
             "standard_applied stands outside the stated standard "
             "(exact replay alone): "
-            + repr(dict.get(record, "standard_applied")))
+            + _safe_repr(dict.get(record, "standard_applied")))
     if not _base_str_eq(
             dict.get(record, "replication_statement"),
             REPLICATION_STATEMENT):
@@ -1182,7 +1206,7 @@ def resume_claim_validation_failures(claim):
             scope, "verdict level only"):
         failures.append(
             "detection_scope stands wider than verdict level only: "
-            + repr(scope) + " (scope form)")
+            + _safe_repr(scope) + " (scope form)")
     points = _base_get(claim, "detection_comparison_points")
     if points is not None:
         if not isinstance(points, (list, tuple)):
@@ -1205,14 +1229,14 @@ def resume_claim_validation_failures(claim):
                             "detection_comparison_points stand in "
                             "an order other than the two named "
                             "points in their stated order: "
-                            + repr(stored_point)
+                            + _safe_repr(stored_point)
                             + " stands at a position other than "
                             "its named position")
                     else:
                         failures.append(
                             "detection_comparison_points name a point "
                             "outside the two named points: "
-                            + repr(stored_point))
+                            + _safe_repr(stored_point))
                     break
     return failures
 
@@ -1320,7 +1344,7 @@ def publishable_on_replication_failures(claim, verdict):
             dict.get(verdict, "outcome"), "rests"):
         failures.append(
             "the verdict outcome does not rest: outcome stands as "
-            + repr(dict.get(verdict, "outcome"))
+            + _safe_repr(dict.get(verdict, "outcome"))
             + ", and publication requires the outcome rests")
     return failures
 
@@ -1586,7 +1610,7 @@ def rerun_reading_validation_failures(reading):
         failures.append(
             "read_as stands outside the stated reading "
             "(difference between two rule sets only): "
-            + repr(read_as))
+            + _safe_repr(read_as))
     if _stored_present(_base_get(reading, "overwrites_original")):
         failures.append(
             "overwrites_original stands asserted: a rerun "
@@ -1732,9 +1756,13 @@ def extend_history(history, segment):
             grounds.append(
                 label + " stands past the bound of "
                 + str(COMPARISON_DEPTH_BOUND)
-                + " (counted on the containers only basis)")
+                + " (counted on the containers only basis)"
+                + ", and no extension stands made")
         if cyclic:
-            grounds.append(label + " carries a cycle")
+            grounds.append(
+                label + " carries a cycle"
+                + " (counted on the containers only basis)"
+                + ", and no extension stands made")
     if grounds:
         raise NamedReplicationFailure(
             "a history extension stands refused: " + "; ".join(grounds))

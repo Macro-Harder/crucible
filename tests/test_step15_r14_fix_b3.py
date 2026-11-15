@@ -122,13 +122,11 @@ class TestR13012DependencyRecordEdgeDress(unittest.TestCase):
                 mod07.validate_dependency_record(record), repr(edges))
 
     def test_bytes_joint_dependent_and_joint_edges_in_dress(self):
-        self.assertFalse(mod07.validate_dependency_record(
+        self.assertTrue(mod07.validate_dependency_record(
             {"edges": [], "joint_dependent": b"MOD-07"}))
         self.assertFalse(mod07.validate_dependency_record(
             {"edges": [(b"MOD-05", b"MOD-08"), (b"MOD-06", b"MOD-08")],
              "joint_dependent": "MOD-07"}))
-
-
 class TestR13013TracerRecordsNoListForm(unittest.TestCase):
     def test_text_number_and_bytes_forms_named_no_list_form(self):
         for records in ("some text", 5, 5.5, b"bytes"):

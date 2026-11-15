@@ -585,9 +585,9 @@ def validate_evaluation_order(record):
     present O-1, or any order, as ruled."""
     if not isinstance(record, dict):
         return False
-    if not record.get("order"):
+    if not dict.get(record, "order"):
         return False
-    if record.get("presented_as_ruled"):
+    if dict.get(record, "presented_as_ruled"):
         return False
     return True
 
@@ -640,7 +640,8 @@ def reputation_and_band_values(agents_scores, bands, viewer=None, evaluation_ord
     without MOD-04 taking over their computation."""
     order_record = evaluation_order if isinstance(evaluation_order, dict) else evaluation_order_record(evaluation_order)
     values = {}
-    for agent, score in agents_scores.items():
+    score_items = dict.items(agents_scores) if isinstance(agents_scores, dict) else agents_scores.items()
+    for agent, score in score_items:
         values[agent] = band_membership(score, bands, evaluation_order=order_record)
     return {"viewer": viewer, "values": values}
 
@@ -651,9 +652,9 @@ def validate_view_wording(wording):
     no wider class, in any position the wording appears."""
     if not isinstance(wording, dict):
         return False
-    if wording.get("description") != "record enforced":
+    if dict.get(wording, "description") != "record enforced":
         return False
-    return wording.get("scope") == "agent held views"
+    return dict.get(wording, "scope") == "agent held views"
 
 
 # ---------------------------------------------------------------------------
@@ -782,11 +783,11 @@ def validate_band_transition_result(result):
     counts has not run the test, in either form."""
     if not isinstance(result, dict):
         return False
-    if not isinstance(result.get("counts_per_distance_slice"), dict):
+    if not isinstance(dict.get(result, "counts_per_distance_slice"), dict):
         return False
-    if "crossing_count" not in result:
+    if not dict.__contains__(result, "crossing_count"):
         return False
-    if "cheapest_crossing_movement_in_accepted_work_units" not in result:
+    if not dict.__contains__(result, "cheapest_crossing_movement_in_accepted_work_units"):
         return False
     return True
 
@@ -909,24 +910,24 @@ def cost_statement_valid(record):
     stands unfitted in every assumption set."""
     if not isinstance(record, dict):
         return False
-    if "share_log" not in record or record["share_log"] is None:
+    if not dict.__contains__(record, "share_log") or dict.__getitem__(record, "share_log") is None:
         return False
-    if "degree_distribution_log" not in record or record["degree_distribution_log"] is None:
+    if not dict.__contains__(record, "degree_distribution_log") or dict.__getitem__(record, "degree_distribution_log") is None:
         return False
-    share_entry = record.get("assumption_share")
-    if isinstance(share_entry, dict) and share_entry.get("fitted"):
+    share_entry = dict.get(record, "assumption_share")
+    if isinstance(share_entry, dict) and dict.get(share_entry, "fitted"):
         return False
-    share_log = record.get("share_log")
+    share_log = dict.get(record, "share_log")
     entries = []
     if isinstance(share_log, (list, tuple)):
-        entries = list(share_log)
-    elif isinstance(share_log, dict) and "numerator" in share_log:
+        entries = list(_base_iter(share_log))
+    elif isinstance(share_log, dict) and dict.__contains__(share_log, "numerator"):
         entries = [share_log]
     else:
         return False
     if not entries:
         return False
-    degree_log = record.get("degree_distribution_log")
+    degree_log = dict.get(record, "degree_distribution_log")
     if not isinstance(degree_log, (list, tuple, dict)):
         return False
     for entry in entries:

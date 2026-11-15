@@ -195,10 +195,15 @@ class TestR13006IdentityActs(B2Base):
     def test_summary_record_filed_under_stored_identity_only(self):
         record = LyingGetDict(
             {"payload": "x"}, {"run_id": "fake-sum"})
-        mod10.write_summary_record(record)
+        with self.assertRaises(ValueError) as caught:
+            mod10.write_summary_record(record)
+        self.assertEqual(
+            str(caught.exception),
+            "identity less summary record: no run identifier "
+            "stands on the record, and no summary record stands "
+            "retained under no identifier")
         found = mod10.summary_record_for_run("fake-sum")
         self.assertEqual(found.get("record_found"), False)
-
     def test_summary_record_stored_identity_governs_over_reported(self):
         record = LyingGetDict(
             {"run_id": "real-sum", "payload": "kept"},
