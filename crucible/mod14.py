@@ -13,7 +13,9 @@ module at operator_runbook, in the code of this module, and
 that code stands as its only locus in the shipped product.
 """
 
+import ast
 import itertools
+import re
 import unicodedata
 
 from crucible import mod01 as _mod01
@@ -276,6 +278,39 @@ def command_computes(command):
     return None
 
 
+def _safe_text(value):
+    """Render a handed value for a refusal or carriage sentence
+    through its string reading where that reading stands, and
+    through the base object repr where the string reading the
+    value itself supplies raises, so a sentence naming the
+    handed value never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
+
+def _key_error_message_text(raw_message):
+    """The sentence a KeyError family failure carries, with
+    the repr escapes the interpreter supplies inside its
+    wrapping quote pair decoded, so the identifier the
+    operator reads stands as the identifier itself: where
+    the raw message stands as the repr of one text value,
+    that text value stands returned whole, and any other
+    raw message stands returned as it stands."""
+    if (
+            len(raw_message) >= 2
+            and raw_message[0] == raw_message[-1]
+            and raw_message[0] in ("'", '"')):
+        try:
+            parsed = ast.literal_eval(raw_message)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, str):
+            return parsed
+    return raw_message
+
+
 def error_carriage(failure, run_id=None, stage=None):
     """The error carriage of the shell: a named failure reaches
     the operator as a named failure with its run identifier and
@@ -286,16 +321,17 @@ def error_carriage(failure, run_id=None, stage=None):
         raw_message = failure
         class_name = None
     else:
-        raw_message = str(failure)
+        raw_message = _safe_text(failure)
         class_name = type(failure).__name__
-    if (
-            len(raw_message) >= 2 and raw_message.startswith("'")
-            and raw_message.endswith("'")):
-        raw_message = raw_message[1:-1]
-    elif (
-            len(raw_message) >= 2 and raw_message.startswith('"')
-            and raw_message.endswith('"')):
-        raw_message = raw_message[1:-1]
+    if isinstance(failure, KeyError):
+        # The KeyError family stands decoded through
+        # _key_error_message_text, which returns the text a repr
+        # form message stands for whole, escapes decoded, and
+        # leaves any other message as it stands. A sentence of
+        # any other failure class, and a sentence handed in text
+        # form, stands quote wrapped only in its own right, and
+        # stands carried whole, with no paired quote strip.
+        raw_message = _key_error_message_text(raw_message)
     name = raw_message if class_name is None else (
         class_name + ": " + raw_message)
     fields = {}
@@ -306,12 +342,22 @@ def error_carriage(failure, run_id=None, stage=None):
         carried = getattr(failure, "failure", None)
         if isinstance(carried, dict):
             fields.update(_freeze(carried))
+            if isinstance(failure, NamedShellFailure):
+                # The structured message of a NamedShellFailure
+                # stands in the same form as the failure field of
+                # the same record, built from the same raw
+                # message, never in a second form of its own.
+                fields["message"] = raw_message
         elif carried is not None:
             fields["failure"] = carried
         gate = getattr(failure, "gate", None)
         if gate is not None:
             fields["gate"] = gate
-        for key, value in vars(failure).items():
+        try:
+            failure_vars = vars(failure)
+        except TypeError:
+            failure_vars = {}
+        for key, value in failure_vars.items():
             if key not in fields and key != "failure":
                 fields[key] = _freeze(value)
         if class_name in _NAMED_FAILURE_CLASS_NAMES or class_name.startswith("Named"):
@@ -349,33 +395,53 @@ def run_command(command, payload=None, run_id=None):
         return error_carriage(
             NamedShellFailure(
                 "shell command stands refused: the payload stands "
-                "in no mapping form: a mapping of input fields "
-                "stands required as the payload of every shell "
-                "command"),
+                "in no dict form: a mapping in dict form of input "
+                "fields stands required as the payload of every "
+                "shell command"),
             run_id=run_id, stage=command)
     try:
         if command == "start_run":
             return _mod12.start_run(
-                run_class=payload.get("run_class"),
-                family_id=payload.get("family_id"),
+                run_class=dict.get(payload, "run_class"),
+                family_id=dict.get(payload, "family_id"),
             )
         if command == "start_sweep":
-            return _mod12.start_sweep(family_id=payload.get("family_id"))
+            return _mod12.start_sweep(family_id=dict.get(payload, "family_id"))
         if command == "store_kind_check":
-            return store_kind_check_with_reason(payload.get("kind"))
+            return store_kind_check_with_reason(dict.get(payload, "kind"))
         if command == "read_store":
+            run_id_value = dict.get(payload, "run_id")
+            if run_id_value is None:
+                raise NamedShellFailure(
+                    "read_store stands refused: no run_id stands "
+                    "supplied: a run identifier stands required, "
+                    "and no run record stands read without it")
+            if not isinstance(run_id_value, str) or \
+                    str.__len__(run_id_value) == 0:
+                raise NamedShellFailure(
+                    "read_store stands refused: the run_id stands "
+                    "in no identifier form: a run identifier in "
+                    "text form stands required, and no run record "
+                    "stands read without it")
             return _mod10.read_run_record(
-                payload.get("run_id"),
-                store_kind=payload.get("store_kind", "sweep"))
+                run_id_value,
+                store_kind=dict.get(payload, "store_kind", "sweep"))
         if command == "write_store":
-            record = payload.get("record")
+            record = dict.get(payload, "record")
+            if record is None:
+                raise NamedShellFailure(
+                    "write_store stands refused: no record stands "
+                    "supplied: a record in mapping form stands "
+                    "required, and nothing stands written")
             if not isinstance(record, dict):
                 raise NamedShellFailure(
-                    "write_store carries no record to write")
+                    "write_store stands refused: the record stands "
+                    "in no mapping form: a record in mapping form "
+                    "stands required, and nothing stands written")
             return _mod10.retain_run_record(
-                record, store_kind=payload.get("store_kind", "sweep"))
+                record, store_kind=dict.get(payload, "store_kind", "sweep"))
         if command == "run_pilot":
-            return pilot_run(payload.get("use"), payload.get("artefact"))
+            return pilot_run(dict.get(payload, "use"), dict.get(payload, "artefact"))
         if command == "assemble_report":
             raise NamedShellFailure(
                 "report assembly stands not built: no report assembly "
@@ -383,23 +449,29 @@ def run_command(command, payload=None, run_id=None):
                 "stand partial on their own record")
         if command == "outside_call_check":
             return outside_call_check(
-                payload.get("dependency_manifest"),
-                payload.get("call_log"))
+                dict.get(payload, "dependency_manifest"),
+                dict.get(payload, "call_log"))
         if command == "flag_evaluation":
             return flag_evaluation(
-                payload.get("summary_record"),
-                inputs=payload.get("inputs"),
-                outcome=payload.get("outcome"),
-                tier=payload.get("tier"),
-                actor=payload.get("actor", "program"))
+                dict.get(payload, "summary_record"),
+                inputs=dict.get(payload, "inputs"),
+                outcome=dict.get(payload, "outcome"),
+                tier=dict.get(payload, "tier"),
+                actor=dict.get(payload, "actor", "program"))
         if command == "weekly_headline_count":
             return {
                 "count": weekly_headline_count(
-                    payload.get("summary_records"),
-                    payload.get("week")),
-                "week": payload.get("week"),
+                    dict.get(payload, "summary_records"),
+                    dict.get(payload, "week")),
+                "week": dict.get(payload, "week"),
             }
-        raise NamedShellFailure("unknown shell command: " + str(command))
+        raise NamedShellFailure(
+            "unknown shell command: " + str(command)
+            + "; the shell commands stand as start_run, start_sweep, "
+            "read_store, write_store, run_pilot, assemble_report, "
+            "outside_call_check, store_kind_check, "
+            "weekly_headline_count, and flag_evaluation, and no "
+            "shell command stands run")
     except NamedShellFailure as failure:
         carriage = error_carriage(failure, run_id=run_id, stage=command)
         if command == "assemble_report":
@@ -482,6 +554,17 @@ def _container_parts(value):
     return []
 
 
+def _is_iterator(value):
+    """Whether a value stands in iterator form: it is its own
+    iterator, carrying its items only as values it would
+    yield, and storing no contents in any container, text,
+    bytes, or dict form."""
+    try:
+        return iter(value) is value
+    except TypeError:
+        return False
+
+
 def _fired_stands(fired):
     """Whether a fired value stands supplied, judged by its
     stored contents and never by a truth reading the value
@@ -489,10 +572,14 @@ def _fired_stands(fired):
     it stores at least one entry, read through the base
     iteration of its form, a text or bytes form stands where
     it stores at least one character or byte, and no value
-    stands nowhere. A value in no such form stands judged by
-    the plain truth of the value itself, the one limb this
+    stands nowhere. A value in iterator form stores nothing
+    in any of those forms, so it stands as no supplied fired
+    value. A value in no such form stands judged by the
+    plain truth of the value itself, the one limb this
     reading does not reach."""
     if fired is None:
+        return False
+    if _is_iterator(fired):
         return False
     if isinstance(fired, (list, tuple, set, frozenset)):
         return len(_container_parts(fired)) > 0
@@ -545,7 +632,7 @@ def _screen_pilot_key(key, _seen=None, _depth=0):
     if any(marker in form for marker in _PILOT_BARRED_KEY_FORMS):
         raise NamedShellFailure(
             "pilot artefact carries a barred entry under the "
-            "pilot confined label: " + str(key))
+            "pilot confined label: " + _safe_text(key))
 
 
 _PILOT_ARTEFACT_DEPTH_BOUND = 100
@@ -600,6 +687,15 @@ def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None, _path="roo
         seen.add(id(value))
         try:
             if isinstance(value, dict):
+                joined_form = "".join(
+                    _pilot_key_form(key)
+                    for key in dict.keys(value))
+                if any(
+                        marker in joined_form
+                        for marker in _PILOT_BARRED_KEY_FORMS):
+                    raise NamedShellFailure(
+                        "pilot artefact carries a barred entry under the "
+                        "pilot confined label: " + joined_form)
                 for key, item in dict.items(value):
                     _screen_pilot_artefact(key, _depth + 1, seen, walked, _path + "/key")
                     _screen_pilot_key(key)
@@ -642,7 +738,7 @@ def pilot_run(use, artefact=None):
     named failure in the same form as one carried in a dict."""
     if use not in PILOT_USES:
         raise NamedShellFailure(
-            "pilot use outside timing, conformance, and procedure rates: " + str(use)
+            "pilot use outside timing, conformance, and procedure rates: " + _safe_text(use)
         )
     _screen_pilot_artefact(artefact)
     output = _freeze(artefact) if isinstance(artefact, dict) else {"figure": artefact}
@@ -720,7 +816,7 @@ def dual_rule_retention_simulation(families):
     the named form."""
     families = list(families or ())
     for family in families:
-        if not isinstance(family, dict) or not family.get("synthetic"):
+        if not isinstance(family, dict) or not dict.get(family, "synthetic"):
             raise NamedShellFailure(
                 "dual rule simulation stands on synthetic families only")
     return {
@@ -729,10 +825,10 @@ def dual_rule_retention_simulation(families):
         "paired_field": {
             "first_rule_retained": sum(
                 1 for family in families
-                if family.get("retained_under_first_rule")),
+                if dict.get(family, "retained_under_first_rule")),
             "second_rule_retained": sum(
                 1 for family in families
-                if family.get("retained_under_second_rule")),
+                if dict.get(family, "retained_under_second_rule")),
         },
     }
 
@@ -783,7 +879,10 @@ def _has_stated_condition(fired):
     bytearray, or memoryview form stands judged on its
     stored bytes in the same manner as a passage field at
     MOD-07: bytes holding only spacing, or holding only
-    text that states nothing, state no condition."""
+    text that states nothing, state no condition. A fired
+    value in iterator form states no condition: it stores
+    no entry in any form this reading names, and it never
+    stands as its own stated entry."""
     if isinstance(fired, str):
         entries = (fired,)
     elif isinstance(fired, list):
@@ -795,6 +894,8 @@ def _has_stated_condition(fired):
     elif isinstance(fired, set):
         entries = tuple(set.__iter__(fired))
     elif fired is None:
+        entries = ()
+    elif _is_iterator(fired):
         entries = ()
     else:
         entries = (fired,)
@@ -952,27 +1053,44 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
     condition fired, on the record or in the inputs; a promote
     outcome with no named tier, an invented tier, no supplied
     inputs, or no fired condition is refused in the named form.
-    The actor stands as supplied, in the open, not hardcoded
-    unseen."""
+    The promote prechecks stand in the core order: the tier
+    vocabulary refusal first, then a stated tier below the
+    record tier drawing the demote sentence before any inputs
+    or stated condition precheck, then the inputs supplied,
+    inputs form, and stated condition prechecks, and the no
+    tier refusal last, as at the MOD-10 core. The actor stands
+    as supplied, in the open, not hardcoded unseen."""
     if not isinstance(summary_record, dict):
         raise NamedShellFailure(
             "flag evaluation in named form: the evaluation stands "
             "on a summary record, and no other form stands evaluated")
-    if _normalise_actor(actor) == "person":
+    normalised_actor = _normalise_actor(actor)
+    if isinstance(normalised_actor, str) and (
+            _stored_text(normalised_actor) == "person"):
         raise ValueError(
             "flag evaluation by a person is barred: the flag rule "
             "stands evaluated by a program alone, and no flag "
             "evaluation stands performed")
     if outcome == "promote":
-        if tier is None:
-            raise NamedShellFailure(
-                "a promote outcome with no tier stands refused: no "
-                "promotion stands effected by it")
-        if tier not in RETENTION_TIERS:
+        tier_text = (
+            _stored_text(tier) if isinstance(tier, str) else None)
+        if tier is not None and tier_text not in RETENTION_TIERS:
             raise NamedShellFailure(
                 "flag evaluation tier outside the tiers the rule "
-                "names: " + str(tier) + "; the tiers the rule names "
+                "names: " + _safe_text(tier) + "; the tiers the rule names "
                 "stand as Tier 0, Tier 1, Tier 2, and Tier 3")
+        current = _base_get(summary_record, "retention_tier")
+        current_text = (
+            _stored_text(current) if isinstance(current, str)
+            else None)
+        if tier_text in RETENTION_TIERS and (
+                current_text in RETENTION_TIERS) and (
+                RETENTION_TIERS.index(tier_text)
+                < RETENTION_TIERS.index(current_text)):
+            raise NamedShellFailure(
+                "the flag rule never demotes: the stated tier "
+                "stands below the record tier, and no demotion "
+                "stands effected by it")
         if inputs is None:
             raise NamedShellFailure(
                 "flag promotion with no inputs supplied: a promotion "
@@ -997,6 +1115,10 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
                 "fired: a promotion stands only with at least one "
                 "stated flag condition fired, and no promotion "
                 "stands effected by it")
+        if tier is None:
+            raise NamedShellFailure(
+                "a promote outcome with no tier stands refused: no "
+                "promotion stands effected by it")
     return _mod10.apply_flag_evaluation(
         _plain_stored_copy(summary_record), outcome=outcome, tier=tier,
         actor=_normalise_actor(actor),
@@ -1034,7 +1156,8 @@ def weekly_headline_count(summary_records, week):
         raise NamedShellFailure(
             "weekly_headline_count stands refused: the "
             "summary_records argument stands in no list form: "
-            "a list of summary records stands required")
+            "a list of summary records stands required, and no "
+            "weekly headline count stands certified without it")
     seen = []
     for record in summary_records or ():
         if not isinstance(record, dict) or not _base_contains(record, "week"):
@@ -1046,23 +1169,46 @@ def weekly_headline_count(summary_records, week):
         if not _base_contains(record, "headline_unit_identifiers"):
             raise NamedShellFailure(
                 "summary record for the week carries no "
-                "headline_unit_identifiers field")
+                "headline_unit_identifiers field, and no weekly "
+                "headline count stands certified")
         identifiers = _base_get(record, "headline_unit_identifiers")
         if identifiers is None:
             raise NamedShellFailure(
                 "summary record for the week carries a "
-                "headline_unit_identifiers field standing at no value")
+                "headline_unit_identifiers field standing at no "
+                "value, and no weekly headline count stands "
+                "certified")
         if isinstance(identifiers, str):
             identifiers = (identifiers,)
         elif not isinstance(identifiers, (list, tuple, set, frozenset)):
             raise NamedShellFailure(
                 "summary record for the week carries a "
                 "headline_unit_identifiers field the count cannot "
-                "read: " + type(identifiers).__name__)
-        for unit_id in identifiers:
-            if unit_id not in seen:
-                seen.append(unit_id)
+                "read: " + type(identifiers).__name__
+                + "; no weekly headline count stands certified")
+        for unit_id in _container_parts(identifiers):
+            if isinstance(unit_id, (list, tuple, set, frozenset,
+                                    dict)):
+                # The bound of row R14-072, stated in the open: a
+                # container element in place of an identifier
+                # still counts as one.
+                key = ("container", repr(unit_id))
+            elif isinstance(unit_id, str) and \
+                    _HEADLINE_IDENTIFIER_PATTERN.fullmatch(
+                        str.__str__(unit_id)) is not None:
+                key = ("text", str.__str__(unit_id))
+            else:
+                raise NamedShellFailure(
+                    "summary record for the week carries an "
+                    "identifier standing in no unit identifier "
+                    "form, and no count stands stated over "
+                    "unvalidated contents: " + repr(unit_id))
+            if key not in seen:
+                seen.append(key)
     return len(seen)
+
+
+_HEADLINE_IDENTIFIER_PATTERN = re.compile(r"u[0-9]+")
 
 
 def process_and_network_call_log(run_id):
@@ -1085,8 +1231,9 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
     under the key calls or the key entries, and no other key;
     each call entry stands as a record carrying an
     outside_call mark, whose value stands as true or false,
-    stated as a boolean or as the text true, false, yes, or
-    no. A log or an entry in any other form stands refused in
+    stated as a boolean, as the text true, false, yes, or
+    no, or as the number 1 or 0. A log or an entry in any
+    other form stands refused in
     named form, never read as an empty log."""
     if extra_source is not None:
         raise NamedShellFailure(
@@ -1106,25 +1253,26 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
         if key not in ("calls", "entries"):
             raise NamedShellFailure(
                 "outside call check stands refused: the call log "
-                "carries a key the check cannot read: " + str(key)
+                "carries a key the check cannot read: " + _safe_text(key)
                 + ": a call log carries its calls under the key "
                 "calls or the key entries, and no outside call "
                 "standing stands certified on a log the check "
                 "cannot read whole")
-    calls = _base_get(call_log, "calls")
-    if calls is None:
-        calls = _base_get(call_log, "entries")
-    if calls is None:
-        calls = []
-    if not isinstance(calls, (list, tuple, set, frozenset)):
-        raise NamedShellFailure(
-            "outside call check stands refused: the call log "
-            "carries its calls in no list form under the key "
-            "calls or the key entries: a list of call entries "
-            "stands required, and no outside call standing "
-            "stands certified without it")
+    calls = []
+    for calls_key in ("calls", "entries"):
+        if not _base_contains(call_log, calls_key):
+            continue
+        calls_part = _base_get(call_log, calls_key)
+        if not isinstance(calls_part, (list, tuple, set, frozenset)):
+            raise NamedShellFailure(
+                "outside call check stands refused: the call log "
+                "carries its calls in no list form under the key "
+                "calls or the key entries: a list of call entries "
+                "stands required, and no outside call standing "
+                "stands certified without it")
+        calls.extend(_container_parts(calls_part))
     outside = []
-    for call in _container_parts(calls):
+    for call in calls:
         if not isinstance(call, dict) or not _base_contains(
                 call, "outside_call"):
             raise NamedShellFailure(
@@ -1147,28 +1295,38 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
                     "outside call check stands refused: a call "
                     "entry carries an outside_call value outside "
                     "the stated values: true or false, stated as "
-                    "a boolean or as the text true, false, yes, "
-                    "or no")
+                    "a boolean, as the text true, false, yes, "
+                    "or no, or as the number 1 or 0")
         elif isinstance(mark, int) and mark in (0, 1):
             stands_outside = bool(mark)
         else:
             raise NamedShellFailure(
                 "outside call check stands refused: a call entry "
                 "carries an outside_call value outside the stated "
-                "values: true or false, stated as a boolean or as "
-                "the text true, false, yes, or no")
+                "values: true or false, stated as a boolean, as "
+                "the text true, false, yes, or no, or as the "
+                "number 1 or 0")
         if stands_outside:
             outside.append(call)
     outcome = "outside calls present" if outside else "no outside calls read"
-    manifest_entries = ()
-    if isinstance(dependency_manifest, dict):
-        manifest_entries = _base_get(dependency_manifest, "entries") or ()
+    manifest_count = 0
+    if isinstance(dependency_manifest, dict) and _base_contains(
+            dependency_manifest, "entries"):
+        manifest_value = _base_get(dependency_manifest, "entries")
+        if not isinstance(manifest_value, (list, tuple, set,
+                                           frozenset)):
+            raise NamedShellFailure(
+                "outside call check stands refused: the dependency "
+                "manifest carries its entries in no list form: a "
+                "list of manifest entries stands required, and no "
+                "outside call standing stands certified without it")
+        manifest_count = len(_container_parts(manifest_value))
     return {
         "field": "outside_call_check",
         "outcome": outcome,
         "sources": ["dependency manifest", "process and network call log"],
         "certifies": "only the absence the check reads",
-        "manifest_entries": len(manifest_entries),
+        "manifest_entries": manifest_count,
     }
 
 
@@ -1569,8 +1727,10 @@ def _resolve_against(word, ordered, vocabulary):
         return word
     if _segments_into_vocabulary(word, vocabulary):
         return word
+    vocabulary_lengths = {len(item) for item in vocabulary}
     for added in (1, 2, 3, 4, 5, 6, 7):
-        if len(word) > added:
+        if len(word) > added and (
+                len(word) - added) in vocabulary_lengths:
             for cuts in itertools.combinations(range(len(word)), added):
                 reduced = "".join(
                     char for index, char in enumerate(word)

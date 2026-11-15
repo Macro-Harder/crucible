@@ -212,6 +212,18 @@ def _safe_repr(value):
         return object.__repr__(value)
 
 
+def _safe_str(value):
+    """Render a handed value for a refusal sentence through
+    its string reading where that reading stands, and through
+    the safe repr form where the string reading the value
+    itself supplies raises, so a sentence naming the handed
+    value never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return _safe_repr(value)
+
+
 COMPARISON_DEPTH_BOUND = 100
 
 
@@ -1121,9 +1133,15 @@ def verdict_record(claim_id, standard="exact replay alone", outcome="rests"):
             "verdict record requires a claim identifier: no claim identifier stands supplied"
         )
     if standard not in STANDARDS:
-        raise NamedReplicationFailure("unknown replication standard: " + str(standard))
+        raise NamedReplicationFailure(
+            "unknown replication standard: " + _safe_str(standard)
+            + "; the stated standard stands as exact replay alone, "
+            "and no verdict record stands made")
     if outcome not in ("rests", "does not rest"):
-        raise NamedReplicationFailure("unknown verdict outcome: " + str(outcome))
+        raise NamedReplicationFailure(
+            "unknown verdict outcome: " + _safe_str(outcome)
+            + "; the stated outcomes stand as rests and does not "
+            "rest, and no verdict record stands made")
     record = {
         "claim_identifier": claim_id,
         "standard_applied": standard,
@@ -1735,7 +1753,7 @@ def extend_history(history, segment):
     if not isinstance(history, (list, tuple)):
         raise NamedReplicationFailure(
             "a history extension stands refused: the handed history "
-            "stands in no list form: " + repr(history)
+            "stands in no list form: " + _safe_repr(history)
             + "; a history stands as a non empty list of segments, "
             "and no extension stands made")
     if not _history_base_items(history):
@@ -1746,6 +1764,7 @@ def extend_history(history, segment):
     if not isinstance(segment, dict):
         raise NamedReplicationFailure(
             "a history extension appends a segment record: the appended value stands in no record form"
+            ", and no extension stands made"
         )
     grounds = []
     for label, handed in (
@@ -1772,21 +1791,25 @@ def extend_history(history, segment):
     if not isinstance(first, dict) or not first.get("rule_set_version"):
         raise NamedReplicationFailure(
             "a history extension stands under the same rule set version as the segment it extends: no rule set version stands on that segment"
+            ", and no extension stands made"
         )
     if not first.get("run_id"):
         raise NamedReplicationFailure(
             "a history extension links by run identifier: no run identifier stands on the segment it extends"
+            ", and no extension stands made"
         )
     appended = _freeze(segment, memo)
     stated_version = appended.get("rule_set_version")
     if stated_version is not None and stated_version != first.get("rule_set_version"):
         raise NamedReplicationFailure(
             "a history extension stands under the same rule set version as the segment it extends: the appended segment states another version"
+            ", and no extension stands made"
         )
     stated_link = appended.get("linked_run")
     if stated_link is not None and stated_link != first.get("run_id"):
         raise NamedReplicationFailure(
             "a history extension links to the segment it extends: the appended segment states another linked run"
+            ", and no extension stands made"
         )
     appended["linked_run"] = first.get("run_id")
     appended["segment_order"] = len(segments) + 1

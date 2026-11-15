@@ -242,14 +242,23 @@ def _stored_text_eq(value, stated):
         str.__str__(value), stated) is True
 
 
-def _stored_pair_equal(first, second):
+def _stored_pair_equal(first, second, _depth=0, _seen=None):
     """Whether two handed values store the same value, judged on
     their stored forms only, never through an equality reading
     either value itself supplies: text values by their stored
     characters, bytes form values by their stored bytes, numbers
     and booleans by the base class operations of their kind,
     containers part by part on their stored parts, and any other
-    value by identity alone."""
+    value by identity alone. A container pair standing on the
+    current path, or a walk past the stated depth bound of the
+    module copy guard, stands apart, so a part carrying a cycle
+    answers a verdict and no bare RecursionError escapes the
+    reading, in the form of the cycle guard at the stored edge
+    text reading of this same module."""
+    if first is second:
+        return True
+    if _depth > COPY_DEPTH_BOUND:
+        return False
     if isinstance(first, str) or isinstance(second, str):
         return isinstance(first, str) and isinstance(second, str) \
             and str.__eq__(
@@ -269,24 +278,32 @@ def _stored_pair_equal(first, second):
     if isinstance(first, float) and isinstance(second, float):
         return float.__eq__(first, second) is True
     if isinstance(first, dict) and isinstance(second, dict):
+        pair = (id(first), id(second))
+        if _seen is not None and pair in _seen:
+            return False
+        _seen = (_seen or frozenset()) | {pair}
         if dict.__len__(first) != dict.__len__(second):
             return False
         second_items = list(dict.items(second))
         for key, item in dict.items(first):
             matched = None
             for index, (other_key, other_item) in enumerate(second_items):
-                if _stored_pair_equal(key, other_key):
+                if _stored_pair_equal(key, other_key, _depth + 1, _seen):
                     matched = index
                     matched_item = other_item
                     break
             if matched is None:
                 return False
-            if not _stored_pair_equal(item, matched_item):
+            if not _stored_pair_equal(item, matched_item, _depth + 1, _seen):
                 return False
             second_items.pop(matched)
         return True
     if isinstance(first, (list, tuple)) \
             and isinstance(second, (list, tuple)):
+        pair = (id(first), id(second))
+        if _seen is not None and pair in _seen:
+            return False
+        _seen = (_seen or frozenset()) | {pair}
         if type(first) is not type(second):
             return False
         first_parts = _base_sequence(first)
@@ -294,10 +311,14 @@ def _stored_pair_equal(first, second):
         if len(first_parts) != len(second_parts):
             return False
         return all(
-            _stored_pair_equal(one, two)
+            _stored_pair_equal(one, two, _depth + 1, _seen)
             for one, two in zip(first_parts, second_parts))
     if isinstance(first, (set, frozenset)) \
             and isinstance(second, (set, frozenset)):
+        pair = (id(first), id(second))
+        if _seen is not None and pair in _seen:
+            return False
+        _seen = (_seen or frozenset()) | {pair}
         first_parts = _base_sequence(first)
         second_parts = _base_sequence(second)
         if len(first_parts) != len(second_parts):
@@ -306,7 +327,7 @@ def _stored_pair_equal(first, second):
         for part in first_parts:
             matched = None
             for index, other in enumerate(remaining):
-                if _stored_pair_equal(part, other):
+                if _stored_pair_equal(part, other, _depth + 1, _seen):
                     matched = index
                     break
             if matched is None:
@@ -352,6 +373,12 @@ def _dict_carriage_edges(edges):
         return [(_bget(edges, "source"), _bget(edges, "target"))]
     carried = []
     for key, item in items:
+        if isinstance(item, dict):
+            item_texts = [_stored_text(part) for part in dict.keys(item)]
+            if "source" in item_texts and "target" in item_texts:
+                carried.append(
+                    (_bget(item, "source"), _bget(item, "target")))
+                continue
         if isinstance(key, (list, tuple, set, frozenset)):
             carried.append(key)
         elif isinstance(item, (list, tuple, set, frozenset)) \
@@ -608,7 +635,10 @@ def tracer_passage_records(run_id, results=None):
     """Return the tracer passage record set of one joint run: one
     record per open semantic item OS-1 to OS-14. An item with no
     stated result stands recorded as not attempted."""
-    stated = dict(results or {})
+    if isinstance(results, dict):
+        stated = {key: item for key, item in dict.items(results)}
+    else:
+        stated = {}
     records = []
     for item in OPEN_SEMANTIC_ITEMS:
         outcome = stated.get(item, "not attempted")
@@ -655,11 +685,23 @@ def _stored_text(value):
     return ""
 
 
+def _edge_parts(value):
+    """The parts one edge container holds, in reading order: a
+    list or tuple in its stored order, and a set or frozenset in
+    the sorted order of the stored text of its parts, so an
+    unordered dress stands read on its stored contents in an
+    order insensitive form and never on its iteration order."""
+    parts = _base_sequence(value)
+    if isinstance(value, (set, frozenset)):
+        return sorted(parts, key=_stored_text)
+    return parts
+
+
 def _stored_edge_text(value):
     """The text one edge part stores, in scalar or container
-    dress: a scalar part by its stored text, and a list or
-    tuple part by the stored text of its parts joined in
-    order, so an edge part handed in split container dress
+    dress: a scalar part by its stored text, and a list,
+    tuple, set, or frozenset part by the stored text of its
+    parts joined in order, so an edge part handed in split container dress
     stands judged as the text it stores. The container walk
     runs on an explicit stack with a cycle guard on the
     containers standing on the current path: a part carrying
@@ -667,11 +709,11 @@ def _stored_edge_text(value):
     and no bare RecursionError escapes the reading, while a
     container shared from two places on different paths
     carries no cycle and stands read at each place."""
-    if not isinstance(value, (list, tuple)):
+    if not isinstance(value, (list, tuple, set, frozenset)):
         return _stored_text(value)
     pieces = []
     on_path = {id(value)}
-    stack = [[value, _base_sequence(value), 0]]
+    stack = [[value, _edge_parts(value), 0]]
     while stack:
         frame = stack[-1]
         container, parts, index = frame
@@ -681,14 +723,14 @@ def _stored_edge_text(value):
             continue
         frame[2] = index + 1
         part = parts[index]
-        if isinstance(part, (list, tuple)):
+        if isinstance(part, (list, tuple, set, frozenset)):
             if id(part) in on_path:
                 raise ValueError(
                     "adapter edge text stands refused in named "
                     "form: an edge part carries a cycle, and no "
                     "edge text stands read")
             on_path.add(id(part))
-            stack.append([part, _base_sequence(part), 0])
+            stack.append([part, _edge_parts(part), 0])
         else:
             pieces.append(_stored_text(part))
     return "".join(pieces)
@@ -1098,7 +1140,7 @@ def record_folding(choice, rulings_touched):
     return {
         "choice_identifier": _stored_copy(
             _bget(choice, "choice_identifier")),
-        "rulings_recorded": list(rulings_touched),
+        "rulings_recorded": _base_sequence(rulings_touched),
         "recorded_ruling_by_ruling": True,
         "gaps_carried_open": list(RULING_TEXT_GAPS),
         "gaps_filled_by_inference": [],
@@ -1179,7 +1221,7 @@ def classify_seam_feedback(item, treatment_choice, standings):
         "treatment_choice_identifier": _stored_copy(_bget(
             treatment_choice, "choice_identifier")) if isinstance(
             treatment_choice, dict) else None,
-        "both_standings_carried": list(standings),
+        "both_standings_carried": _base_sequence(standings),
         "pricing": "priced per seam item",
         "paired_sensitivity_runs_required": 1,
         "headline_may_rest": False,

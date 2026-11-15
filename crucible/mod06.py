@@ -661,10 +661,13 @@ def _unordered_scalar_parts_read_as(key, folded_name):
     once and a part whose segment stands empty placed without
     advancing. The form stands stated for a container of at
     most the unordered join part bound of seven direct parts,
-    each storing at most two characters of ASCII text; a key
-    in any other form stands answered by the standing
-    candidate enumeration, and this act returns None for it,
-    stating no decision."""
+    each storing at most two characters of text whose
+    decomposed base stands in ASCII form, a part carried in
+    a one part tuple or list container standing read on the
+    text its one part stores, as the standing candidate
+    enumeration reads it; a key in any other form stands
+    answered by the standing candidate enumeration, and this
+    act returns None for it, stating no decision."""
     if not isinstance(key, (set, frozenset)):
         return None
     parts = _join_container_parts(key)
@@ -672,11 +675,24 @@ def _unordered_scalar_parts_read_as(key, folded_name):
         return None
     texts = []
     for part in parts:
+        if isinstance(part, (tuple, list)):
+            inner = _join_container_parts(part)
+            if len(inner) != 1:
+                return None
+            part = inner[0]
         if isinstance(part, (dict, list, tuple, set, frozenset)):
             return None
         text = _stored_text(part)
-        if len(text) > 2 or not text.isascii():
+        if len(text) > 2:
             return None
+        if not text.isascii():
+            decomposed = "".join(
+                character
+                for character in unicodedata.normalize("NFKD", text)
+                if not unicodedata.category(
+                    character).startswith("M"))
+            if not decomposed.isascii():
+                return None
         texts.append(text)
     targets = [folded_name]
     if "realmoney" in folded_name:
@@ -807,6 +823,18 @@ def _key_reads_as(key, folded_name):
     if _key_matches_multi_reading(key, folded_name):
         return True
     return folded_name in _folded_readings(key)
+
+
+def _base_iter(value):
+    """Iterate a container through its base class iteration, never
+    through a reading the value itself supplies."""
+    if isinstance(value, list):
+        return list.__iter__(value)
+    if isinstance(value, tuple):
+        return tuple.__iter__(value)
+    if isinstance(value, frozenset):
+        return frozenset.__iter__(value)
+    return set.__iter__(value)
 
 
 def _base_str_eq(first, second):
@@ -2523,12 +2551,12 @@ def escrow_result(kind, variant="B-4", payload=None, contract_state=None):
             + ", a payload carries no real money value and no supplied anchor set, and no escrow result stands returned")
     state = contract_state if isinstance(contract_state, dict) else {}
     return {
-        "kind": kind,
+        "kind": _undirected_copy(kind),
         "variant": variant,
         "core_only_qualifier": True,
         "payload": _undirected_copy(payload),
-        "k1_and_l2_state": dict.get(state, "k1_and_l2_state", "carried; value set open at OP-21 G-10"),
-        "lien_state": dict.get(state, "lien_state"),
+        "k1_and_l2_state": _undirected_copy(dict.get(state, "k1_and_l2_state", "carried; value set open at OP-21 G-10")),
+        "lien_state": _undirected_copy(dict.get(state, "lien_state")),
         "verification_limit": VERIFICATION_LIMIT,
         "real_money_value": None,
     }
@@ -2558,9 +2586,9 @@ def escrow_contract_state(contract_identifier, variant="B-4", lien_state="no lie
             "stands outside the closed four value set: " + _refusal_text(lien_state)
             + ", and no escrow contract state stands returned")
     state = {
-        "contract_identifier": contract_identifier,
+        "contract_identifier": _undirected_copy(contract_identifier),
         "pair_identifiers": _undirected_copy(pair_identifiers),
-        "standard_or_profile_identifier": standard_or_profile_identifier,
+        "standard_or_profile_identifier": _undirected_copy(standard_or_profile_identifier),
         "variant": variant,
         "lien_state": lien_state,
         "estimated_cost_value": _undirected_copy(estimated_cost_value),
@@ -2571,7 +2599,7 @@ def escrow_contract_state(contract_identifier, variant="B-4", lien_state="no lie
     }
     if lost_contact_clause_on:
         state["lost_contact_clock_state"] = "contact clocks tracked"
-        state["lost_contact_window_n"] = window_n
+        state["lost_contact_window_n"] = _undirected_copy(window_n)
         state["lost_contact_clock_scope"] = "window value N recorded as used in the standard for that contract"
     return state
 
@@ -2635,21 +2663,25 @@ def run_instruction(name, variant="B-4", context=None):
 
 
 def _run_instruction_act(name, variant="B-4", context=None):
-    context = dict(context or {})
+    if isinstance(context, dict):
+        context = {key: item for key, item in dict.items(context)}
+    else:
+        context = {}
+    name_text = _refusal_text(name)
     if context.get("claims_dq_answer") or context.get("dq_answer") is not None:
         raise GuessedAnswer("no case encodes a guess at any DQ-5 to DQ-30 item")
     if context.get("asserts_floor_under_n") or context.get("asserts_clock_scope_as_answer"):
         raise GuessedAnswer("no floor under N and no clock scope reading stands as a DQ answer")
     if (
-        "pool" in str(name)
+        "pool" in name_text
         or name == EXCLUDED_PROFILE
         or context.get("profile") == EXCLUDED_PROFILE
         or _reads_as_excluded_profile(name)
         or _reads_as_excluded_profile(context.get("profile"))
     ):
-        raise ExcludedSubpath("a construction excluded on a DQ ground stays excluded on that ground: " + str(name))
+        raise ExcludedSubpath("a construction excluded on a DQ ground stays excluded on that ground: " + name_text)
     if name not in _ALLOWED:
-        raise UnnamedInstruction("instruction stands unnamed in the cited set of 12 core instructions, with no exercised case standing for it: " + str(name))
+        raise UnnamedInstruction("instruction stands unnamed in the cited set of 12 core instructions, with no exercised case standing for it: " + name_text)
     item = _ALLOWED[name].split(",")[0]
     result_payload = {"instruction": name, "dq_item": _ALLOWED[name]}
     result_payload["contested_entries"] = contested_entries_for(item)
@@ -2741,7 +2773,7 @@ def pause_cap(variant="B-4", stated_value=None):
     ambiguity, total or extension, stands unresolved: no reading
     is chosen for B-3 here or by any test."""
     if variant not in ("B-3", "B-4"):
-        raise ValueError("the pause cap stands refused in named form for an unknown variant: " + str(variant))
+        raise ValueError("the pause cap stands refused in named form for an unknown variant: " + _refusal_text(variant))
     if variant == "B-4":
         return {
             "variant": "B-4",
@@ -2751,7 +2783,7 @@ def pause_cap(variant="B-4", stated_value=None):
         }
     return {
         "variant": variant,
-        "per_variant_pause_value": stated_value,
+        "per_variant_pause_value": _undirected_copy(stated_value),
         "ambiguity": "total or extension unstated in the B-3 variant text",
         "reading_chosen": None,
     }
@@ -2848,15 +2880,15 @@ def matched_arms_valid(arm_a, arm_b):
     reading true."""
     if not isinstance(arm_a, dict) or not isinstance(arm_b, dict):
         return False
-    if arm_a.get("variant") == arm_b.get("variant"):
+    if dict.get(arm_a, "variant") == dict.get(arm_b, "variant"):
         return False
     shared_keys = ("inputs", "society", "parameters", "seeds")
     for key in shared_keys:
-        if key in arm_a or key in arm_b:
-            if arm_a.get(key) != arm_b.get(key):
+        if dict.__contains__(arm_a, key) or dict.__contains__(arm_b, key):
+            if dict.get(arm_a, key) != dict.get(arm_b, key):
                 return False
     for arm in (arm_a, arm_b):
-        for result in arm.get("results", ()):
+        for result in dict.get(arm, "results", ()):
             if not validate_escrow_result(result):
                 return False
     return True
@@ -2942,19 +2974,19 @@ def validate_dq_arrival_table(rows):
     """The blank form integrity check: 26 rows, the fixture
     standings, and every final column cell empty. A form with any
     final column cell filled before its ruling arrives fails."""
-    rows = list(rows)
+    rows = list(_base_iter(rows)) if isinstance(rows, (list, tuple, set, frozenset)) else list(rows)
     if len(rows) != 26:
         return False
     expected = {row["item"]: row["standing"] for row in dq_arrival_table()}
-    seen = [row.get("item") for row in rows if isinstance(row, dict)]
+    seen = [dict.get(row, "item") for row in rows if isinstance(row, dict)]
     if len(set(seen)) != 26 or set(seen) != set(expected):
         return False
     for row in rows:
         if not isinstance(row, dict):
             return False
-        if expected.get(row.get("item")) != row.get("standing"):
+        if dict.get(expected, dict.get(row, "item")) != dict.get(row, "standing"):
             return False
-        if row.get("final_column") not in ("", None):
+        if dict.get(row, "final_column") not in ("", None):
             return False
     return True
 

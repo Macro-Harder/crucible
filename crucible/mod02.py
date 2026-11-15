@@ -1230,9 +1230,7 @@ def _position_value(value):
 
 
 def _held_sort_key(item):
-    if isinstance(item, str):
-        return str.__str__(item)
-    return str(item)
+    return _stored_name(item)
 
 
 def _state_from_held(held_state):
@@ -1297,12 +1295,18 @@ def _carried_generator_state(run_id, stream_classes=None,
                 names.append(name)
     for name in sorted(names, key=_held_sort_key):
         position = 0
-        if stored_positions is not None and any(
-                _base_value_eq(name, stored_name)
-                for stored_name in dict.__iter__(stored_positions)):
-            position = _position_value(
-                dict.__getitem__(stored_positions, name))
-        streams[name] = {"position": position}
+        delivered_name = name
+        if stored_positions is not None:
+            matched_key = None
+            for stored_name in dict.__iter__(stored_positions):
+                if _base_value_eq(name, stored_name):
+                    matched_key = stored_name
+                    break
+            if matched_key is not None:
+                position = _position_value(
+                    dict.__getitem__(stored_positions, matched_key))
+                delivered_name = matched_key
+        streams[delivered_name] = {"position": position}
     return {
         "run_id": run_id,
         "stream_states": streams,

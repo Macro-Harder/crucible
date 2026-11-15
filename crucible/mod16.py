@@ -663,12 +663,12 @@ def validate_refusal_coverage(records=None):
     for record in records:
         if not isinstance(record, dict):
             return False
-        if not record.get("contract") or not record.get("slice"):
+        if not dict.get(record, "contract") or not dict.get(record, "slice"):
             return False
-        enforcing = record.get("enforcing_test") or ""
+        enforcing = dict.get(record, "enforcing_test") or ""
         if "test_" not in enforcing:
             return False
-        if enforcing.strip() == record.get("refusal"):
+        if enforcing.strip() == dict.get(record, "refusal"):
             return False
     return True
 

@@ -942,7 +942,15 @@ def _readable_stem(word):
     stands in no s form, and the ed limb refuses the bases
     whose past form stands in no ed form. The es and ies limbs
     carry the same refusal as the s limb, so a barred base
-    yields no stem in those spellings either."""
+    yields no stem in those spellings either. The ies limb
+    tests the e final form of its truncated stem against
+    that refusal set as well, so an e final barred base
+    yields no stem in that spelling either. The undoubling
+    limbs of the er and est readings carry the same
+    gradable refusal as their plain cut limbs. The able
+    and ible limbs each refuse the bases the records name
+    as taking the other suffix, and the ability limb
+    refuses the ible bases in the same form."""
     stems = []
 
     def undoubled(stem):
@@ -973,6 +981,14 @@ def _readable_stem(word):
          "window", "good", "much", "many", "wrong", "real"))
     no_y_derivation = frozenset(
         ("book", "chair", "house", "window"))
+    # Bases the records name as taking the able derivation,
+    # and bases the records name as taking the ible
+    # derivation. Each suffix limb refuses the bases the
+    # other suffix takes.
+    able_bases = frozenset(
+        ("break", "wash", "use", "port", "move", "love",
+         "like", "size", "read"))
+    ible_bases = frozenset(("convert", "access"))
     # Bases whose plural stands in no s form at all.
     no_s_plural = frozenset(
         ("child", "man", "woman", "sheep", "tooth", "wife",
@@ -991,7 +1007,7 @@ def _readable_stem(word):
          "lose", "draw", "lead", "hit", "put", "set", "shut",
          "hurt", "build", "send", "meet", "read", "fight",
          "deal", "get", "mean", "shake", "shoot", "spend",
-         "stick", "strike", "swing", "wear", "understand",
+         "sink", "stick", "strike", "swing", "wear", "understand",
          "spread", "split", "spring", "swear", "arise",
          "become", "begin", "come", "hear", "undergo",
          "withdraw", "bear", "input", "output", "let", "spin",
@@ -1002,7 +1018,8 @@ def _readable_stem(word):
     if word.startswith("un") and len(word) > 4:
         stems.append(word[2:])
     if word.endswith("ies") and len(word) > 4:
-        if word[:-3] not in no_s_plural:
+        if word[:-3] not in no_s_plural \
+                and word[:-3] + "e" not in no_s_plural:
             stems.append(word[:-3] + "y")
     if word.endswith("ves") and len(word) > 4:
         stems.append(word[:-3] + "f")
@@ -1083,14 +1100,20 @@ def _readable_stem(word):
     if word.endswith("ism") and len(word) > 5:
         stems.append(word[:-3])
     if word.endswith("ability") and len(word) > 8:
-        stems.append(word[:-7] + "able")
-        stems.append(word[:-7] + "ible")
+        if word[:-7] not in ible_bases \
+                and word[:-7] + "e" not in ible_bases:
+            stems.append(word[:-7] + "able")
+            stems.append(word[:-7] + "ible")
     if word.endswith("ible") and len(word) > 5:
-        stems.append(word[:-4])
-        stems.append(word[:-4] + "e")
+        if word[:-4] not in able_bases \
+                and word[:-4] + "e" not in able_bases:
+            stems.append(word[:-4])
+            stems.append(word[:-4] + "e")
     if word.endswith("able") and len(word) > 5:
-        stems.append(word[:-4])
-        stems.append(word[:-4] + "e")
+        if word[:-4] not in ible_bases \
+                and word[:-4] + "e" not in ible_bases:
+            stems.append(word[:-4])
+            stems.append(word[:-4] + "e")
     if word.endswith("ed") and len(word) > 3:
         ed_stems = [word[:-2], word[:-1]]
         plain = undoubled(word[:-2])
@@ -1124,7 +1147,7 @@ def _readable_stem(word):
                 and not short_single_vowel_cvc(plain_cut):
             stems.append(plain_cut)
         plain = undoubled(word[:-2])
-        if plain is not None:
+        if plain is not None and plain not in no_gradable:
             stems.append(plain)
         if word[:-2].endswith("i"):
             stems.append(word[:-3] + "y")
@@ -1135,7 +1158,7 @@ def _readable_stem(word):
             stems.append(plain_cut)
         stems.append(word[:-2])
         plain = undoubled(word[:-3])
-        if plain is not None:
+        if plain is not None and plain not in no_gradable:
             stems.append(plain)
         if word[:-3].endswith("i"):
             stems.append(word[:-4] + "y")
@@ -1843,7 +1866,10 @@ def validate_headline_unit(unit):
     if isinstance(identifier, str):
         identifier = str.__str__(identifier)
     else:
-        identifier = str(identifier)
+        try:
+            identifier = str(identifier)
+        except Exception:
+            return False
     if F01_UNIT_MARK in identifier:
         return False
     for field in HEADLINE_UNIT_FIELDS:
@@ -2095,7 +2121,7 @@ def validate_bounding_headline(headline, family_record, run_record):
     if isinstance(axes_value, (list, tuple, set, frozenset)):
         axes_value = tuple(_base_iter(axes_value))
     else:
-        axes_value = tuple(axes_value)
+        axes_value = ()
     if axes_value != AXES:
         return False
     traces = dict.get(headline, "traces") or []
@@ -2206,10 +2232,10 @@ def transition_figure(replicates):
     competing = 0
     censored = 0
     for replicate in replicates:
-        if replicate.get("competing_exit"):
+        if dict.get(replicate, "competing_exit") if isinstance(replicate, dict) else replicate.get("competing_exit"):
             competing += 1
             continue
-        regime = replicate.get("first_terminal_regime")
+        regime = dict.get(replicate, "first_terminal_regime") if isinstance(replicate, dict) else replicate.get("first_terminal_regime")
         if regime is None:
             censored += 1
         else:
@@ -2473,7 +2499,7 @@ def build_headline_unit_from_run(run_id, values, store_kind="sweep",
         }
         if isinstance(family_record, dict):
             family_record.setdefault("named_failures", []).append(
-                copy.deepcopy(failure))
+                _quoted_copy(failure))
         return {"built": False, "failure": failure, "unit": None}
     except Exception as error:
         failure = {
@@ -2484,9 +2510,12 @@ def build_headline_unit_from_run(run_id, values, store_kind="sweep",
         }
         if isinstance(family_record, dict):
             family_record.setdefault("named_failures", []).append(
-                copy.deepcopy(failure))
+                _quoted_copy(failure))
         return {"built": False, "failure": failure, "unit": None}
-    unit_values = dict(values)
+    if isinstance(values, dict):
+        unit_values = {key: item for key, item in dict.items(values)}
+    else:
+        unit_values = {}
     unit_values.setdefault(
         "run_registry_line",
         "run record " + str(run_id) + " read in one lookup")
@@ -2527,6 +2556,17 @@ def weekly_count(summary_records, week):
     identifier form stands refused in named form, as the weekly
     container of this module refuses it, so no count stands
     stated over unvalidated contents."""
+    if summary_records is None:
+        raise ValueError(
+            "weekly_count stands refused: no summary_records "
+            "stand supplied: a list of summary records stands "
+            "required, and no weekly count stands certified "
+            "without it")
+    if week is None:
+        raise ValueError(
+            "weekly_count stands refused: no week stands "
+            "supplied: a week stands required, and no weekly "
+            "count stands certified without it")
     if not isinstance(summary_records, (list, tuple, set, frozenset)):
         raise ValueError(
             "weekly_count stands refused: the summary_records "
@@ -2540,7 +2580,7 @@ def weekly_count(summary_records, week):
             raise ValueError(
                 "summary record carries no week field, so its "
                 "weekly headline count cannot stand read")
-        if dict.get(record, "week") != week:
+        if not _week_stands_equal(dict.get(record, "week"), week):
             continue
         if not dict.__contains__(record, "headline_unit_identifiers"):
             raise ValueError(
@@ -2575,6 +2615,17 @@ def weekly_count(summary_records, week):
                 seen_texts.append(key)
                 identifiers.append(identifier)
     return len(identifiers)
+
+
+def _week_stands_equal(stored_week, handed_week):
+    """Judge two week values equal on their stored text alone
+    where both stand in text form, through the base text
+    equality, never through an equality reading a handed or
+    stored value supplies. Values in other forms stand judged
+    by the plain equality of their forms."""
+    if isinstance(stored_week, str) and isinstance(handed_week, str):
+        return str.__eq__(stored_week, handed_week)
+    return stored_week == handed_week
 
 
 _UNIT_IDENTIFIER_PATTERN = re.compile(r"u[0-9]+")
@@ -2644,7 +2695,8 @@ def next_weekly_container(week, previous_container, new_units):
     previous container stand released into it first, in arrival
     order, ahead of the new units of the week."""
     released = _stored_unit_list(
-        (previous_container or {}).get("held_units"))
+        dict.get(previous_container, "held_units")
+        if isinstance(previous_container, dict) else None)
     return make_weekly_container(
         week, released + _stored_unit_list(new_units))
 
@@ -2655,7 +2707,7 @@ def claim_enters_family(family_record, claim, results_seen):
     family after results are seen."""
     if results_seen:
         return False
-    return claim in ((family_record or {}).get("headline_claims") or [])
+    return claim in _stored_unit_list(dict.get(family_record, "headline_claims")) if isinstance(family_record, dict) else False
 
 
 _VISUAL_PRESENTATIONS = ("position", "extent", "colour", "layout")

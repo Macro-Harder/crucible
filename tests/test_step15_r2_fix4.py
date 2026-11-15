@@ -117,7 +117,7 @@ class TestPilotScreeningContainers(unittest.TestCase):
 
 class TestWeeklyHeadlineCountDress(unittest.TestCase):
     def test_bare_string_identifier_counts_as_one(self):
-        records = [{"week": "W1", "headline_unit_identifiers": "u1u2"}]
+        records = [{"week": "W1", "headline_unit_identifiers": "u12"}]
         self.assertEqual(mod14.weekly_headline_count(records, "W1"), 1)
         counted = mod14.run_command(
             "weekly_headline_count",

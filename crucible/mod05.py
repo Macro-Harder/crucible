@@ -119,11 +119,21 @@ _EXTENSION_SLICES = (
 )
 
 
+def _stored_list(value):
+    """The stored elements of a handed container, read through the
+    base iteration of its form, never through an iteration the
+    value itself supplies. A value in no container form stands
+    read through the plain list construction."""
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return list(_base_iter(value))
+    return list(value)
+
+
 def _get(record, *names, default=None):
     if isinstance(record, dict):
         for name in names:
-            if name in record and record[name] is not None:
-                return record[name]
+            if dict.__contains__(record, name) and dict.__getitem__(record, name) is not None:
+                return dict.__getitem__(record, name)
         return default
     for name in names:
         if hasattr(record, name):
@@ -256,7 +266,7 @@ def work_credit(events):
     each proportion stands stored as its numerator and denominator
     apart, per Shape 14.
     """
-    events = list(events)
+    events = _stored_list(events)
     per_agent = {}
     for event in events:
         agent = _get(event, "agent_identifier", "agent")
@@ -376,7 +386,7 @@ def _components(edges):
 def component(edges, component_definition_version=None):
     """The component list under one component definition version.
     Component size for the cap counts edges, not stake weight."""
-    edges = list(edges)
+    edges = _stored_list(edges)
     groups = _components(edges)
     largest = max((len(g["members"]) for g in groups), default=0)
     return {
@@ -410,11 +420,11 @@ def realised_degree_distribution(edges, by_epoch=None):
                 degree[agent] = degree.get(agent, 0) + 1
         return degree
 
-    edges = list(edges)
+    edges = _stored_list(edges)
     result = {"by_graph": distribution(edges)}
     if by_epoch is not None:
         result["by_epoch"] = {
-            epoch: distribution(list(epoch_edges)) for epoch, epoch_edges in by_epoch.items()
+            epoch: distribution(_stored_list(epoch_edges)) for epoch, epoch_edges in (dict.items(by_epoch) if isinstance(by_epoch, dict) else by_epoch.items())
         }
     return result
 
@@ -422,7 +432,7 @@ def realised_degree_distribution(edges, by_epoch=None):
 def graph_snapshot(edges, component_definition_version=None, edge_list_reference=None):
     """A GraphSnapshot in Form 9 form, under its component definition
     version, which travels with the snapshot."""
-    edges = list(edges)
+    edges = _stored_list(edges)
     comp = component(edges, component_definition_version=component_definition_version)
     return {
         "edge_list_reference": edge_list_reference if edge_list_reference is not None else _freeze(edges),
@@ -439,32 +449,32 @@ def validate_graph_snapshot(snapshot, edges):
     must also agree with its referenced edge list."""
     if not isinstance(snapshot, dict):
         return False
-    edges = list(edges)
-    if snapshot.get(COMPONENT_DEFINITION_VERSION_FIELD) is None:
+    edges = _stored_list(edges)
+    if dict.get(snapshot, COMPONENT_DEFINITION_VERSION_FIELD) is None:
         return False
-    reference = snapshot.get("edge_list_reference")
+    reference = dict.get(snapshot, "edge_list_reference")
     if reference is None:
         return False
-    if isinstance(reference, (list, tuple)) and list(reference) != edges:
+    if isinstance(reference, (list, tuple)) and list(_base_iter(reference)) != edges:
         return False
-    if snapshot.get("realised_degree_distribution") is None:
+    if dict.get(snapshot, "realised_degree_distribution") is None:
         return False
     versions = {
         _get(edge, COMPONENT_DEFINITION_VERSION_FIELD)
         for edge in edges
         if _get(edge, COMPONENT_DEFINITION_VERSION_FIELD) is not None
     }
-    snap_version = snapshot.get(COMPONENT_DEFINITION_VERSION_FIELD)
+    snap_version = dict.get(snapshot, COMPONENT_DEFINITION_VERSION_FIELD)
     if versions and snap_version not in versions:
         return False
     if len(versions) > 1:
         return False
     expected = graph_snapshot(edges, component_definition_version=snap_version)
     return (
-        snapshot.get("component_list") == expected["component_list"]
-        and snapshot.get("largest_mutually_vouching_component_size")
+        dict.get(snapshot, "component_list") == expected["component_list"]
+        and dict.get(snapshot, "largest_mutually_vouching_component_size")
         == expected["largest_mutually_vouching_component_size"]
-        and snapshot.get("realised_degree_distribution")
+        and dict.get(snapshot, "realised_degree_distribution")
         == expected["realised_degree_distribution"]
     )
 
@@ -491,7 +501,7 @@ def feeder_position(feeder, edges):
     the largest mutually vouching component figure, in the component
     list, or in neither. A one directional vouch with no return vouch
     places the feeder in neither."""
-    groups = _components(list(edges))
+    groups = _components(_stored_list(edges))
     if not groups:
         return "neither"
     largest_size = max(len(g["members"]) for g in groups)
@@ -869,7 +879,7 @@ def score_bearing_figure(envelope_value, share):
             "score_bearing_figure stands refused: "
             + _score_share_ground(share)
             + ", and no score bearing figure stands returned")
-    return envelope_value * share["numerator"] / share["denominator"]
+    return envelope_value * dict.__getitem__(share, "numerator") / dict.__getitem__(share, "denominator")
 
 
 def population_figure(envelope_value, shares, record_state=None):
@@ -893,7 +903,7 @@ def population_figure(envelope_value, shares, record_state=None):
     corrected = []
     for share in shares:
         first = score_bearing_figure(envelope_value, share)
-        corrected.append(first * share["numerator"] / share["denominator"])
+        corrected.append(first * dict.__getitem__(share, "numerator") / dict.__getitem__(share, "denominator"))
     average = sum(corrected) / len(corrected) if corrected else 0
     return {
         "per_epoch_corrected": corrected,
@@ -953,7 +963,7 @@ def recomputation_sample(records):
     full set where the set holds 200 records or fewer; above that,
     10 percent of the set with a floor of 200 records, selected by
     deterministic stride from the record order."""
-    records = list(records)
+    records = _stored_list(records)
     if len(records) <= 200:
         return records
     take = max(200, len(records) // 10)
@@ -972,8 +982,8 @@ def recompute_share(logged_shares, recomputed_shares):
     share, its only lawful output is a divergence count, ownership
     of the share is unchanged, and no second owner is created."""
     divergent = []
-    for epoch in sorted(set(logged_shares) | set(recomputed_shares), key=str):
-        if epoch not in logged_shares or epoch not in recomputed_shares or logged_shares[epoch] != recomputed_shares[epoch]:
+    for epoch in sorted(set(dict.__iter__(logged_shares)) | set(dict.__iter__(recomputed_shares)), key=str):
+        if not dict.__contains__(logged_shares, epoch) or not dict.__contains__(recomputed_shares, epoch) or dict.__getitem__(logged_shares, epoch) != dict.__getitem__(recomputed_shares, epoch):
             divergent.append(epoch)
     divergence = len(divergent)
     return {
@@ -2542,6 +2552,10 @@ def _panel_barred_keys(value, _depth=0, _seen=None):
         if id(value) in seen:
             return found
         seen.add(id(value))
+        if _panel_key_barred(value) and not any(
+                _panel_key_barred(key)
+                for key in dict.keys(value)):
+            found.append(_joined_stored_text(value))
         for key, item in dict.items(value):
             if _panel_key_barred(key):
                 found.append(str(key))
@@ -2691,22 +2705,22 @@ def validate_headline_adjudication_claim(family_record, run_record):
     forged vouch basis is above zero while NQ-56 stands open."""
     if not isinstance(family_record, dict) or not isinstance(run_record, dict):
         return False
-    threshold = family_record.get("excluded_share_threshold")
+    threshold = dict.get(family_record, "excluded_share_threshold")
     if threshold is None:
         return False
-    counts = run_record.get("excluded_class_counts_and_shares") or {}
+    counts = dict.get(run_record, "excluded_class_counts_and_shares") or {}
     if not isinstance(counts, dict) or not counts:
         return False
-    if FORGED_VOUCH_BASIS_CLASS not in counts:
+    if not dict.__contains__(counts, FORGED_VOUCH_BASIS_CLASS):
         return False
     total_share = 0.0
     forged_share = 0.0
-    for name, entry in counts.items():
-        share = entry.get("share") if isinstance(entry, dict) else None
+    for name, entry in dict.items(counts):
+        share = dict.get(entry, "share") if isinstance(entry, dict) else None
         if isinstance(share, dict):
             if not validate_proportion(share):
                 return False
-            value = share["numerator"] / share["denominator"]
+            value = dict.__getitem__(share, "numerator") / dict.__getitem__(share, "denominator")
         elif isinstance(share, (int, float)) and not isinstance(share, bool):
             value = share
         else:

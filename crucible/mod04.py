@@ -2399,13 +2399,18 @@ def _view_copy_guard(value, _depth=0, _seen=None, _path="", _walked=None,
                 + str(VIEW_COPY_DEPTH_BOUND)
                 + ", counting every container standing around the "
                 "handed value in the record the act builds toward "
-                "that bound"
+                "that bound, and no view record or copy stands "
+                "made or returned"
                 + _guard_context(_act, _argument)
             )
         seen = _seen if _seen is not None else set()
         if id(value) in seen:
             raise NamedFailure(
                 "view record copy found a cycle at " + (_path or "root")
+                + ", counting every container standing around the "
+                "handed value in the record the act builds toward "
+                "that bound, and no view record or copy stands "
+                "made or returned"
                 + _guard_context(_act, _argument)
             )
         if (id(value), _depth) in _walked:
@@ -2535,6 +2540,11 @@ def _first_barred_field(value, _seen=None):
         if id(value) in _seen:
             return None
         _seen.add(id(value))
+        if _is_barred_key(value) and not any(
+                _is_barred_key(key)
+                for key in dict.keys(value)):
+            return "".join(
+                _stored_text(key) for key in dict.keys(value))
         for key, item in dict.items(value):
             if _is_barred_key(key):
                 return key
@@ -2894,24 +2904,24 @@ def divergence_companion(run_id="run-under-test", components=None):
     completeness = set()
     stated = bool(components)
     for component in components:
-        viewer = component.get("viewer_id")
+        viewer = dict.get(component, "viewer_id")
         if viewer is None:
-            viewer = component.get("viewer_identifier")
+            viewer = dict.get(component, "viewer_identifier")
         if viewer is not None:
             viewers.add(viewer)
-        identity = component.get("identity")
+        identity = dict.get(component, "identity")
         if identity is None:
-            identity = component.get("agent_identifier")
+            identity = dict.get(component, "agent_identifier")
         if identity is None:
-            identity = component.get("identity_identifier")
-        band = component.get("band")
+            identity = dict.get(component, "identity_identifier")
+        band = dict.get(component, "band")
         if identity is None or band is None:
             stated = False
             continue
         bands_by_identity.setdefault(identity, set()).add(band)
         viewers_by_identity.setdefault(identity, set()).add(viewer)
-        if component.get("completeness_state") is not None:
-            completeness.add(component.get("completeness_state"))
+        if dict.get(component, "completeness_state") is not None:
+            completeness.add(dict.get(component, "completeness_state"))
     identity_count = len(bands_by_identity)
     differing = sum(
         1 for bands in bands_by_identity.values() if len(bands) > 1

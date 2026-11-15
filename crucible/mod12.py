@@ -768,17 +768,84 @@ def _key_stored_text(key, _depth=0):
     of one container key reads as one name, and a bytes
     part inside a container key reads under the bytes limb
     exactly as a bare bytes key reads. Parts past the
-    barred read bound stand unread."""
+    barred read bound stand unread. The parts of a set or
+    frozenset key carry no order of their own, so this
+    single text reading joins them in the sorted order of
+    their stored texts, the same reading in every process;
+    the dress equality judgement stands on the fuller
+    reading of _key_stored_texts, which reads the parts of
+    an unordered container in every order they compose."""
     text = _stored_text(key)
     if text is not None:
         return text
     if _depth > _MAX_BARRED_READ_DEPTH:
         return ""
-    if isinstance(key, (tuple, list, frozenset, set)):
+    if isinstance(key, (tuple, list)):
         return "".join(
             _key_stored_text(part, _depth + 1)
             for part in _base_iter(key))
+    if isinstance(key, (frozenset, set)):
+        return "".join(sorted(
+            _key_stored_text(part, _depth + 1)
+            for part in _base_iter(key)))
     return ""
+
+
+# The bound on the composed texts one dress reading carries,
+# in the enumeration bound form this module already states
+# for its folded readings.
+_DRESS_TEXTS_BOUND = 4096
+
+
+def _key_stored_texts(key, _depth=0):
+    """Every stored text one key composes, as a set of texts.
+    A scalar key composes its one stored text. A key in
+    tuple or list form composes the joins of its parts in
+    their handed order, each part under every text it
+    composes. A key in set or frozenset form carries no
+    order of its own, so it composes the joins of its parts
+    in every order of those parts, each part under every
+    text it composes, so a name split across the parts of
+    an unordered container stands composed whole whatever
+    order the parts stand read in, and the judgement on it
+    stands the same in every process. Parts past the barred
+    read bound stand unread, as at _key_stored_text. Where
+    the composed texts pass the stated bound, the reading
+    falls back to the one deterministic text of
+    _key_stored_text for that key, and no further text of
+    that key stands composed."""
+    text = _stored_text(key)
+    if text is not None:
+        return {text}
+    if _depth > _MAX_BARRED_READ_DEPTH:
+        return {""}
+    if isinstance(key, (tuple, list)):
+        texts = {""}
+        for part in _base_iter(key):
+            options = _key_stored_texts(part, _depth + 1)
+            texts = {
+                head + option
+                for head in texts for option in options}
+            if len(texts) > _DRESS_TEXTS_BOUND:
+                return {_key_stored_text(key, _depth)}
+        return texts
+    if isinstance(key, (frozenset, set)):
+        parts = list(_base_iter(key))
+        options = [
+            _key_stored_texts(part, _depth + 1) for part in parts]
+        texts = set()
+        for order in itertools.permutations(range(len(parts))):
+            composed = {""}
+            for index in order:
+                composed = {
+                    head + option
+                    for head in composed
+                    for option in options[index]}
+            texts.update(composed)
+            if len(texts) > _DRESS_TEXTS_BOUND:
+                return {_key_stored_text(key, _depth)}
+        return texts
+    return {""}
 
 
 def _canonicalised_name(key, letter_map=None):
@@ -1151,6 +1218,126 @@ def _shape_exceeds_bounds(value):
     return heights[root_id] > _MAX_BARRED_READ_DEPTH
 
 
+def _dict_keys_carry_split(readings, pairs, pattern):
+    """Whether the folded marker stands split across two or
+    more consecutive keys of one dict, in the joined reading
+    form settlement S-14 states: the first key contributes a
+    tail of one of its readings as the opening of the marker,
+    each middle key one whole reading as an exact piece of
+    it, and the last key a reading that begins with its
+    closing. A key whose reading stands empty contributes no
+    character to the joined reading, so the occurrence may
+    cross such a key, stepped past on its empty reading and
+    unused by the occurrence. The marker bars only where a
+    value stands under every key the occurrence uses, as the
+    walk states for a money name."""
+    for start in range(len(pairs)):
+        for reading in readings[start]:
+            if not reading:
+                continue
+            for cut in range(len(reading)):
+                piece = reading[cut:]
+                if not piece or len(piece) >= len(pattern):
+                    continue
+                if piece != pattern[:len(piece)]:
+                    continue
+                present = pairs[start][1] is not None
+                stack = [(start + 1, len(piece), present)]
+                while stack:
+                    index, pos, ok = stack.pop()
+                    if pos >= len(pattern):
+                        if ok:
+                            return True
+                        continue
+                    if index >= len(pairs):
+                        continue
+                    next_ok = ok and (
+                        pairs[index][1] is not None)
+                    for option in readings[index]:
+                        if not option:
+                            stack.append((index + 1, pos, ok))
+                            continue
+                        if option == pattern[pos:pos + len(option)]:
+                            stack.append((
+                                index + 1,
+                                pos + len(option), next_ok))
+                        elif option.startswith(pattern[pos:]):
+                            if next_ok:
+                                return True
+    return False
+
+
+def _dict_keys_tile_exact(readings, pairs, target, require_value):
+    """Whether a run of two or more consecutive dict keys, in
+    stored order, joins exactly to the target on one folded
+    reading of each key it uses, in the joined reading form
+    settlement S-14 states, a key whose reading stands empty
+    stepped past inside the run on that empty reading. Where
+    require_value stands stated, the name bars only where a
+    value stands under every key the run uses, as the walk
+    states for that name; a stepped past key stands unused.
+    A name standing inside one key alone stands judged by
+    the per key acts, never here, so a run stands only on
+    two or more pieces."""
+    visited = set()
+    stack = [(0, 0, 0, True)]
+    while stack:
+        index, pos, pieces, ok = stack.pop()
+        if pos == len(target):
+            if pieces >= 2 and ok:
+                return True
+            continue
+        if index >= len(pairs):
+            continue
+        state = (index, pos, pieces >= 2, ok)
+        if state in visited:
+            continue
+        visited.add(state)
+        if pieces == 0:
+            stack.append((index + 1, 0, 0, True))
+        next_ok = ok and (
+            pairs[index][1] is not None or not require_value)
+        for option in readings[index]:
+            if not option:
+                stack.append((index + 1, pos, pieces, ok))
+            elif option == target[pos:pos + len(option)]:
+                stack.append((
+                    index + 1, pos + len(option),
+                    pieces + 1, next_ok))
+    return False
+
+
+def _dict_node_money_barred(entries):
+    """Whether one dict standing in the barred money walk
+    stands barred at its own node, in the form settlement
+    S-14 states: the node stands judged on the joined
+    reading of its keys in stored order, in the folded forms
+    in which the walk judges a single key. The folded money
+    marker split across two keys stands judged on that
+    joined reading, and the amount and currency pair, which
+    the walk frames at dict level across the keys of one
+    dict together, stands judged where each name stands
+    split across two keys of the same dict."""
+    if len(entries) < 2:
+        return False
+    readings = [
+        set(_folded_money_variants(key)) for key, item in entries]
+    if _dict_keys_carry_split(readings, entries, _MONEY_MARKER_FOLDED):
+        return True
+    amount_stands = _dict_keys_tile_exact(
+        readings, entries, "amount", True) or any(
+            ("amount" in _folded_money_variants(key)
+             or _folded_name_matches(key, "amount"))
+            and item is not None
+            for key, item in entries)
+    currency_stands = _dict_keys_tile_exact(
+        readings, entries, "currency", False) or any(
+            "currency" in _folded_money_variants(key)
+            or _folded_name_matches(key, "currency")
+            for key, item in entries)
+    return amount_stands and currency_stands
+
+
 def _carries_barred_money_value(value, _depth=0, _seen=None):
     """True where a barred money field stands in the value within
     the barred read bound. Every distinct container stands read
@@ -1199,6 +1386,8 @@ def _carries_barred_money_value(value, _depth=0, _seen=None):
                             key, _MONEY_MARKER_FOLDED)) and (
                         item is not None):
                     return True
+            if _dict_node_money_barred(entries):
+                return True
             children = [item for key, item in entries]
         else:
             children = list(_base_iter(current))
@@ -1245,16 +1434,53 @@ def _dress_text(value):
     multi part container by the stored text of its parts joined
     in order, through the key stored text reading of this module,
     so a value in bytes, buffer, or container dress stands judged
-    as the text it stores."""
+    as the text it stores. For a value in set or frozenset dress
+    this one text stands in the deterministic sorted part order
+    of _key_stored_text; the equality judgement of _dress_eq
+    stands on every text the dress composes."""
     return _key_stored_text(value)
 
 
 def _dress_eq(value, stated):
-    """Judge a handed value against a stated text by the text it
+    """Judge a handed value against a stated text by the texts it
     stores in scalar or container dress, through the base string
-    equality on that stored text."""
-    result = str.__eq__(_dress_text(value), stated)
-    return result if result is not NotImplemented else False
+    equality on each stored text the dress composes: a value in
+    set or frozenset dress, whose parts carry no order of their
+    own, stands equal to the stated text where any order of its
+    parts composes that text, so the judgement stands on the
+    stored contents of the dress and the same in every process,
+    never on the iteration order of the container."""
+    for text in _key_stored_texts(value):
+        result = str.__eq__(text, stated)
+        if result is not NotImplemented and result:
+            return True
+    return False
+
+
+def _carries_cycle(value):
+    """Whether a handed value carries a cycle on one of its
+    paths, walked with an explicit stack over the base class
+    readings of this module, so the walk itself never recurses
+    without bound. A container shared from two places on
+    different paths carries no cycle."""
+    if not isinstance(value, _CONTAINER_TYPES):
+        return False
+    on_path = set()
+    stack = [(value, False)]
+    while stack:
+        current, closing = stack.pop()
+        if closing:
+            on_path.discard(id(current))
+            continue
+        if not isinstance(current, _CONTAINER_TYPES):
+            continue
+        if id(current) in on_path:
+            return True
+        on_path.add(id(current))
+        stack.append((current, True))
+        for child in _base_children(current):
+            stack.append((child, False))
+    return False
 
 
 def _stored_values_equal(first, second):
@@ -1269,7 +1495,100 @@ def _stored_values_equal(first, second):
             return False
         result = str.__eq__(first_text, second_text)
         return result if result is not NotImplemented else False
+    if _carries_cycle(first) or _carries_cycle(second):
+        return first is second
     return _freeze(first) == _freeze(second)
+
+
+def _stored_ids_equal(first, second):
+    """Whether two handed run identifiers store the same
+    identifier, judged by kind before value, in the form of
+    the estate stored pair reading at MOD-07: a boolean stands
+    apart from every number, an integer from a float, a text
+    form value, in string, bytes, bytearray, or memoryview
+    dress, stands judged on the text it stores against a text
+    form value alone, and containers stand judged part by part
+    under this same reading, so no identifier stands conflated
+    with one of another kind on a plain equality reading."""
+    first_text = _stored_text(first)
+    second_text = _stored_text(second)
+    if first_text is not None or second_text is not None:
+        if first_text is None or second_text is None:
+            return False
+        result = str.__eq__(first_text, second_text)
+        return result if result is not NotImplemented else False
+    if first is None or second is None:
+        return first is None and second is None
+    if isinstance(first, bool) or isinstance(second, bool):
+        return isinstance(first, bool) and isinstance(second, bool) \
+            and first is second
+    if isinstance(first, int) and isinstance(second, int):
+        return int.__eq__(first, second) is True
+    if isinstance(first, float) and isinstance(second, float):
+        return float.__eq__(first, second) is True
+    if _carries_cycle(first) or _carries_cycle(second):
+        return first is second
+    if isinstance(first, dict) and isinstance(second, dict):
+        if dict.__len__(first) != dict.__len__(second):
+            return False
+        remaining = list(dict.items(second))
+        for key, item in dict.items(first):
+            matched = None
+            for index, (other_key, other_item) in enumerate(remaining):
+                if _stored_ids_equal(key, other_key):
+                    matched = index
+                    matched_item = other_item
+                    break
+            if matched is None:
+                return False
+            if not _stored_ids_equal(item, matched_item):
+                return False
+            remaining.pop(matched)
+        return True
+    if isinstance(first, (list, tuple)) \
+            and isinstance(second, (list, tuple)):
+        if type(first) is not type(second):
+            return False
+        first_parts = _base_sequence(first)
+        second_parts = _base_sequence(second)
+        if len(first_parts) != len(second_parts):
+            return False
+        return all(
+            _stored_ids_equal(one, two)
+            for one, two in zip(first_parts, second_parts))
+    if isinstance(first, (set, frozenset)) \
+            and isinstance(second, (set, frozenset)):
+        first_parts = _base_sequence(first)
+        second_parts = _base_sequence(second)
+        if len(first_parts) != len(second_parts):
+            return False
+        remaining = list(second_parts)
+        for part in first_parts:
+            matched = None
+            for index, other in enumerate(remaining):
+                if _stored_ids_equal(part, other):
+                    matched = index
+                    break
+            if matched is None:
+                return False
+            remaining.pop(matched)
+        return True
+    return first is second
+
+
+def _printed_int_name_matches(name, kept):
+    """The printed name limb of row R14-076 in its cured form:
+    an integer identifier and a text form identifier whose
+    stored text stands as that integer printed name stand as
+    one run. No other kind pairing stands joined on a printed
+    name alone."""
+    for number, other in ((name, kept), (kept, name)):
+        if isinstance(number, int) and not isinstance(number, bool):
+            other_text = _stored_text(other)
+            if other_text is not None and str.__eq__(
+                    other_text, int.__str__(number)) is True:
+                return True
+    return False
 
 
 def _check_claim_value(check):
@@ -1329,21 +1648,33 @@ def _kill_check_names_absent(record):
     a handed claim itself supplies and never through a plain
     membership test on frozen copies: a claim and a standing
     claim in bytes, buffer, or split container dress stand
-    judged as the text they store, on either side alike."""
+    judged as the text they store, on either side alike, and
+    a claim or a standing claim in set or frozenset dress
+    stands judged on every text its parts compose, in every
+    order of those parts, so the judgement stands the same
+    in every process."""
     standing_claims = dict.get(record, "headline_claims")
-    if not isinstance(standing_claims, (list, tuple)):
+    if not isinstance(
+            standing_claims, (list, tuple, set, frozenset, dict)):
         standing_claims = dict.get(record, "claims")
-    if not isinstance(standing_claims, (list, tuple)):
+    if not isinstance(
+            standing_claims, (list, tuple, set, frozenset, dict)):
         return False
-    standing_parts = _base_sequence(standing_claims)
-    standing_texts = [_dress_text(part) for part in standing_parts]
+    if isinstance(standing_claims, dict):
+        standing_parts = list(dict.keys(standing_claims))
+    else:
+        standing_parts = _base_sequence(standing_claims)
+    standing_texts = [
+        _key_stored_texts(part) for part in standing_parts]
     for claim in _kill_check_claim_values(record):
         if claim is None:
             continue
-        claim_text = _dress_text(claim)
+        claim_texts = _key_stored_texts(claim)
         matched = False
-        for part, text in zip(standing_parts, standing_texts):
-            if claim_text != "" and str.__eq__(claim_text, text):
+        for part, texts in zip(standing_parts, standing_texts):
+            if any(
+                    text != "" and text in texts
+                    for text in claim_texts):
                 matched = True
                 break
             if _stored_values_equal(claim, part):
@@ -1385,6 +1716,19 @@ def _run_field(run, name):
     return None
 
 
+def _safe_repr(value):
+    """Render a handed value for a refusal or failure sentence:
+    through its repr reading where that reading stands, and
+    through the base object repr where the repr reading the
+    value itself supplies raises, so a sentence naming the
+    handed value never escapes bare on that reading, in the
+    guarded form of the sister modules."""
+    try:
+        return repr(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def run_record_validation_failures(run):
     if not isinstance(run, dict) or dict.__len__(run) == 0:
         return [
@@ -1396,7 +1740,7 @@ def run_record_validation_failures(run):
         return [
             "run_class stands outside the stated run classes "
             "(screening, confirmation, headline, validation): "
-            + repr(run_class)]
+            + _safe_repr(run_class)]
     if not _stored_value_present(seed_domain):
         return ["seed_domain stands missing on the run record"]
     if _dress_eq(
@@ -1693,11 +2037,9 @@ def sample_statement(runs=None):
             name = dict.get(run, "run_identifier")
         if not _stored_value_present(name):
             continue
-        if any(_stored_values_equal(name, kept) for kept in named):
+        if any(_stored_ids_equal(name, kept) for kept in named):
             continue
-        if any(str.__eq__(
-                _stored_id_text(name), _stored_id_text(kept))
-                for kept in named):
+        if any(_printed_int_name_matches(name, kept) for kept in named):
             continue
         counts[matched] += 1
         named.append(name)
@@ -1715,9 +2057,21 @@ def sample_statement(runs=None):
         "n": total,
         "runs_completed_by_class": counts,
         "sample": "the runs named in this statement: " + ", ".join(
-            _stored_id_text(name) for name in named),
+            _sample_name_text(name) for name in named),
         "bound": "counts taken from the runs this result rests on only",
     }
+
+
+def _sample_name_text(name):
+    """The name one run stands under in the sample sentence: its
+    stored identifier text, quoted where that text itself
+    carries the separator the sentence joins its names with,
+    so one run whose identifier carries that separator stands
+    named as one run and never read as two."""
+    text = _stored_id_text(name)
+    if ", " in text:
+        return '"' + text + '"'
+    return text
 
 
 def screening_readout(fixture="F-17", runs=None):

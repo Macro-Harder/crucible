@@ -1956,14 +1956,20 @@ def score_day(records, society_state=None, mode="conformance",
         raise NamedDetectionFailure(
             "scoring mode stands unnamed: " + str(mode)
         )
-    named_uses = list(uses) if uses is not None else [mode]
+    if uses is None:
+        named_uses = [mode]
+    elif isinstance(uses, (list, tuple, set, frozenset)):
+        named_uses = list(_base_iter(uses))
+    else:
+        named_uses = []
     for use in named_uses:
         if use not in USES:
             raise NamedDetectionFailure(
                 "scoring use stands unnamed: " + str(use)
             )
     before = _undirected_copy(society_state)
-    accepted = [accept_detection_input(record) for record in records]
+    accepted = [accept_detection_input(record)
+                for record in _base_iter(records)]
     states = []
     outputs = []
     for record in accepted:
@@ -2028,9 +2034,9 @@ def score(record_or_records, society_state=None, mode="conformance",
             record_or_records, (list, tuple)):
         records = [record_or_records]
     else:
-        try:
-            records = list(record_or_records)
-        except TypeError:
+        if isinstance(record_or_records, (list, tuple)):
+            records = list(_base_iter(record_or_records))
+        else:
             raise NamedDetectionFailure(
                 "delivery rejected: the record is not a "
                 "DetectionInput record"
@@ -2180,7 +2186,7 @@ def score_profiles(profile_set=None):
         elif profiles_value is None:
             names = ()
         else:
-            names = tuple(profiles_value)
+            names = ()
         if names != F06_PROFILES:
             raise NamedDetectionFailure(
                 "profile set differs from the recorded F-06 set"
@@ -2297,7 +2303,7 @@ def validate_use_naming(artefact, run_record_uses=None):
             "artefact"
         )
     if run_record_uses is not None:
-        recorded = list(run_record_uses)
+        recorded = list(_base_iter(run_record_uses))
         if sorted(recorded) != sorted(named):
             raise SilentUseMovement(
                 "use naming check: the artefact names one use while "
@@ -2405,7 +2411,10 @@ def author_sealed_class(sealed_set, kind, identifier,
             "sealed set rejected: authored kind stands unnamed: "
             + str(kind)
         )
-    named = tuple(separations or ())
+    if isinstance(separations, (list, tuple, set, frozenset)):
+        named = tuple(_base_iter(separations))
+    else:
+        named = ()
     if sorted(named) != sorted(_SEPARATIONS):
         raise NamedDetectionFailure(
             "sealed set rejected: the three separations stand "

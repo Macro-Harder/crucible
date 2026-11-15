@@ -1690,7 +1690,7 @@ def archetype_catalogue(records=None):
         if not isinstance(record, dict):
             raise ValueError(
                 "catalogue rejected: an archetype record stands in "
-                "no record form: " + repr(record))
+                "no record form: " + _refusal_repr(record))
         identifier = _base_get(record, "archetype_id")
         if identifier is None:
             raise ValueError(
@@ -1813,7 +1813,7 @@ def _guard_farm_size(farm_size, form):
             farm_size, int) or farm_size < 0:
         raise NamedGeneratorFailure(
             form + ": the farm size is not a non negative whole "
-            "count: " + repr(farm_size))
+            "count: " + _refusal_repr(farm_size))
     return farm_size
 
 
@@ -1845,14 +1845,14 @@ def build_cast(point, archetype_records, stream_state=None,
     if not isinstance(point, dict):
         raise NamedGeneratorFailure(
             "cast rejected: the point for a cast is not a record: "
-            + repr(point))
+            + _refusal_repr(point))
     population = _base_get(
         point, "population_size", _base_get(point, "population"))
     mix_value = _base_get(point, "archetype_mix")
     if mix_value is not None and not isinstance(mix_value, dict):
         raise NamedGeneratorFailure(
             "cast rejected: the archetype mix stands in no record "
-            "form: " + repr(mix_value))
+            "form: " + _refusal_repr(mix_value))
     mix_items = (
         list(dict.items(mix_value)) if isinstance(mix_value, dict)
         else [])
@@ -1863,14 +1863,14 @@ def build_cast(point, archetype_records, stream_state=None,
             population, int) or population < 0:
         raise NamedGeneratorFailure(
             "cast rejected: the population the point states is not "
-            "a non negative whole count: " + repr(population))
+            "a non negative whole count: " + _refusal_repr(population))
     for mix_identifier, mix_count in mix_items:
         if isinstance(mix_count, bool) or not isinstance(
                 mix_count, int) or mix_count < 0:
             raise NamedGeneratorFailure(
                 "cast rejected: the mix count for "
                 + str(mix_identifier) + " is not a non negative "
-                "whole count: " + repr(mix_count))
+                "whole count: " + _refusal_repr(mix_count))
     if sum(count for _identifier, count in mix_items) != population:
         raise NamedGeneratorFailure(
             "cast rejected: archetype mix counts sum to "
@@ -1942,7 +1942,7 @@ def build_cast(point, archetype_records, stream_state=None,
         elif isinstance(edge, (str, bytes)):
             raise NamedGeneratorFailure(
                 "cast rejected: an initial edge stands as text, "
-                "not as a voucher and vouchee pair: " + repr(edge))
+                "not as a voucher and vouchee pair: " + _refusal_repr(edge))
         elif isinstance(edge, (list, tuple)) and len(edge) == 2:
             voucher, vouchee = edge
             edges.append({
@@ -1953,7 +1953,7 @@ def build_cast(point, archetype_records, stream_state=None,
         else:
             raise NamedGeneratorFailure(
                 "cast rejected: an initial edge is not a voucher "
-                "and vouchee pair of size two: " + repr(edge))
+                "and vouchee pair of size two: " + _refusal_repr(edge))
     internal_counts = {}
     for farm in farms:
         internal_counts[farm["farm_id"]] = 0
@@ -2042,7 +2042,13 @@ def _stored_member_key(name):
     stands as the plain bytes the name stores, read through
     the base bytes reading, so a bytes subclass member stands
     judged on its stored bytes in the same form as a plain
-    bytes member. For a plain scalar name, the key stands as
+    bytes member. A bytearray name and a memoryview name
+    stand in the same bytes form, judged on the bytes they
+    store or view, read through the base bytes reading in the
+    same way, so a buffer member carrying the same stored
+    bytes as a plain bytes member carries the same key, and
+    a bytearray subclass member stands judged the same way.
+    For a plain scalar name, the key stands as
     the plain scalar the name stores, read through the base
     class reading of its kind, so an int, float, or complex
     subclass member stands judged on its stored value in the
@@ -2057,7 +2063,7 @@ def _stored_member_key(name):
         return "".join(
             str.__getitem__(name, index)
             for index in range(str.__len__(name)))
-    if isinstance(name, bytes):
+    if isinstance(name, (bytes, bytearray, memoryview)):
         return bytes(name)
     if isinstance(name, bool):
         return name
@@ -2355,6 +2361,15 @@ def _value_carries_rule_state(value, _depth=0, _seen=None, _path=""):
         try:
             result = False
             if isinstance(value, dict):
+                joined_keys = "".join(
+                    str.__str__(key) for key in dict.keys(value)
+                    if isinstance(key, str))
+                if any(
+                        str.__eq__(joined_keys, field) is True
+                        for field in RULE_STATE_FIELDS):
+                    result = True
+                    state["done"][marker] = result
+                    return result
                 for key, item in dict.items(value):
                     if isinstance(
                             key, (dict, list, tuple, set, frozenset)):
@@ -2691,7 +2706,7 @@ def cold_society_degree(day, envelope=None, gate_passing_share=None):
     if isinstance(day, bool) or not isinstance(day, int):
         raise NamedGeneratorFailure(
             "cold society degree rejected: the stated day is not "
-            "a whole count day in its stated form: " + repr(day))
+            "a whole count day in its stated form: " + _refusal_repr(day))
     # The day and the operands stand read by the numbers they
     # store, through the base class conversion of their kind,
     # never through a reconstruction by the type constructor,
@@ -2708,7 +2723,7 @@ def cold_society_degree(day, envelope=None, gate_passing_share=None):
             raise NamedGeneratorFailure(
                 "cold society degree rejected: the stated "
                 + naming + " is not a number in its stated "
-                "form: " + repr(operand))
+                "form: " + _refusal_repr(operand))
     if envelope is None or gate_passing_share is None:
         return {
             "degree": None,

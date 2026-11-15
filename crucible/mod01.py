@@ -700,7 +700,13 @@ def _carries_reserved_matter(value, _depth=0, _seen=None, _walked=None):
             return _walked[(id(value), _depth)]
         _seen.add(id(value))
         try:
+            joined_keys = "".join(
+                str.__str__(k) for k in dict.keys(value)
+                if isinstance(k, str))
             result = any(
+                str.__eq__(joined_keys, reserved)
+                for reserved in RESERVED_MATTER_VALUES
+            ) or any(
                 _carries_reserved_matter(k, _depth + 1, _seen, _walked)
                 or _carries_reserved_matter(v, _depth + 1, _seen, _walked)
                 for k, v in dict.items(value)
@@ -3082,7 +3088,10 @@ class VersionStamp:
     FIELDS = ("family_version", "family_manifest_hash", "rule_version_set")
 
     def __init__(self, values):
-        stored = dict(values)
+        if isinstance(values, dict):
+            stored = {key: item for key, item in dict.items(values)}
+        else:
+            stored = {}
         _guard_copyable(stored)
         self._values = _guarded_copy(stored)
 
@@ -3368,7 +3377,7 @@ class _RecordForm:
         elif isinstance(values, dict):
             stored = {key: item for key, item in dict.items(values)}
         else:
-            stored = dict(values)
+            stored = {}
         self.values = _guarded_copy(stored)
 
     def validate(self):

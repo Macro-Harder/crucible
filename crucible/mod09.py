@@ -561,7 +561,11 @@ def strategy_catalogue(extra_identifiers=None):
     in the stated content derived order of _catalogue_order_key,
     so the same identifier content gives the same catalogue order
     at every hash seed. Identifiers handed in an ordered container
-    stand appended in the order handed. Whether an identifier
+    stand appended in the order handed, read through the base
+    iteration of the container form, never through an iteration
+    reading the container itself supplies, and identifiers handed
+    as one bare text or buffer value stand as the one identifier
+    handed, never read character by character. Whether an identifier
     already stands listed stands judged through _base_contains
     on the stored forms of the listed identifiers, as every
     other membership judgement of this module stands judged,
@@ -577,9 +581,19 @@ def strategy_catalogue(extra_identifiers=None):
                 name = entry["archetype_id"]
                 if not _base_contains(identifiers, name):
                     identifiers.append(name)
-    extras = extra_identifiers or []
-    if isinstance(extras, (set, frozenset)):
-        extras = sorted(extras, key=_catalogue_order_key)
+    if extra_identifiers is None:
+        extras = []
+    elif isinstance(extra_identifiers, (str, bytes, bytearray,
+                                        memoryview)):
+        extras = [extra_identifiers]
+    elif isinstance(extra_identifiers, (set, frozenset)):
+        extras = sorted(
+            _base_sequence(extra_identifiers),
+            key=_catalogue_order_key)
+    elif isinstance(extra_identifiers, (list, tuple)):
+        extras = _base_items(extra_identifiers)
+    else:
+        extras = []
     for name in extras:
         if not _base_contains(identifiers, name):
             identifiers.append(name)
@@ -602,10 +616,11 @@ def make_strategy(identifier, in_protocol_payoff=0,
     range, never as a declared value supplied by the evaluated
     party or by the strategy author.
     """
+    stored_range = _base_sequence(external_profit_range)
     return {
         "strategy_identifier": identifier,
         "in_protocol_payoff": in_protocol_payoff,
-        "external_profit_range": list(external_profit_range or [0]),
+        "external_profit_range": stored_range if stored_range else [0],
         "external_profit_standing": (
             "swept parameter, labelled assumption, " + UNITS),
         "external_profit_declared_by": None,
@@ -701,7 +716,9 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
                 "external profit sweep rejected: a stated range "
                 "value stands in no numeric form: " + repr(value)
             )
-    if 0 not in values:
+    if not any(
+            _stored_match(value, 0) and _stored_eq(value, 0)
+            for value in values):
         raise NamedAttackerFailure(
             "external profit sweep rejected: the stated range "
             "carries no zero value"
@@ -715,7 +732,9 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
             "protocol payoff stands in no numeric form: "
             + repr(largest)
         )
-    if not any(value > largest for value in values):
+    if not any(
+            _plain_number(value) > _plain_number(largest)
+            for value in values):
         raise NamedAttackerFailure(
             "external profit sweep rejected: the stated range "
             "carries no value above the largest in protocol payoff"
@@ -891,7 +910,9 @@ def search_record_validation_failures(record, fixed_class=None):
             else:
                 stored = _base_dict_get(search, key)
                 if key != "every_adaptation" and isinstance(
-                        stored, (str, list, tuple, dict, set)) and (
+                        stored, (str, list, tuple, dict, set,
+                                 frozenset, bytes, bytearray,
+                                 memoryview)) and (
                         _base_length(stored) == 0):
                     failures.append(
                         "the search record field stands empty: "
@@ -921,9 +942,14 @@ def search_record_validation_failures(record, fixed_class=None):
             if not isinstance(use, dict):
                 failures.append("a case use stands in no record form")
                 break
-            if _base_dict_get(use, "fixture") == "F-26" and (
-                    _base_dict_get(use, "use")
-                    != "strategy search point only"):
+            fixture = _base_dict_get(use, "fixture")
+            use_text = _base_dict_get(use, "use")
+            if _stored_match(fixture, "F-26") and _stored_eq(
+                    fixture, "F-26") and not (
+                    _stored_match(
+                        use_text, "strategy search point only")
+                    and _stored_eq(
+                        use_text, "strategy search point only")):
                 failures.append(
                     "the F-26 case stands in a use other than a "
                     "strategy search point")
@@ -1001,7 +1027,8 @@ def validate_search_record(record, fixed_class=None):
             return False
         stored = _base_dict_get(search, key)
         if key != "every_adaptation" and isinstance(
-                stored, (str, list, tuple, dict, set)) and (
+                stored, (str, list, tuple, dict, set, frozenset,
+                         bytes, bytearray, memoryview)) and (
                 _base_length(stored) == 0):
             return False
     bond = _base_dict_get(record, "bond_parameter_search")
@@ -1017,9 +1044,14 @@ def validate_search_record(record, fixed_class=None):
     for use in _base_items(case_uses):
         if not isinstance(use, dict):
             return False
-        if _base_dict_get(use, "fixture") == "F-26" and (
-                _base_dict_get(use, "use")
-                != "strategy search point only"):
+        fixture = _base_dict_get(use, "fixture")
+        use_text = _base_dict_get(use, "use")
+        if _stored_match(fixture, "F-26") and _stored_eq(
+                fixture, "F-26") and not (
+                _stored_match(
+                    use_text, "strategy search point only")
+                and _stored_eq(
+                    use_text, "strategy search point only")):
             return False
     return True
 
@@ -1200,9 +1232,14 @@ def search(*args, **kwargs):
 def _wording_claim_text(value):
     """The text a handed wording carries, read on its stored
     form: a text value on the text it stores, a buffer value on
-    the text its stored bytes decode to, and a list or tuple
-    value on the texts its stored parts carry, joined by single
-    spaces. A value in no such form carries no wording text."""
+    the text its stored bytes decode to, a list or tuple value
+    on the texts its stored parts carry in stored order, a set
+    or frozenset value on the texts its stored parts carry in
+    sorted text order, so the reading stands the same at every
+    hash seed, and a dict value on the texts its stored keys
+    and values carry, each part read recursively and joined by
+    single spaces. A value in no such form carries no wording
+    text."""
     if isinstance(value, str):
         return str.__str__(value)
     if isinstance(value, (bytes, bytearray, memoryview)):
@@ -1211,6 +1248,16 @@ def _wording_claim_text(value):
         return " ".join(
             _wording_claim_text(part)
             for part in _base_items(value))
+    if isinstance(value, (set, frozenset)):
+        return " ".join(sorted(
+            _wording_claim_text(part)
+            for part in _base_sequence(value)))
+    if isinstance(value, dict):
+        parts = []
+        for key, item in list(dict.items(value)):
+            parts.append(_wording_claim_text(key))
+            parts.append(_wording_claim_text(item))
+        return " ".join(parts)
     return ""
 
 
@@ -1225,14 +1272,74 @@ def _normalised_claim_text(value):
 
 def _outcome_stands_failure(value):
     """Whether a stored per point outcome stands as the failure
-    outcome: a text value on the text it stores, and a buffer
-    value on the bytes it stores, each judged against the
-    failure outcome in its own form."""
+    outcome: a text value on the text it stores, a buffer value
+    on the bytes it stores, each judged against the failure
+    outcome in its own form, and a list, tuple, set, or
+    frozenset value where any stored part stands as the failure
+    outcome on this same reading or where the texts its stored
+    parts carry join, in the wording claim reading of this
+    module, to the failure outcome text whole."""
     if isinstance(value, str):
         return _stored_eq(value, "failure found")
     if isinstance(value, (bytes, bytearray, memoryview)):
         return bytes(value) == b"failure found"
+    if isinstance(value, (list, tuple, set, frozenset)):
+        if any(
+                _outcome_stands_failure(part)
+                for part in _base_sequence(value)):
+            return True
+        return _stored_eq(
+            _wording_claim_text(value), "failure found")
     return False
+
+
+def _entry_outcome_state(entry):
+    """The recorded outcome state of one per point outcome
+    entry in record form, as a pair of whether an outcome
+    stands recorded and whether it stands as a failure. An
+    entry records the outcome its outcome key carries, and an
+    entry carrying no outcome key, or an outcome standing at
+    None, records nothing."""
+    if not isinstance(entry, dict):
+        return (False, False)
+    if not _base_dict_contains(entry, "outcome"):
+        return (False, False)
+    outcome = _base_dict_get(entry, "outcome")
+    if outcome is None:
+        return (False, False)
+    return (True, _outcome_stands_failure(outcome))
+
+
+def _recorded_outcome_state(carriage, _depth=0):
+    """The recorded outcome state of a per point outcome handed
+    in dict form, as a pair of whether an outcome stands
+    recorded and whether a recorded outcome stands as a
+    failure. A dict carrying an outcome key stands as one
+    outcome entry, judged as _entry_outcome_state judges it.
+    A dict carrying no outcome key stands as a point mapping,
+    point names to their outcomes or to their own outcome
+    records, and records what its stored values record, read
+    recursively under its point keys. The walk reads at most
+    sixteen mapping levels; a carriage nested deeper records
+    nothing past that depth."""
+    if not isinstance(carriage, dict) or _depth > 16:
+        return (False, False)
+    if _base_dict_contains(carriage, "outcome"):
+        return _entry_outcome_state(carriage)
+    recorded = False
+    failure = False
+    for item in list(dict.values(carriage)):
+        if isinstance(item, dict):
+            item_recorded, item_failure = _recorded_outcome_state(
+                item, _depth + 1)
+        elif item is None:
+            item_recorded, item_failure = (False, False)
+        else:
+            item_recorded = True
+            item_failure = _outcome_stands_failure(item)
+        recorded = recorded or item_recorded
+        failure = failure or item_failure
+    return (recorded, failure)
 
 
 def readout(search_record, found_failure=True, wording="",
@@ -1253,11 +1360,14 @@ def readout(search_record, found_failure=True, wording="",
     failure sentence stands added only where the search record
     itself records per point outcomes in record form and none
     of them records a failure, whatever the caller's flag
-    states, and a wording that carries an established claim or
+    states: an entry records an outcome only where it carries
+    an outcome standing apart from no value, and a per point
+    outcome handed in point mapping form stands read under its
+    point keys. A wording that carries an established claim or
     an economic security claim stands refused in the same form
     as the established flag, the claim judged on the text the
-    wording stores in text, buffer, list, or tuple form, in
-    normalised whitespace and hyphen dress.
+    wording stores in text, buffer, list, tuple, set, frozenset,
+    or dict form, in normalised whitespace and hyphen dress.
     """
     if not isinstance(search_record, dict):
         raise NamedAttackerFailure(
@@ -1319,16 +1429,17 @@ def readout(search_record, found_failure=True, wording="",
         outcomes = _base_dict_get(
             search_limb, "per_point_outcome", [])
         if isinstance(outcomes, dict):
-            entries = [outcomes]
+            outcomes_recorded, recorded_failure = (
+                _recorded_outcome_state(outcomes))
         else:
-            entries = _base_sequence(outcomes)
-        for entry in entries:
-            if isinstance(entry, dict):
-                outcomes_recorded = True
-                if _outcome_stands_failure(
-                        _base_dict_get(entry, "outcome")):
-                    recorded_failure = True
-                    break
+            for entry in _base_sequence(outcomes):
+                if isinstance(entry, dict):
+                    entry_recorded, entry_failure = (
+                        _entry_outcome_state(entry))
+                    outcomes_recorded = (
+                        outcomes_recorded or entry_recorded)
+                    recorded_failure = (
+                        recorded_failure or entry_failure)
     unit = {
         "wording": wording,
         "coverage_sentence": COVERAGE_SENTENCE,

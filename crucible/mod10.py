@@ -1932,6 +1932,129 @@ def _safe_copy(value, _memo=None):
     return value
 
 
+def _dict_keys_carry_split(readings, pairs, pattern):
+    """Whether the folded marker stands split across two or
+    more consecutive keys of one dict, in the joined reading
+    form settlement S-14 states: the first key contributes a
+    tail of one of its readings as the opening of the marker,
+    each middle key one whole reading as an exact piece of
+    it, and the last key a reading that begins with its
+    closing. A key whose reading stands empty contributes no
+    character to the joined reading, so the occurrence may
+    cross such a key, stepped past on its empty reading and
+    unused by the occurrence. The marker bars only where a
+    value stands under every key the occurrence uses, as the
+    walk states for a money name."""
+    for start in range(len(pairs)):
+        for reading in readings[start]:
+            if not reading:
+                continue
+            for cut in range(len(reading)):
+                piece = reading[cut:]
+                if not piece or len(piece) >= len(pattern):
+                    continue
+                if piece != pattern[:len(piece)]:
+                    continue
+                present = pairs[start][1] is not None
+                stack = [(start + 1, len(piece), present)]
+                while stack:
+                    index, pos, ok = stack.pop()
+                    if pos >= len(pattern):
+                        if ok:
+                            return True
+                        continue
+                    if index >= len(pairs):
+                        continue
+                    next_ok = ok and (
+                        pairs[index][1] is not None)
+                    for option in readings[index]:
+                        if not option:
+                            stack.append((index + 1, pos, ok))
+                            continue
+                        if option == pattern[pos:pos + len(option)]:
+                            stack.append((
+                                index + 1,
+                                pos + len(option), next_ok))
+                        elif option.startswith(pattern[pos:]):
+                            if next_ok:
+                                return True
+    return False
+
+
+def _dict_keys_tile_exact(readings, pairs, target, require_value):
+    """Whether a run of two or more consecutive dict keys, in
+    stored order, joins exactly to the target on one folded
+    reading of each key it uses, in the joined reading form
+    settlement S-14 states, a key whose reading stands empty
+    stepped past inside the run on that empty reading. Where
+    require_value stands stated, the name bars only where a
+    value stands under every key the run uses, as the walk
+    states for that name; a stepped past key stands unused.
+    A name standing inside one key alone stands judged by
+    the per key acts, never here, so a run stands only on
+    two or more pieces."""
+    visited = set()
+    stack = [(0, 0, 0, True)]
+    while stack:
+        index, pos, pieces, ok = stack.pop()
+        if pos == len(target):
+            if pieces >= 2 and ok:
+                return True
+            continue
+        if index >= len(pairs):
+            continue
+        state = (index, pos, pieces >= 2, ok)
+        if state in visited:
+            continue
+        visited.add(state)
+        if pieces == 0:
+            stack.append((index + 1, 0, 0, True))
+        next_ok = ok and (
+            pairs[index][1] is not None or not require_value)
+        for option in readings[index]:
+            if not option:
+                stack.append((index + 1, pos, pieces, ok))
+            elif option == target[pos:pos + len(option)]:
+                stack.append((
+                    index + 1, pos + len(option),
+                    pieces + 1, next_ok))
+    return False
+
+
+def _dict_node_money_barred(value):
+    """Whether a dict handed to the Recorder money walk stands
+    barred at its own node, in the form settlement S-14
+    states: the walk judges a dict handed to it at the dict
+    node itself, on the joined reading of the dict's keys in
+    stored order, in the folded forms in which the walk
+    judges a single key. The folded money marker split
+    across two keys of the dict stands judged on that joined
+    reading, and the amount and currency pair, which the
+    walk frames at dict level across the keys of one dict
+    together, stands judged where each name stands split
+    across two keys of the same dict."""
+    pairs = list(dict.items(value))
+    if len(pairs) < 2:
+        return False
+    readings = []
+    for key, item in pairs:
+        options = set(_fold_variants(key))
+        options.add(_folded_money_key(key))
+        readings.append(options)
+    for pattern in (_MONEY_MARKER_FOLDED, "realmani"):
+        if _dict_keys_carry_split(readings, pairs, pattern):
+            return True
+    amount_stands = _dict_keys_tile_exact(
+        readings, pairs, "amount", True) or any(
+            _money_key_matches(key, "amount") and item is not None
+            for key, item in pairs)
+    currency_stands = _dict_keys_tile_exact(
+        readings, pairs, "currency", False) or any(
+            _money_key_matches(key, "currency")
+            for key, item in pairs)
+    return amount_stands and currency_stands
+
+
 def _carries_real_money_field(value, _depth=0, _path=(), _walked=None):
     """Whether a value carries a real money field at any depth, by
     field name (a real money field name with a value standing) or
@@ -1970,6 +2093,8 @@ def _carries_real_money_field(value, _depth=0, _path=(), _walked=None):
 
 def _carries_real_money_part(value, _depth, _path, _walked):
     if isinstance(value, dict):
+        if _dict_node_money_barred(value):
+            return True
         amount_stands = any(
             _money_key_matches(key, "amount") and item is not None
             for key, item in dict.items(value)
@@ -2285,19 +2410,50 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
     through the base iteration of their form on the same
     ground. A delivery in no record form stands skipped in
     both loops, so it neither crashes the act nor leaves a
-    partial retention standing behind a crash."""
+    partial retention standing behind a crash. The run
+    identifier stands guarded in the form the sibling retention
+    acts of this module carry: no identifier stands refused in
+    named form, and an identifier in an unhashable form stands
+    refused in named form, before any store keying. A deliveries
+    value in no container form and in no iterator form stores
+    no delivery in any form this act reads, so it stands read
+    as no deliveries, never through an iteration reading the
+    value itself supplies. The numeric refusal reads component
+    values in set and frozenset form through the base iteration
+    of their form, and a component value standing as a single
+    text stands judged as the one component it states."""
+    if run_id is None:
+        raise ValueError(
+            "identity less aggregate delivery: no run identifier "
+            "stands supplied, and no daily aggregate delivery "
+            "stands retained under no identifier")
+    try:
+        hash(run_id)
+    except TypeError as exc:
+        raise ValueError(
+            "identity less aggregate delivery: the run identifier "
+            "stands in an unhashable form, and no daily aggregate "
+            "delivery stands retained under it") from exc
     if isinstance(deliveries, (list, tuple, set, frozenset)):
         stored_deliveries = list(_base_iter(deliveries))
-    else:
+    elif _is_iterator(deliveries):
         stored_deliveries = list(deliveries)
+    else:
+        stored_deliveries = []
     for delivery in stored_deliveries:
         if not isinstance(delivery, dict):
             continue
         for field in ("joint_outcome_components",
                       "component_denominators"):
             values = dict.get(delivery, field)
-            if isinstance(values, (list, tuple)):
-                for component in _base_iter(values):
+            if isinstance(values, (list, tuple, set, frozenset)):
+                components = list(_base_iter(values))
+            elif isinstance(values, str):
+                components = [values]
+            else:
+                components = None
+            if components is not None:
+                for component in components:
                     if _numeric_component(component):
                         continue
                     where = (
@@ -2538,34 +2694,63 @@ def rederive_regime_classification(aggregates):
     form. Where any record handed in carries the form only marker,
     no classification stands computed from it: the result carries
     the form only standing inside it and counts no placeholder day
-    as a day of the run."""
-    if not aggregates:
+    as a day of the run. The aggregates stand read once into a
+    stored list, through the base iteration of their form where
+    they stand in a container form, and a handed iterator stands
+    read whole by that one reading, and each aggregate record
+    stands read through the base dict readings, so no
+    classification stands computed from a reading the handed
+    aggregates or records supply and no later pass reads an
+    exhausted handing."""
+    if aggregates is None:
+        return None
+    if isinstance(aggregates, (list, tuple, set, frozenset)):
+        stored_aggregates = list(_base_iter(aggregates))
+    else:
+        stored_aggregates = list(aggregates)
+    if not stored_aggregates:
         return None
     states = [
         {
-            "record_identity": record.get("record_identity"),
-            "writer": record.get("writer"),
+            "record_identity": (
+                dict.get(record, "record_identity")
+                if isinstance(record, dict) else None),
+            "writer": (
+                dict.get(record, "writer")
+                if isinstance(record, dict) else None),
             "amendment_standing": (
-                record.get("amendment_standing")
+                (dict.get(record, "amendment_standing")
+                 if isinstance(record, dict) else None)
                 or "not stated on the record"),
-            "amending_act": record.get("amending_act"),
+            "amending_act": (
+                dict.get(record, "amending_act")
+                if isinstance(record, dict) else None),
         }
-        for record in aggregates
+        for record in stored_aggregates
     ]
-    if any(record.get("form") == FORM_ONLY for record in aggregates):
+    if any(
+            isinstance(record, dict)
+            and dict.get(record, "form") == FORM_ONLY
+            for record in stored_aggregates):
         return {
             "classification": None,
             "form": FORM_ONLY,
             "days": 0,
-            "placeholder_records": len(aggregates),
+            "placeholder_records": len(stored_aggregates),
             "carriage": (
                 "form only, no classification stands computed "
                 "from a placeholder aggregate"),
             "aggregate_states": states,
         }
     totals = [0, 0, 0, 0]
-    for record in aggregates:
-        components = record.get("joint_outcome_components") or []
+    for record in stored_aggregates:
+        if not isinstance(record, dict):
+            return None
+        components = dict.get(record, "joint_outcome_components")
+        if components is None:
+            components = []
+        if isinstance(components, (list, tuple)):
+            components = list(_base_iter(components))
         if len(components) != 4:
             return None
         if not _components_stand_numeric(components):
@@ -2574,7 +2759,7 @@ def rederive_regime_classification(aggregates):
             totals[position] += value
     return {
         "classification": "rederived_from_daily_aggregates",
-        "days": len(aggregates),
+        "days": len(stored_aggregates),
         "component_totals": totals,
         "carriage": "computed from the aggregates handed in",
         "aggregate_states": states,
@@ -3375,6 +3560,18 @@ def retain_gc08_record(kind, record, owner_id):
             + "; a GC-08 record kind stands among "
             "dependency_manifest and call_log, and no record "
             "stands retained")
+    if owner_id is None:
+        raise ValueError(
+            "identity less GC-08 record: no owner identifier "
+            "stands supplied, and no record stands retained "
+            "under no identifier")
+    try:
+        hash(owner_id)
+    except TypeError as exc:
+        raise ValueError(
+            "identity less GC-08 record: the owner identifier "
+            "stands in an unhashable form, and no record stands "
+            "retained under it") from exc
     _GC08_RECORDS[(kind, owner_id)] = _safe_copy(record)
     return _safe_copy(record)
 
@@ -3384,7 +3581,12 @@ def gc08_record(kind, owner_id):
     absent record raises the named lookup failure, with the
     identifier carried under the agreed key run_identifier and
     the record kind sought stated in the failure."""
-    if (kind, owner_id) not in _GC08_RECORDS:
+    owner_unhashable = False
+    try:
+        hash(owner_id)
+    except TypeError:
+        owner_unhashable = True
+    if owner_unhashable or (kind, owner_id) not in _GC08_RECORDS:
         failure = LookupFailure(owner_id, record_kind=kind)
         failure.failure = {
             "name": ONE_LOOKUP_FAILURE_NAME,
@@ -3500,29 +3702,29 @@ def checkpoint_count_c10(rows):
     of a checkpoint in the row, summed over rows. No checkpoint
     byte total stands stated by this count."""
     total = 0
-    for row in rows:
+    for row in (list(_base_iter(rows)) if isinstance(rows, (list, tuple, set, frozenset)) else rows):
         if not isinstance(row, dict):
             raise ValueError(
                 "checkpoint count in named form: a C10 row stands as a "
                 "record, and no other form stands counted")
-        if "retained_per_run" not in row or "runs" not in row:
+        if not dict.__contains__(row, "retained_per_run") or not dict.__contains__(row, "runs"):
             raise ValueError(
                 "checkpoint count in named form: a C10 row stands "
                 "without its retained per run count or its run count, "
                 "and no count stands returned for it")
-        per_run = _stated_count(row["retained_per_run"], "retained_per_run")
+        per_run = _stated_count(dict.__getitem__(row, "retained_per_run"), "retained_per_run")
         if per_run > 10000:
             raise ValueError("checkpoint cap in named form: a C10 row stands over the ruled cap of 10,000 checkpoints per run under ruling Entry 18, and no bare count stands returned for it")
-        runs = _stated_count(row["runs"], "runs")
+        runs = _stated_count(dict.__getitem__(row, "runs"), "runs")
         present = [
-            (key, row[key])
+            (key, dict.__getitem__(row, key))
             for key in (
                 "held_corpus_copies",
                 "regression_corpus_copies",
                 "corpus_copies",
                 "copies",
             )
-            if row.get(key) is not None
+            if dict.get(row, key) is not None
         ]
         copy_values = {
             _stated_count(value, key) for key, value in present
@@ -3546,12 +3748,14 @@ def cumulative_storage_projection(prior_records, new_family_rows):
     C10. No checkpoint byte total and no single byte total against
     estate storage stands returned."""
     actuals = {}
-    for record in prior_records:
-        if "size" not in record or record.get("size") is None:
+    for record in (list(_base_iter(prior_records)) if isinstance(prior_records, (list, tuple, set, frozenset)) else prior_records):
+        if not isinstance(record, dict):
             continue
-        artefact_class = record.get("artefact_class", "unclassified")
+        if not dict.__contains__(record, "size") or dict.get(record, "size") is None:
+            continue
+        artefact_class = dict.get(record, "artefact_class", "unclassified")
         actuals[artefact_class] = (
-            actuals.get(artefact_class, 0) + record["size"])
+            actuals.get(artefact_class, 0) + dict.__getitem__(record, "size"))
     return {
         "retained_actuals_by_artefact_class": actuals,
         "projected_retained_checkpoint_count": checkpoint_count_c10(
@@ -3861,8 +4065,10 @@ def _resolve_actor_word(word):
         return word
     if _actor_segments_into_vocabulary(word, _ACTOR_VOCABULARY):
         return word
+    vocabulary_lengths = {len(item) for item in _ACTOR_VOCABULARY}
     for added in (1, 2, 3, 4, 5, 6, 7):
-        if len(word) > added:
+        if len(word) > added and (
+                len(word) - added) in vocabulary_lengths:
             for cuts in itertools.combinations(
                     range(len(word)), added):
                 reduced = "".join(
@@ -4284,12 +4490,16 @@ def _has_stated_condition(fired):
     so a blank bytes form states no condition, and where its
     stored bytes do not decode, the entry states a condition
     where it carries any byte past spacing, as MOD-07 judges
-    those forms."""
+    those forms. A fired value in iterator form states no
+    condition: it stores no entry in any form this reading
+    names, and it never stands as its own stated entry."""
     if isinstance(fired, str):
         entries = [fired]
     elif isinstance(fired, (list, tuple, set, frozenset)):
         entries = list(_base_iter(fired))
     elif fired is None:
+        entries = []
+    elif _is_iterator(fired):
         entries = []
     else:
         entries = [fired]
@@ -4312,6 +4522,41 @@ def _has_stated_condition(fired):
     return False
 
 
+def _is_iterator(value):
+    """Whether a value stands in iterator form: it is its own
+    iterator, carrying its items only as values it would
+    yield, and storing no contents in any container, text,
+    bytes, or dict form."""
+    try:
+        return iter(value) is value
+    except TypeError:
+        return False
+
+
+def _stored_stands(value):
+    """Whether a stored value stands present, judged by its
+    stored contents and never by a truth reading the value
+    itself supplies: a container form stands where it stores
+    at least one entry, read through the base iteration of
+    its form, a text form stands where it stores at least one
+    character, a bytes family form stands where it stores at
+    least one byte, a dict form stands where it stores at
+    least one entry, and no value stands nowhere. A value in
+    no such form stands judged by the plain truth of the
+    value itself."""
+    if value is None:
+        return False
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return len(list(_base_iter(value))) > 0
+    if isinstance(value, str):
+        return str.__len__(value) > 0
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return len(bytes(value)) > 0
+    if isinstance(value, dict):
+        return dict.__len__(value) > 0
+    return bool(value)
+
+
 def _fired_stands(fired):
     """Whether a fired value stands supplied, judged by its
     stored contents and never by a truth reading the value
@@ -4319,10 +4564,14 @@ def _fired_stands(fired):
     it stores at least one entry, read through the base
     iteration of its form, a text or bytes form stands where
     it stores at least one character or byte, and no value
-    stands nowhere. A value in no such form stands judged by
-    the plain truth of the value itself, the one limb this
+    stands nowhere. A value in iterator form stores nothing
+    in any of those forms, so it stands as no supplied fired
+    value. A value in no such form stands judged by the
+    plain truth of the value itself, the one limb this
     reading does not reach."""
     if fired is None:
+        return False
+    if _is_iterator(fired):
         return False
     if isinstance(fired, (list, tuple, set, frozenset)):
         return len(list(_base_iter(fired))) > 0
@@ -4344,32 +4593,40 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
         record, "apply_flag_evaluation", "record",
         consequence="and no flag evaluation stands performed")
     actor = _normalised_actor(actor)
-    if actor == "person":
+    if isinstance(actor, str) and _stored_text(actor) == "person":
         raise ValueError(
             "flag evaluation by a person is barred: the flag rule "
             "stands evaluated by a program alone, and no flag "
             "evaluation stands performed")
-    if outcome is not None and outcome not in _FLAG_OUTCOMES:
+    outcome_text = (
+        _stored_text(outcome) if isinstance(outcome, str) else None)
+    if outcome is not None and outcome_text not in _FLAG_OUTCOMES:
         raise ValueError(
             "flag evaluation outcome outside the stated vocabulary: "
-            + str(outcome))
-    if outcome == "demote":
+            + str(outcome)
+            + "; the outcomes the rule names stand as promote and "
+            "demote, and no flag evaluation stands performed")
+    if outcome_text == "demote":
         raise ValueError(
             "the flag rule never demotes: the stated outcome "
             "stands as demote, and no demotion stands effected "
             "by it")
-    if tier is not None and tier not in _TIER_RANKS:
+    tier_text = (
+        _stored_text(tier) if isinstance(tier, str) else None)
+    if tier is not None and tier_text not in _TIER_RANKS:
         raise ValueError(
             "flag evaluation tier outside the tiers the rule names: "
             + str(tier) + "; the tiers the rule names stand as "
             "Tier 0, Tier 1, Tier 2, and Tier 3")
     current = dict.get(record, "retention_tier")
-    if (tier is not None and current in _TIER_RANKS
-            and _TIER_RANKS[tier] < _TIER_RANKS[current]):
+    current_text = (
+        _stored_text(current) if isinstance(current, str) else None)
+    if (tier is not None and current_text in _TIER_RANKS
+            and _TIER_RANKS[tier_text] < _TIER_RANKS[current_text]):
         raise ValueError(
             "the flag rule never demotes: the stated tier stands below "
             "the record tier, and no demotion stands effected by it")
-    if outcome == "promote":
+    if outcome_text == "promote":
         if inputs is None:
             raise ValueError(
                 "flag promotion with no inputs supplied: a promotion "
@@ -4397,7 +4654,7 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
             raise ValueError(
                 "a promote outcome with no tier stands refused: no "
                 "promotion stands effected by it")
-        if current in _TIER_RANKS and _TIER_RANKS[tier] <= _TIER_RANKS[current]:
+        if current_text in _TIER_RANKS and _TIER_RANKS[tier_text] <= _TIER_RANKS[current_text]:
             raise ValueError(
                 "a promote outcome with no effected promotion stands "
                 "refused: the stated tier " + str(tier)
@@ -4406,7 +4663,7 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
                 + ", a promotion must rise above the standing tier, "
                 "and no promotion stands effected by it")
     updated = _safe_copy(record)
-    if outcome == "promote" and tier is not None:
+    if outcome_text == "promote" and tier is not None:
         updated["retention_tier"] = tier
     updated["flag_evaluation"] = {
         "inputs": _safe_copy(inputs),
@@ -4489,6 +4746,15 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
             "stands released by it")
     if firing == 2:
         run_key = updated.get("run_id") or updated.get("run_identifier")
+        if run_key is not None:
+            try:
+                hash(run_key)
+            except TypeError as exc:
+                raise ValueError(
+                    "identity less summary record: the run "
+                    "identifier stands in an unhashable form, and "
+                    "no summary record stands retained under "
+                    "it") from exc
         stored = _SUMMARY_RECORDS.get(run_key) or {}
         stored_evaluations = stored.get("deferred_evaluations") or []
         first_standing = (
@@ -4612,9 +4878,10 @@ def annotation_link_at_checkpoint(checkpoint):
     where that is the name the checkpoint carries."""
     if not isinstance(checkpoint, dict):
         return None
-    return (
-        dict.get(checkpoint, "annotation_link_identifier")
-        or dict.get(checkpoint, "annotation_link"))
+    identifier = dict.get(checkpoint, "annotation_link_identifier")
+    if _stored_stands(identifier):
+        return identifier
+    return dict.get(checkpoint, "annotation_link")
 
 
 def resume_from_checkpoint(checkpoint, store_kind=None):
@@ -4798,23 +5065,27 @@ def validate_retention_sizing(sizing):
 def retention_met(record):
     if not isinstance(record, dict):
         return False
-    if dict.get(record, "declaration_only") or dict.get(record, "state") == "DECLARED NOT CLOSED":
+    if _stored_stands(dict.get(record, "declaration_only")) or dict.get(record, "state") == "DECLARED NOT CLOSED":
         return False
     later = dict.get(record, "later_evaluation")
     if not isinstance(later, dict):
         return False
-    conditions = dict.get(later, "conditions") or []
+    conditions = dict.get(later, "conditions")
+    if conditions is None:
+        conditions = []
     if isinstance(conditions, (list, tuple, set, frozenset)):
         conditions = list(_base_iter(conditions))
+    elif isinstance(conditions, dict):
+        conditions = list(dict.__iter__(conditions))
     else:
         conditions = list(conditions)
     if conditions != [1, 2, 3]:
         return False
-    if not dict.get(later, "inputs") or not dict.get(later, "outcome"):
+    if not _stored_stands(dict.get(later, "inputs")) or not _stored_stands(dict.get(later, "outcome")):
         return False
-    if not dict.get(record, "summary_record_written"):
+    if not _stored_stands(dict.get(record, "summary_record_written")):
         return False
-    if not dict.get(record, "retained_forms_pointed_to"):
+    if not _stored_stands(dict.get(record, "retained_forms_pointed_to")):
         return False
     return True
 
@@ -5267,6 +5538,14 @@ def run_view_leak_check(view_record):
     ]
     groups.extend(
         name for name in dict.keys(view_record) if name not in groups)
+    if _is_barred_view_key(view_record) and not any(
+            _is_barred_view_key(key)
+            for key in dict.keys(view_record)):
+        raise ValueError(
+            "view leak check failure: form canary, view "
+            + view_name + ", field "
+            + _joined_stored_text(view_record)
+            + " carries a barred key")
     for field in groups:
         if _is_barred_view_key(field) or _carries_barred_key(
                 dict.get(view_record, field)):

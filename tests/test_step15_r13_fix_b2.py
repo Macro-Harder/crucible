@@ -204,29 +204,29 @@ class TestR12074WeeklyHeadlineCount(unittest.TestCase):
     def test_record_of_another_week_reporting_this_week_counts_zero(self):
         record = LyingDict(
             {"week": "2026-W2",
-             "headline_unit_identifiers": ["a", "b", "c"]},
+             "headline_unit_identifiers": ["u1", "u2", "u3"]},
             {"week": "2026-W1"})
         self.assertEqual(mod14.weekly_headline_count([record], "2026-W1"), 0)
         self.assertEqual(mod14.weekly_headline_count([record], "2026-W2"), 3)
 
     def test_record_of_the_week_reporting_another_week_counts(self):
         record = LyingDict(
-            {"week": "2026-W1", "headline_unit_identifiers": ["x"]},
+            {"week": "2026-W1", "headline_unit_identifiers": ["u1"]},
             {"week": "2026-W9"})
         self.assertEqual(mod14.weekly_headline_count([record], "2026-W1"), 1)
 
     def test_identifiers_read_as_stored_not_as_reported(self):
         record = LyingDict(
-            {"week": "2026-W1", "headline_unit_identifiers": ["real"]},
+            {"week": "2026-W1", "headline_unit_identifiers": ["u1"]},
             {"headline_unit_identifiers": ["ghost-1", "ghost-2"]})
         self.assertEqual(mod14.weekly_headline_count([record], "2026-W1"), 1)
 
     def test_plain_controls_stand(self):
         records = [
-            {"week": "2026-W1", "headline_unit_identifiers": ["a", "b"]},
-            {"week": "2026-W1", "headline_unit_identifiers": ["b", "c"]},
-            {"week": "2026-W2", "headline_unit_identifiers": ["z"]},
-            {"week": "2026-W1", "headline_unit_identifiers": "solo"},
+            {"week": "2026-W1", "headline_unit_identifiers": ["u1", "u2"]},
+            {"week": "2026-W1", "headline_unit_identifiers": ["u2", "u3"]},
+            {"week": "2026-W2", "headline_unit_identifiers": ["u9"]},
+            {"week": "2026-W1", "headline_unit_identifiers": "u5"},
         ]
         self.assertEqual(mod14.weekly_headline_count(records, "2026-W1"), 4)
         self.assertEqual(mod14.weekly_headline_count(records, "2026-W2"), 1)

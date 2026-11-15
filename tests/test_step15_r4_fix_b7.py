@@ -208,13 +208,10 @@ class TestR3042ErrorCarriageCopyBound(unittest.TestCase):
         self.assertIsInstance(result, dict)
         self.assertTrue(result.get("failure_value"), result)
         self.assertEqual(
-            result["failure_value"].get("name"),
-            "one lookup resolution failure")
-        self.assertEqual(result["failure_value"].get("run_status"),
-                         "failed")
-        self.assertEqual(result["failure_value"].get("complete"),
-                         False)
-        self.assertIn("run_identifier", result["failure_value"])
+            result["failure_value"].get("message"),
+            "read_store stands refused: the run_id stands in no "
+            "identifier form: a run identifier in text form stands "
+            "required, and no run record stands read without it")
         self.assertFalse(result.get("swallowed"))
 
     def test_error_carriage_on_deep_lookup_failure(self):
