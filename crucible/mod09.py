@@ -369,8 +369,11 @@ def _base_contains(container, item):
 def _stored_truthy(value):
     """Whether a stored value stands truthy, judged on what it
     stores: containers and text by their base class length, a
-    boolean by itself, a number by standing apart from zero,
-    and any other stored value by standing apart from None."""
+    boolean by itself, a number by standing apart from zero
+    on the plain number it stores, read through the plain
+    number reading of this module and never through an
+    inequality reading the value itself supplies, and any
+    other stored value by standing apart from None."""
     if value is None:
         return False
     if isinstance(value, bool):
@@ -379,7 +382,7 @@ def _stored_truthy(value):
                           bytes, bytearray, memoryview)):
         return _base_length(value) > 0
     if isinstance(value, (int, float)):
-        return value != 0
+        return _plain_number(value) != 0
     return True
 
 
@@ -404,7 +407,16 @@ def _stored_copy(value, _memo=None):
     reading a part itself supplies directs the copy. The buffer
     forms stand carried as stored: a bytearray as a fresh
     bytearray and a memoryview as a memoryview over fresh bytes.
-    A part in no container form and no buffer form stands copied
+    A dict assignment whose key hash or equality reading raises
+    one of the seven named kinds (TypeError, RuntimeError,
+    ValueError, AttributeError, OverflowError, KeyError, and
+    OSError) at the assignment itself stands carried under a
+    distinct numbered form, a plain text numbered form where a
+    form carrying the key itself cannot stand inserted, in the
+    MOD-14 cured form, so no carried entry is silently dropped
+    on that reading and no bare error of those kinds escapes
+    the copy. A part
+    in no container form and no buffer form stands copied
     as itself."""
     if _memo is None:
         _memo = {}
@@ -414,8 +426,31 @@ def _stored_copy(value, _memo=None):
         copied = {}
         _memo[id(value)] = copied
         for key, item in dict.items(value):
-            copied[_stored_copy(key, _memo)] = _stored_copy(
-                item, _memo)
+            copied_key = _stored_copy(key, _memo)
+            copied_item = _stored_copy(item, _memo)
+            try:
+                copied[copied_key] = copied_item
+            except (TypeError, RuntimeError, ValueError,
+                    AttributeError, OverflowError, KeyError,
+                    OSError):
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except (TypeError, RuntimeError, ValueError,
+                            AttributeError, OverflowError, KeyError,
+                            OSError):
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
@@ -1369,7 +1404,7 @@ def search(*args, **kwargs):
     return run_search(*args, **kwargs)
 
 
-def _wording_claim_text(value):
+def _wording_claim_text(value, _depth=0, _seen=None):
     """The text a handed wording carries, read on its stored
     form: a text value on the text it stores, a buffer value on
     the text its stored bytes decode to, a list or tuple value
@@ -1379,24 +1414,43 @@ def _wording_claim_text(value):
     hash seed, and a dict value on the texts its stored keys
     and values carry, each part read recursively and joined by
     single spaces. A value in no such form carries no wording
-    text."""
+    text. The walk stands bounded at a depth of 100, in the
+    form the neighbouring bounded readings of this module
+    state, and stands guarded against cycles: a part standing
+    past that depth, or standing again on its own walk path,
+    carries no wording text at that limb, so no bare
+    RecursionError escapes the reading on a deep or cyclic
+    wording."""
     if isinstance(value, str):
         return str.__str__(value)
     if isinstance(value, (bytes, bytearray, memoryview)):
         return bytes(value).decode("utf-8", "ignore")
     if isinstance(value, (list, tuple)):
+        if _depth > 100 or (
+                _seen is not None and id(value) in _seen):
+            return ""
+        seen = (_seen or frozenset()) | {id(value)}
         return " ".join(
-            _wording_claim_text(part)
+            _wording_claim_text(part, _depth + 1, seen)
             for part in _base_items(value))
     if isinstance(value, (set, frozenset)):
+        if _depth > 100 or (
+                _seen is not None and id(value) in _seen):
+            return ""
+        seen = (_seen or frozenset()) | {id(value)}
         return " ".join(sorted(
-            _wording_claim_text(part)
+            _wording_claim_text(part, _depth + 1, seen)
             for part in _base_sequence(value)))
     if isinstance(value, dict):
+        if _depth > 100 or (
+                _seen is not None and id(value) in _seen):
+            return ""
+        seen = (_seen or frozenset()) | {id(value)}
         parts = []
         for key, item in list(dict.items(value)):
-            parts.append(_wording_claim_text(key))
-            parts.append(_wording_claim_text(item))
+            parts.append(_wording_claim_text(key, _depth + 1, seen))
+            parts.append(
+                _wording_claim_text(item, _depth + 1, seen))
         return " ".join(parts)
     return ""
 
@@ -1410,7 +1464,7 @@ def _normalised_claim_text(value):
     return " ".join(text.replace("-", " ").split())
 
 
-def _outcome_stands_failure(value):
+def _outcome_stands_failure(value, _depth=0, _seen=None):
     """Whether a stored per point outcome stands as the failure
     outcome: a text value on the text it stores, a buffer value
     on the bytes it stores, each judged against the failure
@@ -1423,22 +1477,36 @@ def _outcome_stands_failure(value):
     failure outcome on this same reading or where the texts
     its stored keys and values carry join, in that same
     wording claim reading, to the failure outcome text
-    whole."""
+    whole. The walk stands bounded at a depth of 100, in the
+    form the neighbouring bounded readings of this module
+    state, and stands guarded against cycles: a part standing
+    past that depth, or standing again on its own walk path,
+    stands as no failure at that limb, so no bare
+    RecursionError escapes the reading on a deep or cyclic
+    outcome."""
     if isinstance(value, str):
         return _stored_eq(value, "failure found")
     if isinstance(value, (bytes, bytearray, memoryview)):
         return bytes(value) == b"failure found"
     if isinstance(value, (list, tuple, set, frozenset)):
+        if _depth > 100 or (
+                _seen is not None and id(value) in _seen):
+            return False
+        seen = (_seen or frozenset()) | {id(value)}
         if any(
-                _outcome_stands_failure(part)
+                _outcome_stands_failure(part, _depth + 1, seen)
                 for part in _base_sequence(value)):
             return True
         return _stored_eq(
             _wording_claim_text(value), "failure found")
     if isinstance(value, dict):
+        if _depth > 100 or (
+                _seen is not None and id(value) in _seen):
+            return False
+        seen = (_seen or frozenset()) | {id(value)}
         if any(
-                _outcome_stands_failure(key)
-                or _outcome_stands_failure(item)
+                _outcome_stands_failure(key, _depth + 1, seen)
+                or _outcome_stands_failure(item, _depth + 1, seen)
                 for key, item in list(dict.items(value))):
             return True
         return _stored_eq(
@@ -1523,21 +1591,38 @@ def _list_entry_outcome_state(entry):
     _recorded_outcome_state, so a failure recorded beside
     the outcome, under a fellow point key, or in a nested
     record stands recorded whatever form a fellow value
-    stands in. A dict entry carrying neither stands as a
-    record entry alone, judged by _entry_outcome_state, so
-    an entry whose point key stands alone as the name of
-    its point records nothing on that name. An entry in no
-    dict form stands judged on its own stored form,
-    recording the content it carries and standing as a
-    failure where _outcome_stands_failure judges it one."""
+    stands in. A dict entry carrying a failure under the
+    point key itself beside any fellow key likewise stands
+    walked whole, whatever form the fellow value stands
+    in, a plain scalar form or a form no routing scan
+    lists, so list carriage and dict carriage judge the
+    identical contents one way. A dict entry carrying
+    neither, and carrying no fellow key beside its point
+    key, stands as a record entry alone, judged by
+    _entry_outcome_state, so an entry whose point key
+    stands alone as the name of its point records nothing
+    on that name. An entry in no dict form stands judged
+    on its own stored form, recording the content it
+    carries and standing as a failure where
+    _outcome_stands_failure judges it one."""
     if isinstance(entry, dict):
+        keys = list(dict.keys(entry))
+        has_point_key = any(
+            isinstance(key, str) and str.__eq__(
+                str.__str__(key), "point")
+            for key in keys)
+        has_fellow_key = any(
+            not (isinstance(key, str) and str.__eq__(
+                str.__str__(key), "point"))
+            for key in keys)
         if _base_dict_contains(entry, "outcome") or any(
                 isinstance(item, (dict, str, bytes, bytearray,
                                   memoryview, list, tuple, set,
                                   frozenset))
                 for key, item in list(dict.items(entry))
                 if not (isinstance(key, str) and str.__eq__(
-                        str.__str__(key), "point"))):
+                        str.__str__(key), "point"))) or (
+                has_point_key and has_fellow_key):
             return _recorded_outcome_state(entry)
         return _entry_outcome_state(entry)
     return (_outcome_carries_content(entry),

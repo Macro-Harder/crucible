@@ -160,7 +160,12 @@ def _freeze(value, _memo=None):
     no container or buffer form stands copied as itself.
     Shared and cyclic container parts stand preserved
     through the memo, as a
-    plain deep copy preserves them."""
+    plain deep copy preserves them. A dict assignment whose key hash or equality reading
+    raises at the assignment itself stands carried under a
+    distinct numbered form, a plain text numbered form where
+    a form carrying the key itself cannot stand inserted, in
+    the MOD-14 cured form, so no carried entry is silently
+    dropped on that reading and no bare error escapes the copy."""
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):
@@ -169,7 +174,27 @@ def _freeze(value, _memo=None):
         copied = {}
         _memo[id(value)] = copied
         for key, item in dict.items(value):
-            copied[_freeze(key, _memo)] = _freeze(item, _memo)
+            copied_key = _freeze(key, _memo)
+            copied_item = _freeze(item, _memo)
+            try:
+                copied[copied_key] = copied_item
+            except Exception:
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except Exception:
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
@@ -191,15 +216,23 @@ def _freeze(value, _memo=None):
     if isinstance(value, frozenset):
         if id(value) in _memo:
             return _memo[id(value)]
-        copied = frozenset(
-            _freeze(item, _memo) for item in frozenset.__iter__(value))
+        copied_items = [
+            _freeze(item, _memo) for item in frozenset.__iter__(value)]
+        try:
+            copied = frozenset(copied_items)
+        except Exception:
+            copied = copied_items
         _memo[id(value)] = copied
         return copied
     if isinstance(value, set):
         if id(value) in _memo:
             return _memo[id(value)]
-        copied = set(
-            _freeze(item, _memo) for item in set.__iter__(value))
+        copied_items = [
+            _freeze(item, _memo) for item in set.__iter__(value)]
+        try:
+            copied = set(copied_items)
+        except Exception:
+            copied = copied_items
         _memo[id(value)] = copied
         return copied
     if isinstance(value, bytearray):
@@ -2439,6 +2472,18 @@ def _panel_leaf_copy(value):
     return value
 
 
+def _safe_str(value):
+    """Render a handed value for a walk path: through its
+    string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises, so the walk stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def _panel_clean(value, _depth=0, _seen=None, _path="", _walked=None):
     if isinstance(value, (dict, list, tuple, set, frozenset)):
         walked = _walked if _walked is not None else {}
@@ -2460,11 +2505,11 @@ def _panel_clean(value, _depth=0, _seen=None, _path="", _walked=None):
                     if _panel_key_barred(key):
                         continue
                     cleaned_key = _panel_clean(
-                        key, _depth + 1, seen, _path + "/" + str(key),
-                        walked)
+                        key, _depth + 1, seen,
+                        _path + "/" + _safe_str(key), walked)
                     cleaned[cleaned_key] = _panel_clean(
-                        item, _depth + 1, seen, _path + "/" + str(key),
-                        walked)
+                        item, _depth + 1, seen,
+                        _path + "/" + _safe_str(key), walked)
                 walked[walked_key] = cleaned
                 return cleaned
             if isinstance(value, list):

@@ -147,7 +147,12 @@ def _guarded_copy(value, _memo=None):
     the copy. The buffer forms stand carried as stored: a
     bytearray as a fresh bytearray and a memoryview as a
     memoryview over fresh bytes. A part in no container form and
-    no buffer form stands copied as itself."""
+    no buffer form stands copied as itself. A dict assignment whose key hash or equality reading
+    raises at the assignment itself stands carried under a
+    distinct numbered form, a plain text numbered form where
+    a form carrying the key itself cannot stand inserted, in
+    the MOD-14 cured form, so no carried entry is silently
+    dropped on that reading and no bare error escapes the copy."""
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):
@@ -156,7 +161,27 @@ def _guarded_copy(value, _memo=None):
         copied = {}
         _memo[id(value)] = copied
         for key, item in dict.items(value):
-            copied[_guarded_copy(key, _memo)] = _guarded_copy(item, _memo)
+            copied_key = _guarded_copy(key, _memo)
+            copied_item = _guarded_copy(item, _memo)
+            try:
+                copied[copied_key] = copied_item
+            except Exception:
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except Exception:
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
@@ -1950,7 +1975,15 @@ def _clean_leaf_copy(value):
     """Copy one leaf part of a projection through no protocol the
     part itself supplies. A leaf part stands copied as itself, so
     a part carrying a lying deepcopy protocol cannot materialise
-    as another value inside the delivered projection."""
+    as another value inside the delivered projection. The buffer
+    forms stand carried as stored, in the cured sister form: a
+    bytearray as a fresh bytearray and a memoryview as a
+    memoryview over fresh bytes, so no buffer part stands
+    shared with the caller."""
+    if isinstance(value, bytearray):
+        return bytearray(bytes(value))
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
     return value
 
 
@@ -1996,8 +2029,8 @@ def _clean_value(value, _depth=0, _seen=None, _path=""):
                 else:
                     result = {
                         _clean_value(
-                            key, _depth + 1, state, _path + "/" + str(key)):
-                        _clean_value(item, _depth + 1, state, _path + "/" + str(key))
+                            key, _depth + 1, state, _path + "/" + _safe_str(key)):
+                        _clean_value(item, _depth + 1, state, _path + "/" + _safe_str(key))
                         for key, item in dict.items(value)
                         if not _is_barred_key(key)
                     }
@@ -2034,8 +2067,8 @@ def _clean_feature_values(raw):
         for key, value in dict.items(raw):
             if _is_barred_key(key):
                 continue
-            cleaned[_clean_value(key, 1, None, "/" + str(key))] = (
-                _clean_value(value, 1, None, "/" + str(key)))
+            cleaned[_clean_value(key, 1, None, "/" + _safe_str(key))] = (
+                _clean_value(value, 1, None, "/" + _safe_str(key)))
     return cleaned
 
 
@@ -2062,9 +2095,9 @@ def _clean_rule_records(raw):
                     if _is_barred_key(key):
                         continue
                     cleaned_key = _clean_value(
-                        key, 1, state, path + "/" + str(key))
+                        key, 1, state, path + "/" + _safe_str(key))
                     record[cleaned_key] = _clean_value(
-                        value, 1, state, path + "/" + str(key))
+                        value, 1, state, path + "/" + _safe_str(key))
                 cleaned.append(record)
             else:
                 cleaned.append(_clean_value(item, 1, None, path))
@@ -2524,6 +2557,19 @@ def _safe_str(value):
         return object.__repr__(value)
 
 
+def _safe_repr(value):
+    """Render a handed value for a refusal sentence: through
+    its repr reading where that reading stands, and through
+    the base object repr where the repr reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading, in the
+    guarded form of the neighbouring modules."""
+    try:
+        return repr(value)
+    except Exception:
+        return object.__repr__(value)
+
+
 def _view_copy_guard(value, _depth=0, _seen=None, _path="", _walked=None,
                      _act=None, _argument=None):
     """Walk a value the view select and build acts are about to
@@ -2776,7 +2822,7 @@ def _barred_field_label(field):
     text = _stored_text(field)
     if text:
         return text
-    return repr(field)
+    return _safe_repr(field)
 
 
 def _barred_group_and_field(record):

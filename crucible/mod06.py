@@ -866,6 +866,18 @@ def _refusal_text(value):
         return object.__repr__(value)
 
 
+def _sentence_text(value):
+    """Render a handed value for a refusal sentence on the
+    text it stores, where the value stands in a text or
+    buffer form, so a string reading the value itself
+    supplies, lying or raising, never stands as the name
+    the sentence delivers. A value in any other form
+    stands rendered through _refusal_text, as before."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return _stored_text(value)
+    return _refusal_text(value)
+
+
 def _undirected_copy(value, _memo=None):
     """Copy a checked payload through base class readings only.
 
@@ -877,7 +889,12 @@ def _undirected_copy(value, _memo=None):
     memoryview over fresh bytes. A part in no container form and
     no buffer form stands copied as itself, so a part that stands
     inert at the screen stays inert in the stored copy and never
-    materialises as another value.
+    materialises as another value. A dict assignment whose key hash or equality reading
+    raises at the assignment itself stands carried under a
+    distinct numbered form, a plain text numbered form where
+    a form carrying the key itself cannot stand inserted, in
+    the MOD-14 cured form, so no carried entry is silently
+    dropped on that reading and no bare error escapes the copy.
     """
     if _memo is None:
         _memo = {}
@@ -887,8 +904,27 @@ def _undirected_copy(value, _memo=None):
         copied = {}
         _memo[id(value)] = copied
         for key, item in dict.items(value):
-            copied[_undirected_copy(key, _memo)] = (
-                _undirected_copy(item, _memo))
+            copied_key = _undirected_copy(key, _memo)
+            copied_item = _undirected_copy(item, _memo)
+            try:
+                copied[copied_key] = copied_item
+            except Exception:
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except Exception:
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
@@ -2734,7 +2770,7 @@ def _barred_payload_item(payload):
     stack = [(payload, 0, frozenset())]
     while stack:
         value, depth, seen = stack.pop()
-        if depth > 110:
+        if depth > 1000:
             continue
         if isinstance(value, dict):
             if id(value) in seen:
@@ -2795,7 +2831,7 @@ def escrow_result(kind, variant="B-4", payload=None, contract_state=None):
     if not _base_member(variant, ("B-3", "B-4")):
         raise ValueError(
             "escrow_result stands refused: the escrow variant stands outside the B-3 and B-4 set: "
-            + _refusal_text(variant) + ", and no escrow result stands returned")
+            + _sentence_text(variant) + ", and no escrow result stands returned")
     if _payload_carries_barred(payload):
         if not _payload_contains_barred_content(payload):
             if _payload_revisits_container(payload):

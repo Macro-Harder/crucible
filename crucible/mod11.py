@@ -1580,7 +1580,12 @@ def _plain_word_count(text):
     distinct readable word in the text counts once, so a sentence
     repeating one word counts that word once, and a letter string
     that stands as no readable word counts not at all."""
-    words = re.findall(r"[A-Za-z]+", str(text).lower())
+    stored = _registry_stored_text(text)
+    if stored is not None:
+        rendered = stored
+    else:
+        rendered = _safe_str(text)
+    words = re.findall(r"[A-Za-z]+", rendered.lower())
     return len({word for word in words if _is_readable_word(word)})
 
 
@@ -2259,8 +2264,48 @@ def _quoted_copy(value, _memo=None, _depth=0):
         copied = {}
         _memo[id(value)] = copied
         for key, item in dict.items(value):
-            copied[_quoted_copy(key, _memo, _depth + 1)] = _quoted_copy(
-                item, _memo, _depth + 1)
+            frozen_key = _quoted_copy(key, _memo, _depth + 1)
+            frozen_item = _quoted_copy(item, _memo, _depth + 1)
+            try:
+                collides = frozen_key in copied
+            except Exception:
+                collides = False
+            if collides:
+                counter = 2
+                while True:
+                    if isinstance(frozen_key, str):
+                        distinct_key = (
+                            str.__str__(frozen_key)
+                            + " (carried key " + str(counter) + ")")
+                    else:
+                        distinct_key = (frozen_key, counter)
+                    try:
+                        distinct_taken = distinct_key in copied
+                    except Exception:
+                        distinct_taken = False
+                    if not distinct_taken:
+                        frozen_key = distinct_key
+                        break
+                    counter += 1
+            try:
+                copied[frozen_key] = frozen_item
+            except Exception:
+                counter = 2
+                while True:
+                    if isinstance(frozen_key, str):
+                        candidate = (
+                            str.__str__(frozen_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (frozen_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = frozen_item
+                        break
+                    except Exception:
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
@@ -2287,12 +2332,29 @@ def _quoted_copy(value, _memo=None, _depth=0):
         if isinstance(value, set):
             copied = set()
             _memo[id(value)] = copied
+            carried_items = []
+            failed = False
             for item in set.__iter__(value):
-                copied.add(_quoted_copy(item, _memo, _depth + 1))
+                frozen_item = _quoted_copy(item, _memo, _depth + 1)
+                carried_items.append(frozen_item)
+                if failed:
+                    continue
+                try:
+                    copied.add(frozen_item)
+                except Exception:
+                    failed = True
+            if failed:
+                _memo[id(value)] = carried_items
+                return carried_items
             return copied
-        copied = frozenset(
+        carried_items = [
             _quoted_copy(item, _memo, _depth + 1)
-            for item in frozenset.__iter__(value))
+            for item in frozenset.__iter__(value)]
+        try:
+            copied = frozenset(carried_items)
+        except Exception:
+            _memo[id(value)] = carried_items
+            return carried_items
         if id(value) in _memo:
             return _memo[id(value)]
         _memo[id(value)] = copied
@@ -2417,10 +2479,17 @@ def validate_working_range_claim(text, assumption_set, rows, range_kind):
     sentence = first_sentence(text)
     if _is_code_only_text(sentence):
         return False
-    return all(
-        str(named) in sentence
-        for named in (assumption_set, rows, range_kind)
-    )
+    for named in (assumption_set, rows, range_kind):
+        stored = _registry_stored_text(named)
+        if stored is not None:
+            rendered = stored
+        else:
+            rendered = _safe_str(named)
+        if not rendered:
+            return False
+        if rendered not in sentence:
+            return False
+    return True
 
 
 def moved_reading(delta, reporting_resolution):
@@ -2430,14 +2499,15 @@ def moved_reading(delta, reporting_resolution):
     only the recorded change and the recorded resolution, so a
     second reader applying it to the same record reaches the same
     reading."""
-    try:
-        return abs(delta) >= reporting_resolution
-    except Exception:
+    plain_delta = _plain_number_value(delta)
+    plain_resolution = _plain_number_value(reporting_resolution)
+    if plain_delta is None or plain_resolution is None:
         raise ValueError(
             "moved_reading stands refused: the change and the "
             "reporting resolution stand in no number form, plain "
             "numbers stand required, and no moved reading stands "
             "returned") from None
+    return abs(plain_delta) >= plain_resolution
 
 
 def validate_bounding_headline(headline, family_record, run_record):
@@ -2697,8 +2767,15 @@ def location_for_endpoint(figure, regime, band_endpoint):
         return None
     if entry is None:
         return None
-    share = dict.get(entry, "share") if isinstance(entry, dict) else entry["share"]
-    if share < band_endpoint:
+    try:
+        share = dict.get(entry, "share") if isinstance(entry, dict) else entry["share"]
+    except Exception:
+        return None
+    plain_share = _plain_number_value(share)
+    plain_endpoint = _plain_number_value(band_endpoint)
+    if plain_share is None or plain_endpoint is None:
+        return None
+    if plain_share < plain_endpoint:
         return None
     return {"regime": regime, "endpoint": band_endpoint,
             "share": share}
@@ -2736,12 +2813,16 @@ def _grid_pair(location, act):
             raise TypeError("a location stands in no pair form")
         first = location[0]
         second = location[1]
-        return (int(str(first)), int(str(second)))
+        first_number = _whole_number_count(first)
+        second_number = _whole_number_count(second)
+        if first_number is None or second_number is None:
+            raise TypeError("a location part stands in no grid form")
+        return (first_number, second_number)
     except Exception:
         raise ValueError(
             act + " stands refused: a location must stand as a pair of "
             "grid numbers, and the handed location "
-            + repr(location) + " stands in no such form") from None
+            + _safe_repr(location) + " stands in no such form") from None
 
 
 def region_shift_steps(location_a, location_b):
@@ -2799,10 +2880,12 @@ def validate_transition_report(report):
         counts = dict.get(report, "regime_class_counts") or {}
         if isinstance(counts, dict):
             counts_len = dict.__len__(counts)
-        elif isinstance(counts, (list, tuple)):
-            counts_len = list.__len__(counts) if isinstance(counts, list) else tuple.__len__(counts)
+        elif isinstance(counts, list):
+            counts_len = list.__len__(counts)
+        elif isinstance(counts, tuple):
+            counts_len = tuple.__len__(counts)
         else:
-            counts_len = len(counts)
+            return False
         if counts_len != 3:
             return False
         rate = dict.get(report, "honest_loss_rate") or {}
@@ -2814,13 +2897,16 @@ def validate_transition_report(report):
         for point in points:
             if not isinstance(point, dict):
                 return False
-            if dict.get(point, "near_threshold") and int(dict.get(point, "replicates", 0)) < 30:
-                return False
+            if _stored_truth_stands(dict.get(point, "near_threshold")):
+                replicates = _whole_number_count(
+                    dict.get(point, "replicates", 0))
+                if replicates is None or replicates < 30:
+                    return False
             probability = dict.get(point, "winning_probability")
             if probability is not None and top_up_applies(probability):
                 if not dict.get(point, "top_up_recorded"):
                     return False
-    except (ValueError, TypeError, AttributeError, KeyError):
+    except Exception:
         return False
     return True
 
@@ -2850,17 +2936,25 @@ def validate_transition_unit(unit):
         horizon = dict.get(figure, "stated_horizon")
     if horizon is None:
         horizon = dict.get(unit, "stated_horizon")
+    plain_horizon = None
+    if horizon is not None:
+        plain_horizon = _plain_number_value(horizon)
+        if plain_horizon is None:
+            return False
     sentences = dict.get(unit, "location_sentences") or []
     if isinstance(sentences, (list, tuple, set, frozenset)):
         sentences = list(_base_iter(sentences))
     for sentence in sentences:
-        if not isinstance(sentence, str) or "horizon" not in sentence:
+        if not isinstance(sentence, str):
             return False
-        numbers = re.findall(r"[0-9]+(?:\.[0-9]+)?", sentence)
+        stored_sentence = str.__str__(sentence)
+        if "horizon" not in stored_sentence:
+            return False
+        numbers = re.findall(r"[0-9]+(?:\.[0-9]+)?", stored_sentence)
         if not numbers:
             return False
-        if horizon is not None:
-            lowered = sentence.lower()
+        if plain_horizon is not None:
+            lowered = stored_sentence.lower()
             positioned = re.findall(
                 r"([0-9]+(?:\.[0-9]+)?)\s*(?:days?\s+)?horizon",
                 lowered)
@@ -2870,7 +2964,7 @@ def validate_transition_unit(unit):
                 lowered)
             if not positioned:
                 return False
-            if not any(float(value) == float(horizon)
+            if not any(float(value) == plain_horizon
                        for value in positioned):
                 return False
     return True
@@ -2990,6 +3084,21 @@ def build_headline_unit_from_run(run_id, values, store_kind="sweep",
     return {"built": True, "failure": None, "unit": unit}
 
 
+def _stored_pair_present(record, field):
+    """Whether a handed record carries a field among its stored
+    pairs, a field standing present where a stored key carries
+    its name in stored text, never through a hash or equality
+    reading a handed key supplies, in the posture of the cured
+    MOD-13 _base_get of row R18-033."""
+    if not isinstance(record, dict):
+        return False
+    for key in dict.keys(record):
+        if any(key_text is not None and str.__eq__(key_text, field)
+               for key_text in _registry_key_texts(key)):
+            return True
+    return False
+
+
 def weekly_count(summary_records, week):
     """Compute the weekly headline reading load from the stored
     summary records alone: distinct headline unit identifiers
@@ -3037,19 +3146,22 @@ def weekly_count(summary_records, week):
     identifiers = []
     seen_texts = []
     for record in _base_iter(summary_records):
-        if not isinstance(record, dict) or not dict.__contains__(
+        if not isinstance(record, dict) or not _stored_pair_present(
                 record, "week"):
             raise ValueError(
                 "summary record carries no week field, so its "
                 "weekly headline count cannot stand read")
-        if not _week_stands_equal(dict.get(record, "week"), week):
+        if not _week_stands_equal(
+                _registry_stored_value(record, "week"), week):
             continue
-        if not dict.__contains__(record, "headline_unit_identifiers"):
+        if not _stored_pair_present(
+                record, "headline_unit_identifiers"):
             raise ValueError(
                 "summary record for the week carries no "
                 "headline_unit_identifiers field, and no weekly "
                 "count stands certified without it")
-        field = dict.get(record, "headline_unit_identifiers")
+        field = _registry_stored_value(
+            record, "headline_unit_identifiers")
         if field is None:
             raise ValueError(
                 "summary record for the week carries a "

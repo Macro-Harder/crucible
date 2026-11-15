@@ -1933,13 +1933,24 @@ def _guard_retention_shape(value, act=None, argument=None,
             stack.append((child, depth + 1, False))
 
 
-def _safe_copy(value, _memo=None):
+def _safe_copy(value, _memo=None, _depth=0):
     """Copy a value through base class readings only. Dict parts
     stand read through the base dict items reading, and sequence
     and set parts through their base iteration, so no part of the
     record can direct the copy and no copy protocol a part
     supplies is ever honoured. A part in no container form stands
-    copied as itself."""
+    copied as itself. The depth of container nesting stands
+    counted as the copy descends, and a container standing
+    deeper than the retention bound of 100 stands refused in
+    the module named deep form, so no bare RecursionError
+    escapes the copy on a deep handing. A dict assignment whose
+    key hash or equality reading raises at the assignment itself
+    stands carried under a distinct numbered form, in the
+    MOD-14 cured posture, so no carried entry is silently
+    dropped on that reading and no bare error escapes either."""
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        if _depth > 100:
+            raise ValueError(_DEEP_REFUSAL)
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):
@@ -1948,7 +1959,27 @@ def _safe_copy(value, _memo=None):
         copied = {}
         _memo[id(value)] = copied
         for key, item in dict.items(value):
-            copied[_safe_copy(key, _memo)] = _safe_copy(item, _memo)
+            copied_key = _safe_copy(key, _memo, _depth + 1)
+            copied_item = _safe_copy(item, _memo, _depth + 1)
+            try:
+                copied[copied_key] = copied_item
+            except Exception:
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except Exception:
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
@@ -1956,13 +1987,15 @@ def _safe_copy(value, _memo=None):
         copied = []
         _memo[id(value)] = copied
         copied.extend(
-            _safe_copy(item, _memo) for item in list.__iter__(value))
+            _safe_copy(item, _memo, _depth + 1)
+            for item in list.__iter__(value))
         return copied
     if isinstance(value, tuple):
         if id(value) in _memo:
             return _memo[id(value)]
         copied = tuple(
-            _safe_copy(item, _memo) for item in tuple.__iter__(value))
+            _safe_copy(item, _memo, _depth + 1)
+            for item in tuple.__iter__(value))
         if id(value) in _memo:
             return _memo[id(value)]
         _memo[id(value)] = copied
@@ -1978,10 +2011,11 @@ def _safe_copy(value, _memo=None):
             copied = set()
             _memo[id(value)] = copied
             for item in _base_iter(value):
-                copied.add(_safe_copy(item, _memo))
+                copied.add(_safe_copy(item, _memo, _depth + 1))
             return copied
         copied = frozenset(
-            _safe_copy(item, _memo) for item in _base_iter(value))
+            _safe_copy(item, _memo, _depth + 1)
+            for item in _base_iter(value))
         if id(value) in _memo:
             return _memo[id(value)]
         _memo[id(value)] = copied
@@ -2308,7 +2342,7 @@ class RecorderStore:
         writes: a missing run raises the named lookup failure."""
         try:
             hash(run_id)
-        except TypeError as exc:
+        except Exception as exc:
             raise LookupFailure(run_id) from exc
         stored_key = _stored_key_match(self._records, run_id)
         if stored_key is None:
@@ -2318,7 +2352,7 @@ class RecorderStore:
     def has_run_record(self, run_id):
         try:
             hash(run_id)
-        except TypeError as exc:
+        except Exception as exc:
             raise LookupFailure(run_id) from exc
         return _stored_key_match(self._records, run_id) is not None
 
@@ -2902,7 +2936,7 @@ def build_joint_outcome_vector(components=None, divergence_companion=None):
             "joint outcome component in named form: the components "
             "stand as no record of their stored parts")
     record = {}
-    viewers = set()
+    viewers = []
     for field, parts in mod01.JOINT_OUTCOME_COMPONENT_PARTS.items():
         component = dict.get(components, field)
         if not isinstance(component, dict):
@@ -2914,7 +2948,14 @@ def build_joint_outcome_vector(components=None, divergence_companion=None):
             raise ValueError(
                 "joint outcome component in named form: component "
                 + field + " carries no " + ", ".join(missing))
-        viewers.add(dict.get(component, "viewer_identifier"))
+        viewer = dict.get(component, "viewer_identifier")
+        if isinstance(viewer, (list, tuple, dict, set, frozenset)):
+            raise ValueError(
+                "joint outcome component in named form: the viewer "
+                "identifier stands in a container form, and no "
+                "vector stands built on it")
+        if not any(_base_value_eq(viewer, earlier) for earlier in viewers):
+            viewers.append(viewer)
         record[field] = _safe_copy(component)
     if len(viewers) != 1:
         raise ValueError(
@@ -3645,15 +3686,15 @@ def replay_check(original, resumed):
     the base class dict reading, on the record and verdict it
     stores, never through a get reading the handed record itself
     supplies."""
-    record_equal = (
+    record_equal = _base_value_eq(
         (dict.get(original, "record") if isinstance(original, dict)
-         else None)
-        == (dict.get(resumed, "record") if isinstance(resumed, dict)
-            else None))
-    verdict_equal = (
+         else None),
+        (dict.get(resumed, "record") if isinstance(resumed, dict)
+         else None))
+    verdict_equal = _base_value_eq(
         (dict.get(original, "verdict") if isinstance(original, dict)
-         else None)
-        == (dict.get(resumed, "verdict") if isinstance(resumed, dict)
+         else None),
+        (dict.get(resumed, "verdict") if isinstance(resumed, dict)
             else None))
     return {
         "record_level_equal": bool(record_equal),
@@ -3698,7 +3739,7 @@ def gc08_record(kind, owner_id):
     owner_unhashable = False
     try:
         hash(owner_id)
-    except TypeError:
+    except Exception:
         owner_unhashable = True
     stored_key = None
     if not owner_unhashable:
@@ -3872,7 +3913,8 @@ def cumulative_storage_projection(prior_records, new_family_rows):
             continue
         artefact_class = dict.get(record, "artefact_class", "unclassified")
         actuals[artefact_class] = (
-            actuals.get(artefact_class, 0) + dict.__getitem__(record, "size"))
+            actuals.get(artefact_class, 0) + _stated_count(
+                dict.__getitem__(record, "size"), "size"))
     return {
         "retained_actuals_by_artefact_class": actuals,
         "projected_retained_checkpoint_count": checkpoint_count_c10(
@@ -3893,7 +3935,7 @@ def retention_policy_table():
 def validate_storage_claim(claim):
     if not isinstance(claim, dict):
         return False
-    if dict.get(claim, "basis") == "DQ7-08" and dict.get(claim, "reliance") == "governing":
+    if _base_value_eq(dict.get(claim, "basis"), "DQ7-08") and _base_value_eq(dict.get(claim, "reliance"), "governing"):
         return False
     return True
 
@@ -3938,7 +3980,7 @@ def summary_record_for_run(run_id="run-under-test"):
     inside it."""
     try:
         hash(run_id)
-    except TypeError as exc:
+    except Exception as exc:
         raise LookupFailure(run_id) from exc
     try:
         summary_key = _stored_key_match(_SUMMARY_RECORDS, run_id)
@@ -4843,7 +4885,7 @@ def reserve_hold_for_run(run_id, current_day=None):
     and never reads held without an end."""
     try:
         hash(run_id)
-    except TypeError as exc:
+    except Exception as exc:
         raise LookupFailure(run_id) from exc
     hold_key = _stored_key_match(_RESERVE_HOLDS, run_id)
     hold = (
@@ -4877,7 +4919,10 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
 
     def _entry_firing(item):
         if isinstance(item, dict):
-            return _stated_firing(dict.get(item, "firing"))
+            for key, value in dict.items(item):
+                if _base_value_eq(key, "firing"):
+                    return _stated_firing(value)
+            return None
         return None
 
     firing_number = _stated_firing(firing)
@@ -4893,16 +4938,18 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
         updated, "run_identifier")
     stored_evaluations = []
     if run_key is not None:
-        try:
-            hash(run_key)
-        except TypeError:
-            stored_evaluations = []
-        else:
-            stored_record = _SUMMARY_RECORDS.get(run_key) or {}
+        stored_key = _stored_key_match(_SUMMARY_RECORDS, run_key)
+        if stored_key is not None:
+            stored_record = dict.__getitem__(
+                _SUMMARY_RECORDS, stored_key)
             if isinstance(stored_record, dict):
                 stored_evaluations = (
                     dict.get(stored_record, "deferred_evaluations")
                     or [])
+            for field in ("run_id", "run_identifier"):
+                if field in dict.__iter__(updated) and _base_value_eq(
+                        dict.get(updated, field), stored_key):
+                    updated[field] = stored_key
     if any(_entry_firing(item) == firing_number
            for item in evaluations) or any(
             _entry_firing(item) == firing_number
@@ -4924,7 +4971,7 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
         if run_key is not None:
             try:
                 hash(run_key)
-            except TypeError as exc:
+            except Exception as exc:
                 raise ValueError(
                     "identity less summary record: the run "
                     "identifier stands in an unhashable form, and "
@@ -4941,6 +4988,8 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
                 "no hold stands released by it")
         if not evaluations and stored_evaluations:
             evaluations.extend(_safe_copy(stored_evaluations))
+    if firing_number == 1 and not evaluations and stored_evaluations:
+        evaluations.extend(_safe_copy(stored_evaluations))
     evaluations.append({
         "firing": firing_number,
         "inputs": _safe_copy(inputs),
@@ -4949,8 +4998,12 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
         "written_into": "summary record",
     })
     if firing_number == 2:
-        hold = _RESERVE_HOLDS.get(
+        hold_key = _stored_key_match(
+            _RESERVE_HOLDS,
             updated.get("run_id") or updated.get("run_identifier"))
+        hold = (
+            dict.__getitem__(_RESERVE_HOLDS, hold_key)
+            if hold_key is not None else None)
         if hold is not None and hold.get("family_states_headlines", True):
             hold["state"] = "released"
             updated["reserve_hold_state"] = "released"
@@ -4966,7 +5019,7 @@ def retention_record_for_run(run_id, store_kind="sweep"):
     forms retained for the run that this record points to."""
     try:
         hash(run_id)
-    except TypeError as exc:
+    except Exception as exc:
         raise LookupFailure(run_id) from exc
     summary = summary_record_for_run(run_id)
     evaluations = summary.get("deferred_evaluations") or []
@@ -5070,7 +5123,7 @@ def retention_record_for_run(run_id, store_kind="sweep"):
 def validate_retention_report(report):
     if not isinstance(report, dict):
         return False
-    if dict.get(report, "source") == "interval_records" and dict.get(report, "tier_claim") == "final":
+    if _base_value_eq(dict.get(report, "source"), "interval_records") and _base_value_eq(dict.get(report, "tier_claim"), "final"):
         return False
     return True
 
@@ -5225,7 +5278,7 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
 def validate_annotation_claim(claim):
     if not isinstance(claim, dict):
         return False
-    if dict.get(claim, "claim") == "annotation_state_equal_across_append":
+    if _base_value_eq(dict.get(claim, "claim"), "annotation_state_equal_across_append"):
         return False
     return True
 
@@ -5271,7 +5324,8 @@ def validate_retention_sizing(sizing):
     if not isinstance(wording, dict):
         return False
     for value in dict.values(wording):
-        if value in ("forecast", "ceiling"):
+        if any(_base_value_eq(value, barred)
+               for barred in ("forecast", "ceiling")):
             return False
     return True
 
@@ -5321,12 +5375,12 @@ def pre_registered_full_log_sample(family_id="family-under-test"):
 def validate_sample_record(sample):
     if not isinstance(sample, dict):
         return False
-    if dict.get(sample, "presented_as") == "generator_test_battery_sample":
+    if _base_value_eq(dict.get(sample, "presented_as"), "generator_test_battery_sample"):
         return False
-    if dict.get(sample, "kind") == "retention_sample":
+    if _base_value_eq(dict.get(sample, "kind"), "retention_sample"):
         if not dict.get(sample, "in_family_record"):
             return False
-        if dict.get(sample, "registration_standing") != "before_runs":
+        if not _base_value_eq(dict.get(sample, "registration_standing"), "before_runs"):
             return False
     return True
 
@@ -5335,7 +5389,7 @@ def validate_retention_record(record):
     if not isinstance(record, dict):
         return False
     governing = _safe_str(dict.get(record, "governing_rule") or "")
-    if governing.startswith("DQ7-08") and dict.get(record, "reliance") == "governing":
+    if governing.startswith("DQ7-08") and _base_value_eq(dict.get(record, "reliance"), "governing"):
         return False
     return True
 
@@ -5347,8 +5401,8 @@ def store_indexes():
 def validate_store_placement(artefact):
     if not isinstance(artefact, dict):
         return False
-    if dict.get(artefact, "kind") == "pilot":
-        if dict.get(artefact, "store") != "pilot":
+    if _base_value_eq(dict.get(artefact, "kind"), "pilot"):
+        if not _base_value_eq(dict.get(artefact, "store"), "pilot"):
             return False
         if dict.__contains__(artefact, "value") and not dict.get(artefact, "confinement_label"):
             return False
@@ -5459,11 +5513,11 @@ def validate_view_carriage(carriage):
     stand."""
     if not isinstance(carriage, dict):
         return False
-    if dict.get(carriage, "form") == "singular_vector":
+    if _base_value_eq(dict.get(carriage, "form"), "singular_vector"):
         return False
-    if dict.get(carriage, "presented_as") == "one comparable quantity":
+    if _base_value_eq(dict.get(carriage, "presented_as"), "one comparable quantity"):
         return False
-    if dict.get(carriage, "form") == "flip_trial_record" and dict.get(carriage, "cited_as") == "run_result":
+    if _base_value_eq(dict.get(carriage, "form"), "flip_trial_record") and _base_value_eq(dict.get(carriage, "cited_as"), "run_result"):
         return False
     return True
 
@@ -5484,13 +5538,14 @@ def retained_version_set(record_id="record-under-test"):
     carries the form only marker inside it, and no version set
     stands stated for a record that does not exist."""
     for record in _retained_records():
-        rid = record.get("run_id") or record.get("run_identifier")
-        if rid != record_id:
+        rid = dict.get(record, "run_id") or dict.get(
+            record, "run_identifier")
+        if not _base_value_eq(rid, record_id):
             continue
         for field in ("rule_version_set", "record_version_set",
                       "version_set"):
-            if record.get(field) is not None:
-                return _safe_copy(record[field])
+            if dict.get(record, field) is not None:
+                return _safe_copy(dict.get(record, field))
     return {"record_id": record_id, "form": FORM_ONLY}
 
 
@@ -5503,12 +5558,14 @@ def rerun_list_for_rule_change(family_id="family-under-test"):
     it and names no record in question."""
     in_question = []
     for record in _retained_records():
-        family = (record.get("family_id")
-                  or record.get("family_identifier"))
-        if family != family_id:
+        family = (dict.get(record, "family_id")
+                  or dict.get(record, "family_identifier"))
+        if not _base_value_eq(family, family_id):
             continue
-        rid = record.get("run_id") or record.get("run_identifier")
-        if rid is not None and rid not in in_question:
+        rid = dict.get(record, "run_id") or dict.get(
+            record, "run_identifier")
+        if rid is not None and not any(
+                _base_value_eq(rid, earlier) for earlier in in_question):
             in_question.append(rid)
     if not in_question:
         return {

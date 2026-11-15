@@ -143,7 +143,12 @@ def _stored_copy(value, _memo=None):
     readings, and text parts through the base string form, so
     no reading a part itself supplies directs the copy. The
     buffer forms stand carried as stored: a bytearray as a fresh
-    bytearray and a memoryview as a memoryview over fresh bytes."""
+    bytearray and a memoryview as a memoryview over fresh bytes. A dict assignment whose key hash or equality reading
+    raises at the assignment itself stands carried under a
+    distinct numbered form, a plain text numbered form where
+    a form carrying the key itself cannot stand inserted, in
+    the MOD-14 cured form, so no carried entry is silently
+    dropped on that reading and no bare error escapes the copy."""
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):
@@ -152,8 +157,27 @@ def _stored_copy(value, _memo=None):
         copied = {}
         _memo[id(value)] = copied
         for key, item in dict.items(value):
-            copied[_stored_copy(key, _memo)] = _stored_copy(
-                item, _memo)
+            copied_key = _stored_copy(key, _memo)
+            copied_item = _stored_copy(item, _memo)
+            try:
+                copied[copied_key] = copied_item
+            except Exception:
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except Exception:
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:

@@ -556,12 +556,13 @@ def minimal_valid_instance(form_id, entry_kind=None, condition_holds=None):
     """
     fid = _fid(form_id)
     if fid == "36":
-        if entry_kind is not None and entry_kind not in (
+        stored_kind = _stored_text(entry_kind)
+        if entry_kind is not None and stored_kind not in (
                 "ordinary", "agent", "supersession"):
             raise ValueError(
-                "unknown entry kind: " + str(entry_kind)
+                "unknown entry kind: " + _safe_str(entry_kind)
                 + "; the stated kinds are ordinary, agent and supersession")
-        return _minimal_eventlog(entry_kind or "ordinary")
+        return _minimal_eventlog(stored_kind or "ordinary")
     if fid == "15":
         return _minimal_joint_outcome_vector()
     if fid == "1":
@@ -3157,7 +3158,12 @@ def _guarded_copy(value, _memo=None):
     copy. The buffer forms stand carried as stored: a bytearray
     as a fresh bytearray and a memoryview as a memoryview over
     fresh bytes. A part in no container form and no buffer form
-    stands copied as itself."""
+    stands copied as itself. A dict assignment whose key hash or equality reading
+    raises at the assignment itself stands carried under a
+    distinct numbered form, a plain text numbered form where
+    a form carrying the key itself cannot stand inserted, in
+    the MOD-14 cured form, so no carried entry is silently
+    dropped on that reading and no bare error escapes the copy."""
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):
@@ -3166,8 +3172,27 @@ def _guarded_copy(value, _memo=None):
         copied = {}
         _memo[id(value)] = copied
         for key, item in dict.items(value):
-            copied[_guarded_copy(key, _memo)] = _guarded_copy(
-                item, _memo)
+            copied_key = _guarded_copy(key, _memo)
+            copied_item = _guarded_copy(item, _memo)
+            try:
+                copied[copied_key] = copied_item
+            except Exception:
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except Exception:
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
@@ -3433,7 +3458,7 @@ def validate_provenance_block(block):
         field_value = _stored_pairs_value(entry, "field")
         field_text = (
             str.__str__(field_value) if isinstance(field_value, str)
-            else str(field_value))
+            else _safe_str(field_value))
         field_reading = " ".join(
             field_text.lower().replace(
                 "_", " ").replace("-", " ").replace("\t", " ").split())

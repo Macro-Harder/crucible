@@ -297,12 +297,47 @@ def _stored_text(value):
     return ""
 
 
+def _stored_key_matches(stored, key):
+    """Whether a stored key stands as a handed key, judged on
+    the forms each side stores, never through a hash or
+    equality reading either side itself supplies. A text form
+    key stands judged on its stored text, in the stored text
+    form of this module. A plain scalar key stands judged
+    kind first on the scalar it stores, a boolean apart from
+    every number, under settlement S-16. Any other key stands
+    as itself alone, by identity."""
+    if stored is key:
+        return True
+    if isinstance(key, (str, bytes, bytearray, memoryview)) \
+            and isinstance(
+                stored, (str, bytes, bytearray, memoryview)):
+        result = str.__eq__(_stored_text(stored), _stored_text(key))
+        return result if result is not NotImplemented else False
+    if isinstance(key, bool) or isinstance(stored, bool):
+        return False
+    if isinstance(key, int) and isinstance(stored, int):
+        result = int.__eq__(stored, key)
+        return result if result is not NotImplemented else False
+    if isinstance(key, float) and isinstance(stored, float):
+        result = float.__eq__(stored, key)
+        return result if result is not NotImplemented else False
+    if isinstance(key, complex) and isinstance(stored, complex):
+        result = complex.__eq__(stored, key)
+        return result if result is not NotImplemented else False
+    return False
+
+
 def _base_get(record, key):
-    """Read one field through the base dict get, never through
-    a get reading the record itself supplies. A handed value in
-    no mapping form stores nothing under any key."""
+    """Read one field through its stored pairs, never through
+    a get reading the record itself supplies and never
+    through a hash or equality reading a stored key supplies,
+    in the cured companion form of the MOD-13 stored pairs
+    reading. A handed value in no mapping form stores nothing
+    under any key."""
     if isinstance(record, dict):
-        return dict.get(record, key)
+        for stored_key, item in dict.items(record):
+            if _stored_key_matches(stored_key, key):
+                return item
     return None
 
 
@@ -1613,12 +1648,17 @@ def _path_key_text(key):
     """The text a key stores for a barred field path, read
     through _stored_text where the key stands in a text or
     buffer form, so a string reading the key itself supplies,
-    lying or raising, never stands as the path name, and
-    through _safe_str for a key in any other form, whose
-    string reading stands guarded there against the seven
-    named kinds."""
+    lying or raising, never stands as the path name, through
+    _joined_stored_text where the key stands in a container
+    form, so the path names the field the joined stored
+    text of its parts composes, the form _is_barred_key
+    judges a container key on, and through _safe_str for a
+    key in any other form, whose string reading stands
+    guarded there against the seven named kinds."""
     if isinstance(key, (str, bytes, bytearray, memoryview)):
         return _stored_text(key)
+    if isinstance(key, (dict, list, tuple, set, frozenset)):
+        return _joined_stored_text(key)
     return _safe_str(key)
 
 
@@ -1704,7 +1744,16 @@ def _undirected_copy(value, _memo=None, _depth=0):
     search bound stands refused in the module named form. The
     bound test stands on containers only, on the stated basis
     of R3-056, so the scalar leaf of a container chain is never
-    counted against the bound."""
+    counted against the bound. A dict assignment whose key hash
+    or equality reading raises at the assignment itself, in one
+    of the seven named kinds this module guards against
+    (TypeError, RuntimeError, ValueError, AttributeError,
+    OverflowError, KeyError, OSError), stands carried under a
+    distinct numbered form, a plain text numbered form where a
+    form carrying the key itself cannot stand inserted, in the
+    MOD-14 cured form, so no carried entry is silently dropped
+    on that reading and no bare error of those kinds escapes
+    the copy."""
     if isinstance(value, (dict, list, tuple, set, frozenset)):
         if _depth > BARRED_SEARCH_DEPTH_BOUND:
             raise NamedDetectionFailure(
@@ -1723,8 +1772,30 @@ def _undirected_copy(value, _memo=None, _depth=0):
         copied = {}
         _memo[id(value)] = copied
         for key, item in dict.items(value):
-            copied[_undirected_copy(key, _memo, _depth + 1)] = (
-                _undirected_copy(item, _memo, _depth + 1))
+            copied_key = _undirected_copy(key, _memo, _depth + 1)
+            copied_item = _undirected_copy(item, _memo, _depth + 1)
+            try:
+                copied[copied_key] = copied_item
+            except (TypeError, RuntimeError, ValueError, AttributeError,
+                    OverflowError, KeyError, OSError):
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except (TypeError, RuntimeError, ValueError,
+                            AttributeError, OverflowError, KeyError,
+                            OSError):
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
@@ -1805,6 +1876,18 @@ def _safe_str(value):
         return object.__repr__(value)
 
 
+def _sentence_text(value):
+    """Render a handed value for a refusal sentence on the
+    text it stores, where the value stands in a text or
+    buffer form, so a string reading the value itself
+    supplies, lying or raising, never stands as the name
+    the sentence delivers. A value in any other form
+    stands rendered through _safe_str, as before."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return _stored_text(value)
+    return _safe_str(value)
+
+
 def accept_detection_input(record):
     """Accept one DetectionInput record and return a normalised copy.
 
@@ -1827,7 +1910,7 @@ def accept_detection_input(record):
     if not keys.issubset(allowed):
         raise NamedDetectionFailure(
             "delivery rejected: fields outside DetectionInput: "
-            + ", ".join(sorted(_safe_str(k) for k in keys - allowed))
+            + ", ".join(sorted(_sentence_text(k) for k in keys - allowed))
         )
     for field in ("agent_identifier", "day", "feature_values"):
         if field not in keys or dict.get(values, field) is None:
@@ -2009,7 +2092,7 @@ def score_day(records, society_state=None, mode="conformance",
         )
     if mode not in USES:
         raise NamedDetectionFailure(
-            "scoring mode stands unnamed: " + _safe_str(mode)
+            "scoring mode stands unnamed: " + _sentence_text(mode)
         )
     if uses is None:
         named_uses = [mode]
@@ -2462,7 +2545,7 @@ def conformance_statement(table_identifier="LR-1",
             "threshold formula table"):
         raise NamedDetectionFailure(
             "conformance statement names no recorded table: "
-            + _safe_str(table_identifier)
+            + _sentence_text(table_identifier)
         )
     if threshold_set not in THRESHOLD_SETS:
         raise NamedDetectionFailure(
@@ -2514,7 +2597,7 @@ def validate_use_naming(artefact, run_record_uses=None):
     for use in named:
         if use not in USES:
             raise SilentUseMovement(
-                "use naming check: a use stands unnamed: " + _safe_str(use)
+                "use naming check: a use stands unnamed: " + _sentence_text(use)
             )
     if not named:
         raise SilentUseMovement(
@@ -2526,10 +2609,10 @@ def validate_use_naming(artefact, run_record_uses=None):
         if sorted(recorded) != sorted(named):
             raise SilentUseMovement(
                 "use naming check: the artefact names "
-                + (", ".join(_safe_str(use) for use in named)
+                + (", ".join(_sentence_text(use) for use in named)
                    if named else "no use")
                 + " while the run record names "
-                + (", ".join(_safe_str(use) for use in recorded)
+                + (", ".join(_sentence_text(use) for use in recorded)
                    if recorded else "no use")
             )
     return True

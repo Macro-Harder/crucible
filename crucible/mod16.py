@@ -151,6 +151,35 @@ def _safe_str(value):
         return object.__repr__(value)
 
 
+def _stored_text(value):
+    """The text a value stores, read through the base class
+    string form, never through a string or equality reading
+    the value itself supplies. A text value stands as its
+    stored characters, and a bytes, bytearray, or memoryview
+    value as its stored bytes decoded as UTF-8 with
+    undecodable bytes dropped. A value in no text form
+    stores no text and reads as None."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
+    return None
+
+
+def _stored_texts_equal(first, second):
+    """Whether two handed values store the same text, judged
+    on the text each stores through the base string equality,
+    never through an equality reading either value itself
+    supplies, under settlement S-16. A value storing no text
+    stands apart from every value."""
+    first_text = _stored_text(first)
+    second_text = _stored_text(second)
+    if first_text is None or second_text is None:
+        return False
+    result = str.__eq__(first_text, second_text)
+    return result if result is not NotImplemented else False
+
+
 class FixtureLookupFailure(KeyError):
     """A named failure for a fixture that does not resolve in the
     inventory. The failure value stands on the exception in the
@@ -179,7 +208,7 @@ def fixture_record(fixture_id):
     fixture identifier that stands in no inventory line raises
     the named fixture lookup failure, never a bare key error."""
     for line in fixture_inventory():
-        if line["fixture"] == fixture_id:
+        if _stored_texts_equal(line["fixture"], fixture_id):
             return line
     raise FixtureLookupFailure(fixture_id)
 
@@ -359,9 +388,10 @@ def exercise_run_class(run_class, material="validation"):
     the wired product; the confirmation and headline classes
     stand carried as unexercised here, their exercise standing
     in the companion exercise below."""
-    if run_class not in RUN_CLASSES:
+    stored_class = _stored_text(run_class)
+    if stored_class is None or stored_class not in RUN_CLASSES:
         raise ValueError("unknown run class: " + _safe_str(run_class))
-    if run_class in ("confirmation", "headline"):
+    if stored_class in ("confirmation", "headline"):
         return {
             "run_class": run_class,
             "exercised_end_to_end": False,

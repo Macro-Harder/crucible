@@ -1563,7 +1563,12 @@ def _guarded_copy(value, _memo=None):
     A part in no container form and no buffer form stands copied
     as itself. One memo stands shared
     across the values of one act where the act hands one in, so a
-    part shared between those values stands as one copy."""
+    part shared between those values stands as one copy. A dict assignment whose key hash or equality reading
+    raises at the assignment itself stands carried under a
+    distinct numbered form, a plain text numbered form where
+    a form carrying the key itself cannot stand inserted, in
+    the MOD-14 cured form, so no carried entry is silently
+    dropped on that reading and no bare error escapes the copy."""
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):
@@ -1572,7 +1577,27 @@ def _guarded_copy(value, _memo=None):
         copied = {}
         _memo[id(value)] = copied
         for key, item in dict.items(value):
-            copied[_guarded_copy(key, _memo)] = _guarded_copy(item, _memo)
+            copied_key = _guarded_copy(key, _memo)
+            copied_item = _guarded_copy(item, _memo)
+            try:
+                copied[copied_key] = copied_item
+            except Exception:
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except Exception:
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
@@ -1624,14 +1649,49 @@ def _guarded_copy(value, _memo=None):
     return value
 
 
+def _stored_key_matches(stored, key):
+    """Whether a stored key stands as a handed key, judged on
+    the forms each side stores, never through a hash or
+    equality reading either side itself supplies. A text form
+    key stands judged on its stored text, in the stored text
+    form of this module. A plain scalar key stands judged
+    kind first on the scalar it stores, a boolean apart from
+    every number, under settlement S-16. Any other key stands
+    as itself alone, by identity."""
+    if stored is key:
+        return True
+    if isinstance(key, (str, bytes, bytearray, memoryview)) \
+            and isinstance(
+                stored, (str, bytes, bytearray, memoryview)):
+        result = str.__eq__(_stored_text(stored), _stored_text(key))
+        return result if result is not NotImplemented else False
+    if isinstance(key, bool) or isinstance(stored, bool):
+        return False
+    if isinstance(key, int) and isinstance(stored, int):
+        result = int.__eq__(stored, key)
+        return result if result is not NotImplemented else False
+    if isinstance(key, float) and isinstance(stored, float):
+        result = float.__eq__(stored, key)
+        return result if result is not NotImplemented else False
+    if isinstance(key, complex) and isinstance(stored, complex):
+        result = complex.__eq__(stored, key)
+        return result if result is not NotImplemented else False
+    return False
+
+
 def _base_get(record, key, default=None):
-    """Read one field of a handed record through the base dict
-    get, never through a get reading the record itself
-    supplies, so a record stands judged and built from the
-    contents it stores. A value in no record form stores
-    nothing under any key and reads as the default."""
+    """Read one field of a handed record through its stored
+    pairs, never through a get reading the record itself
+    supplies and never through a hash or equality reading a
+    stored key supplies, so a record stands judged and built
+    from the contents it stores, in the cured companion form
+    of the MOD-13 stored pairs reading. A value in no record
+    form stores nothing under any key and reads as the
+    default."""
     if isinstance(record, dict):
-        return dict.get(record, key, default)
+        for stored_key, item in dict.items(record):
+            if _stored_key_matches(stored_key, key):
+                return item
     return default
 
 

@@ -437,9 +437,21 @@ def error_carriage(failure, run_id=None, stage=None):
             failure_vars = vars(failure)
         except Exception:
             failure_vars = {}
-        for key, value in failure_vars.items():
-            if key not in fields and key != "failure":
+        for key, value in dict.items(failure_vars):
+            try:
+                already_carried = key in fields
+            except Exception:
+                continue
+            try:
+                is_failure_field = key == "failure"
+            except Exception:
+                is_failure_field = False
+            if already_carried or is_failure_field:
+                continue
+            try:
                 fields[key] = _freeze(value)
+            except Exception:
+                continue
         if class_name in _NAMED_FAILURE_CLASS_NAMES or class_name.startswith("Named"):
             fields.setdefault("name", class_name)
             fields.setdefault("message", raw_message)
@@ -839,18 +851,55 @@ def pilot_run(use, artefact=None):
     in whatever container it arrives in, recursively, before the
     label is stamped: a barred entry carried in a list, a tuple,
     or a set, or under a spaced or joined spelling, raises the
-    named failure in the same form as one carried in a dict."""
+    named failure in the same form as one carried in a dict. An
+    artefact in any container form stands delivered as a copy
+    apart under _freeze, in the posture of settlement S-1,
+    never as the handed object itself, so a mutation of either
+    side after the run stands in neither the other side nor
+    the delivered record."""
     use_text = str.__str__(use) if isinstance(use, str) else None
     if use_text is None or use_text not in PILOT_USES:
         raise NamedShellFailure(
             "pilot use outside timing, conformance, and procedure rates: " + _safe_text(use)
         )
     _screen_pilot_artefact(artefact)
-    output = _freeze(artefact) if isinstance(artefact, dict) else {"figure": artefact}
+    output = _freeze(artefact) if isinstance(artefact, dict) else {"figure": _freeze(artefact)}
     output["use"] = use_text
     output["confinement_label"] = "pilot confined"
     output["form"] = "pilot artefact, stored apart from sweep results"
     return output
+
+
+def _stored_truth_stands(value):
+    """Whether a handed claim condition field stands, judged on
+    the form it stores and never through a truth reading the
+    value itself supplies: a boolean on its identity, a plain
+    number on its base class reading against zero, a text,
+    buffer, or container form on its base length, no value as
+    not standing, and any other stored object as standing by
+    its presence alone, in the stored truth form MOD-11 states
+    at its _stored_truth_stands."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value is True
+    if isinstance(value, int):
+        return int.__ne__(value, 0)
+    if isinstance(value, float):
+        return float.__ne__(value, 0.0)
+    if isinstance(value, str):
+        return str.__len__(value) > 0
+    if isinstance(value, bytes):
+        return bytes.__len__(value) > 0
+    if isinstance(value, bytearray):
+        return bytearray.__len__(value) > 0
+    if isinstance(value, memoryview):
+        return memoryview.__len__(value) > 0
+    if isinstance(value, dict):
+        return dict.__len__(value) > 0
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return len(_container_parts(value)) > 0
+    return True
 
 
 def validate_pilot_claim(claim):
@@ -862,13 +911,20 @@ def validate_pilot_claim(claim):
     the text it stores, read through the stored text form of this
     module, never through an equality reading the kind itself
     supplies, so a kind in text subclass dress or in bytes dress
-    storing the word behaviour stands judged as that word."""
+    storing the word behaviour stands judged as that word. The
+    two condition fields stand judged through the stored truth
+    form of this module, never through a truth reading the
+    handed value itself supplies, so a condition value whose
+    truth reading answers False or raises stands judged on the
+    form it stores, and no handing escapes this act bare on
+    that reading."""
     if not isinstance(claim, dict):
         return False
-    if dict.get(claim, "cites_pilot_output") and str.__eq__(
+    if _stored_truth_stands(dict.get(claim, "cites_pilot_output")) and str.__eq__(
             _stored_text(dict.get(claim, "kind")), "behaviour"):
         return False
-    if dict.get(claim, "settles_population_behaviour_rate"):
+    if _stored_truth_stands(
+            dict.get(claim, "settles_population_behaviour_rate")):
         return False
     return True
 
@@ -1419,6 +1475,94 @@ def _week_stands_equal(stored_week, handed_week):
     return _week_value_equal(stored_week, handed_week)
 
 
+def _weekly_pair_present(record, field):
+    """Whether a handed record carries a field among its stored
+    pairs, a field standing present where a stored key carries
+    its name in stored text, never through a hash or equality
+    reading a handed key supplies, in the posture of the cured
+    MOD-13 _base_get of row R18-033."""
+    if not isinstance(record, dict):
+        return False
+    for key in dict.keys(record):
+        if isinstance(key, (str, bytes, bytearray, memoryview)) \
+                and str.__eq__(_stored_text(key), field):
+            return True
+    return False
+
+
+def _weekly_pair_get(record, field):
+    """Read one field of a handed record through its stored
+    pairs, in the form _weekly_pair_present states."""
+    if not isinstance(record, dict):
+        return None
+    for key, item in dict.items(record):
+        if isinstance(key, (str, bytes, bytearray, memoryview)) \
+                and str.__eq__(_stored_text(key), field):
+            return item
+    return None
+
+
+def _stored_identifier_form(value, _depth=0, _seen=None):
+    """The stored form of one headline unit identifier, built
+    from the contents it stores through the base readings of
+    its form, never through a repr, equality, or hash reading
+    the value itself supplies: text by its stored characters,
+    a boolean apart from every number, a plain number by the
+    number it stores, a Decimal or a Fraction by its base
+    string form, a buffer by its stored bytes, and a container
+    part by part under this same reading, dicts by their
+    stored pairs in order, lists and tuples in order, and
+    sets and frozensets apart from each other and order
+    insensitively. A part in no stated form stands keyed by
+    its kind name alone, and a part standing deeper than the
+    depth bound of 100, or standing again on its own walk
+    path, stands keyed by a stated marker in that posture."""
+    if isinstance(value, bool):
+        return ("bool", value is True)
+    if isinstance(value, str):
+        return ("text", str.__str__(value))
+    if isinstance(value, int):
+        return ("int", int.__int__(value))
+    if isinstance(value, float):
+        return ("float", float.__float__(value))
+    if isinstance(value, Decimal):
+        return ("decimal", Decimal.__str__(value))
+    if isinstance(value, Fraction):
+        return ("fraction", Fraction.__str__(value))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return ("bytes", bytes(value))
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        if _depth > 100:
+            return ("too deep",)
+        seen = _seen if _seen is not None else set()
+        if id(value) in seen:
+            return ("cycle",)
+        seen = seen | {id(value)}
+        if isinstance(value, dict):
+            return ("dict", tuple(
+                (_stored_identifier_form(key, _depth + 1, seen),
+                 _stored_identifier_form(item, _depth + 1, seen))
+                for key, item in dict.items(value)))
+        if isinstance(value, list):
+            return ("list", tuple(
+                _stored_identifier_form(item, _depth + 1, seen)
+                for item in list.__iter__(value)))
+        if isinstance(value, tuple):
+            return ("tuple", tuple(
+                _stored_identifier_form(item, _depth + 1, seen)
+                for item in tuple.__iter__(value)))
+        if isinstance(value, frozenset):
+            return ("frozenset", frozenset(
+                _stored_identifier_form(item, _depth + 1, seen)
+                for item in frozenset.__iter__(value)))
+        return ("set", frozenset(
+            _stored_identifier_form(item, _depth + 1, seen)
+            for item in set.__iter__(value)))
+    if value is None:
+        return ("none",)
+    return ("kind", type(value).__name__)
+
+
 def weekly_headline_count(summary_records, week):
     """The weekly headline count program check, counted from the
     stored summary records alone as distinct headline unit
@@ -1436,7 +1580,14 @@ def weekly_headline_count(summary_records, week):
     that never ran. The records argument stands read through
     the base iteration reading of its form, never through an
     iteration or length reading the argument itself supplies,
-    as its MOD-11 sister act reads the same argument."""
+    as its MOD-11 sister act reads the same argument. A
+    container identifier stands keyed on the stored form it
+    carries, built through the base readings of its form,
+    never on a repr reading the identifier itself supplies,
+    so two distinct container identifiers sharing one
+    supplied repr stand counted as the two units they are,
+    and two container identifiers storing the same contents
+    stand counted as one."""
     if summary_records is None:
         raise NamedShellFailure(
             "weekly_headline_count stands refused: no "
@@ -1456,18 +1607,18 @@ def weekly_headline_count(summary_records, week):
             "weekly headline count stands certified without it")
     seen = []
     for record in _container_parts(summary_records):
-        if not isinstance(record, dict) or not _base_contains(record, "week"):
+        if not isinstance(record, dict) or not _weekly_pair_present(record, "week"):
             raise NamedShellFailure(
                 "summary record carries no week field, so its weekly "
                 "headline count cannot stand read")
-        if not _week_stands_equal(_base_get(record, "week"), week):
+        if not _week_stands_equal(_weekly_pair_get(record, "week"), week):
             continue
-        if not _base_contains(record, "headline_unit_identifiers"):
+        if not _weekly_pair_present(record, "headline_unit_identifiers"):
             raise NamedShellFailure(
                 "summary record for the week carries no "
                 "headline_unit_identifiers field, and no weekly "
                 "headline count stands certified without it")
-        identifiers = _base_get(record, "headline_unit_identifiers")
+        identifiers = _weekly_pair_get(record, "headline_unit_identifiers")
         if identifiers is None:
             raise NamedShellFailure(
                 "summary record for the week carries a "
@@ -1489,7 +1640,7 @@ def weekly_headline_count(summary_records, week):
                 # The bound of row R14-072, stated in the open: a
                 # container element in place of an identifier
                 # still counts as one.
-                key = ("container", _safe_repr(unit_id))
+                key = ("container", _stored_identifier_form(unit_id))
             elif isinstance(unit_id, str) and \
                     _HEADLINE_IDENTIFIER_PATTERN.fullmatch(
                         str.__str__(unit_id)) is not None:
@@ -1532,7 +1683,13 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
     no, or as the number 1 or 0. A text mark stands judged on
     the text it stores, read through the stored text form of
     this module, never through a strip or lower reading the
-    mark itself supplies. A log or an entry in any
+    mark itself supplies. A number mark stands judged on the
+    number it stores, read through the base integer reading,
+    never through an equality reading the mark itself
+    supplies, so a mark storing a stated number stands judged
+    as that number and a mark storing any other number draws
+    the named refusal, with no bare escape on a raising
+    equality reading. A log or an entry in any
     other form stands refused in
     named form, never read as an empty log."""
     if extra_source is not None:
@@ -1598,8 +1755,8 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
                     "the stated values: true or false, stated as "
                     "a boolean, as the text true, false, yes, "
                     "or no, or as the number 1 or 0")
-        elif isinstance(mark, int) and mark in (0, 1):
-            stands_outside = bool(mark)
+        elif isinstance(mark, int) and int.__int__(mark) in (0, 1):
+            stands_outside = bool(int.__int__(mark))
         else:
             raise NamedShellFailure(
                 "outside call check stands refused: a call entry "
@@ -2600,7 +2757,10 @@ def _operator_action_bar(action):
             + ", not a stated target")
     kind = _normalise_name(raw_kind)
     target = _normalise_name(raw_target)
-    path = _normalise_name(dict.get(action, "path"))
+    raw_path = dict.get(action, "path")
+    if isinstance(raw_path, (bytes, bytearray, memoryview)):
+        raw_path = _stored_text(raw_path)
+    path = _normalise_name(raw_path)
     path = _RULE_PATHS_BY_FOLDED.get(
         _folded_reading(path), path)
     touched = _touched_protected_targets(target)
@@ -2642,7 +2802,11 @@ def validate_operator_action(action):
     target touched. A kind or a target standing in
     a non text form, and a verb the boundary cannot read as a
     stated act, stand refused on a protected target by name in
-    the reason form. No operator action edits a sealed family
+    the reason form. A rule path handed in a buffer form
+    stands read on the text it stores, in the same manner as
+    the flag evaluation tier and actor limbs of this module,
+    so the allowed standing stands alike in every dress a
+    path stores its text in. No operator action edits a sealed family
     record on any path; the flag rule path admits edit acts only
     on a closed run record, and a destructive act stands refused
     there as on every path; a checkpoint set stands edited only

@@ -47,7 +47,12 @@ def _freeze(value, _memo=None):
     constructor the part itself supplies. A part in no
     container form stands copied as itself. Shared and cyclic
     container parts stand preserved through the memo, as a
-    plain deep copy preserves them."""
+    plain deep copy preserves them. A dict assignment whose key hash or equality reading
+    raises at the assignment itself stands carried under a
+    distinct numbered form, a plain text numbered form where
+    a form carrying the key itself cannot stand inserted, in
+    the MOD-14 cured form, so no carried entry is silently
+    dropped on that reading and no bare error escapes the copy."""
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):
@@ -56,7 +61,27 @@ def _freeze(value, _memo=None):
         copied = {}
         _memo[id(value)] = copied
         for key, item in dict.items(value):
-            copied[_freeze(key, _memo)] = _freeze(item, _memo)
+            copied_key = _freeze(key, _memo)
+            copied_item = _freeze(item, _memo)
+            try:
+                copied[copied_key] = copied_item
+            except Exception:
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except Exception:
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
@@ -78,8 +103,12 @@ def _freeze(value, _memo=None):
     if isinstance(value, frozenset):
         if id(value) in _memo:
             return _memo[id(value)]
-        copied = frozenset(
-            _freeze(item, _memo) for item in frozenset.__iter__(value))
+        copied_items = [
+            _freeze(item, _memo) for item in frozenset.__iter__(value)]
+        try:
+            copied = frozenset(copied_items)
+        except Exception:
+            copied = copied_items
         if id(value) in _memo:
             return _memo[id(value)]
         _memo[id(value)] = copied
@@ -89,8 +118,14 @@ def _freeze(value, _memo=None):
             return _memo[id(value)]
         copied = set()
         _memo[id(value)] = copied
-        for item in set.__iter__(value):
-            copied.add(_freeze(item, _memo))
+        copied_items = [
+            _freeze(item, _memo) for item in set.__iter__(value)]
+        try:
+            for frozen_item in copied_items:
+                copied.add(frozen_item)
+        except Exception:
+            _memo[id(value)] = copied_items
+            return copied_items
         return copied
     if isinstance(value, str):
         return str.__str__(value)
@@ -250,8 +285,8 @@ def _shape_cause(value):
         if isinstance(node, dict):
             children = []
             for key in dict.keys(node):
-                children.append((key, path + "/" + str(key)))
-                children.append((dict.get(node, key), path + "/" + str(key)))
+                children.append((key, path + "/" + _safe_str(key)))
+                children.append((dict.get(node, key), path + "/" + _safe_str(key)))
         else:
             base_iter = (list.__iter__ if isinstance(node, list)
                          else tuple.__iter__ if isinstance(node, tuple)
@@ -578,6 +613,22 @@ def _safe_str(value):
         return str(value)
     except Exception:
         return object.__repr__(value)
+
+
+def _plain_number_value(value):
+    """The plain number a handed value stands as, where the
+    value stands in the plain number limb, an int or a float
+    with a boolean standing apart from every number, read
+    through its base class reading, so a number subclass
+    stands judged on the number it stores and never through
+    a comparison reading it supplies, in the cured MOD-11
+    sister form. A value in any other form reads as None."""
+    if isinstance(value, bool) \
+            or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, int):
+        return int.__int__(value)
+    return float.__float__(value)
 
 
 def kill_check_for_claim(claim):
@@ -2607,7 +2658,7 @@ def winning_regime(daily_shares):
             raise NamedControllerFailure(
                 "winning regime entry carries a non numeric share: "
                 + _safe_repr(entry))
-        if not attacker > honest:
+        if not _plain_number_value(attacker) > _plain_number_value(honest):
             return False
     return True
 
@@ -2631,16 +2682,15 @@ def top_up_applies(winning_probability, replicates_after_top_up):
     probability above 0.1 and below 0.9 is topped up to at least
     30 replicates, and the rule stands recorded in the run
     record."""
-    if not isinstance(winning_probability, (int, float)) \
-            or isinstance(winning_probability, bool) \
-            or not isinstance(replicates_after_top_up, (int, float)) \
-            or isinstance(replicates_after_top_up, bool):
+    plain_probability = _plain_number_value(winning_probability)
+    plain_replicates = _plain_number_value(replicates_after_top_up)
+    if plain_probability is None or plain_replicates is None:
         raise NamedControllerFailure(
             "top up rule inputs are not numbers: "
             + _safe_repr((winning_probability, replicates_after_top_up)))
     return bool(
-        0.1 < winning_probability < 0.9
-        and replicates_after_top_up >= 30
+        0.1 < plain_probability < 0.9
+        and plain_replicates >= 30
     )
 
 
@@ -2747,7 +2797,11 @@ def hostile_kind_counts_as_run(kind=None, ran_at=None, fixed_magnitude=None):
     as run."""
     if ran_at is None or fixed_magnitude is None:
         return False
-    return ran_at >= fixed_magnitude
+    plain_ran_at = _plain_number_value(ran_at)
+    plain_magnitude = _plain_number_value(fixed_magnitude)
+    if plain_ran_at is None or plain_magnitude is None:
+        return False
+    return plain_ran_at >= plain_magnitude
 
 
 def counting_basis(fixture="F-20"):

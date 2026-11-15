@@ -53,7 +53,12 @@ def _freeze(value, _memo=None):
     no buffer part stands shared with the caller. A part in
     no container or buffer form stands copied as itself.
     Shared and cyclic container parts stand preserved
-    through the memo, as a plain deep copy preserves them."""
+    through the memo, as a plain deep copy preserves them. A dict assignment whose key hash or equality reading
+    raises at the assignment itself stands carried under a
+    distinct numbered form, a plain text numbered form where
+    a form carrying the key itself cannot stand inserted, in
+    the MOD-14 cured form, so no carried entry is silently
+    dropped on that reading and no bare error escapes the copy."""
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):
@@ -62,7 +67,27 @@ def _freeze(value, _memo=None):
         copied = {}
         _memo[id(value)] = copied
         for key, item in dict.items(value):
-            copied[_freeze(key, _memo)] = _freeze(item, _memo)
+            copied_key = _freeze(key, _memo)
+            copied_item = _freeze(item, _memo)
+            try:
+                copied[copied_key] = copied_item
+            except Exception:
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except Exception:
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
@@ -84,8 +109,12 @@ def _freeze(value, _memo=None):
     if isinstance(value, frozenset):
         if id(value) in _memo:
             return _memo[id(value)]
-        copied = frozenset(
-            _freeze(item, _memo) for item in frozenset.__iter__(value))
+        copied_items = [
+            _freeze(item, _memo) for item in frozenset.__iter__(value)]
+        try:
+            copied = frozenset(copied_items)
+        except Exception:
+            copied = copied_items
         if id(value) in _memo:
             return _memo[id(value)]
         _memo[id(value)] = copied
@@ -95,8 +124,14 @@ def _freeze(value, _memo=None):
             return _memo[id(value)]
         copied = set()
         _memo[id(value)] = copied
-        for item in set.__iter__(value):
-            copied.add(_freeze(item, _memo))
+        copied_items = [
+            _freeze(item, _memo) for item in set.__iter__(value)]
+        try:
+            for frozen_item in copied_items:
+                copied.add(frozen_item)
+        except Exception:
+            _memo[id(value)] = copied_items
+            return copied_items
         return copied
     if isinstance(value, bytearray):
         return bytearray(value)
@@ -148,10 +183,21 @@ def _base_get(record, key):
 
 
 def _base_contains(record, key):
-    """Test one key through the base dict contains, never
+    """Test one key through its stored pairs, in the form
+    _stored_get states: a key standing present where a stored
+    key carries its name in stored text, never through a hash
+    or equality reading a stored key supplies, and never
     through a contains reading the record itself supplies."""
-    return isinstance(record, dict) and dict.__contains__(
-        record, key)
+    if not isinstance(record, dict):
+        return False
+    for stored_key in dict.keys(record):
+        if stored_key is key:
+            return True
+        if isinstance(key, str) and any(
+                text is not None and str.__eq__(text, key)
+                for text in _stored_key_texts(stored_key)):
+            return True
+    return False
 
 
 def _base_sequence_items(value):
