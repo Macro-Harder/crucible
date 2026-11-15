@@ -397,8 +397,9 @@ class TestControllerValidators(unittest.TestCase):
         for count in statement["runs_completed_by_class"].values():
             self.assertEqual(count, 0)
         self.assertIn("DQ7-02", statement["bound"])
-        runs = [{"run_class": "screening"}, {"run_class": "screening"},
-                {"run_class": "headline"}]
+        runs = [{"run_class": "screening", "run_id": "screening-1"},
+                {"run_class": "screening", "run_id": "screening-2"},
+                {"run_class": "headline", "run_id": "headline-1"}]
         readout = mod12.screening_readout(fixture="F-17", runs=runs)
         statement = readout["sample_statement"]
         self.assertEqual(statement["runs_completed_by_class"]["screening"], 2)

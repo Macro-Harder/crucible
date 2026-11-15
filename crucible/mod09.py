@@ -209,16 +209,91 @@ def _base_items(value):
     return []
 
 
+def _plain_number(value):
+    """A numeric value as the plain number it stores, read
+    through the base class reading of its own form, never
+    through a reading the value itself supplies."""
+    if isinstance(value, int):
+        return int.__int__(value)
+    if isinstance(value, float):
+        return float.__float__(value)
+    return complex.__complex__(value)
+
+
+def _base_value_eq(first, second):
+    """Whether two handed values in no text form stand equal on
+    their stored forms alone: a boolean by identity, a number
+    by the plain number it stores, judged through the plain
+    equality of two plain numbers, a list or a tuple by its
+    stored parts in order, a set or a frozenset by its stored
+    parts in any order, a mapping by its stored pairs, and
+    every other value by identity, so no equality reading a
+    value itself supplies is ever consulted, and no such
+    reading can raise out of the judgement."""
+    if isinstance(first, bool) or isinstance(second, bool):
+        return first is second
+    if isinstance(first, (int, float, complex)) and isinstance(
+            second, (int, float, complex)):
+        result = _plain_number(first) == _plain_number(second)
+        return result is True
+    if (isinstance(first, list) and isinstance(second, list)) or (
+            isinstance(first, tuple)
+            and isinstance(second, tuple)):
+        first_parts = _base_items(first)
+        second_parts = _base_items(second)
+        return len(first_parts) == len(second_parts) and all(
+            _stored_match(part, other) and _stored_eq(part, other)
+            for part, other in zip(first_parts, second_parts))
+    if isinstance(first, (set, frozenset)) and isinstance(
+            second, (set, frozenset)):
+        remaining = _base_sequence(second)
+        if len(_base_sequence(first)) != len(remaining):
+            return False
+        for part in _base_sequence(first):
+            hit = None
+            for index, candidate in enumerate(remaining):
+                if _stored_match(part, candidate) and _stored_eq(
+                        part, candidate):
+                    hit = index
+                    break
+            if hit is None:
+                return False
+            remaining.pop(hit)
+        return True
+    if isinstance(first, dict) and isinstance(second, dict):
+        first_items = list(dict.items(first))
+        remaining = list(dict.items(second))
+        if len(first_items) != len(remaining):
+            return False
+        for key, value in first_items:
+            hit = None
+            for index, (other_key, other_value) in enumerate(
+                    remaining):
+                if _stored_match(key, other_key) and _stored_eq(
+                        key, other_key) and _stored_match(
+                        value, other_value) and _stored_eq(
+                        value, other_value):
+                    hit = index
+                    break
+            if hit is None:
+                return False
+            remaining.pop(hit)
+        return True
+    return first is second
+
+
 def _stored_match(first, second):
     """Judge two stored values: text values by their stored
     characters through the base string equality, any other pair
-    by the plain equality of its plain forms."""
+    on its stored forms through the base value equality of this
+    module, never through an equality reading either value
+    itself supplies."""
     if isinstance(first, str) or isinstance(second, str):
         if not (isinstance(first, str) and isinstance(second, str)):
             return False
         result = str.__eq__(first, second)
         return result if result is not NotImplemented else False
-    return first == second
+    return _base_value_eq(first, second)
 
 
 def _base_sequence(value):
@@ -254,8 +329,7 @@ def _stored_eq(first, second):
     if isinstance(first, (bytes, bytearray, memoryview)) \
             and isinstance(second, (bytes, bytearray, memoryview)):
         return bytes(first) == bytes(second)
-    result = first == second
-    return result is True
+    return _base_value_eq(first, second)
 
 
 def _base_contains(container, item):
@@ -401,15 +475,25 @@ def _catalogue_order_key(name):
     through the base string reading so a reading the identifier
     itself supplies directs nothing. A bytes form identifier
     stands ordered after text identifiers, by the text its
-    stored bytes decode to. Every other identifier stands
+    stored bytes decode to, by its kind name, and by its raw
+    stored bytes as the tie break. Every other identifier stands
     ordered last, by its kind name and its base representation."""
     if isinstance(name, str):
         return (0, "".join(
             str.__getitem__(name, index)
             for index in range(str.__len__(name))), "")
     if isinstance(name, (bytes, bytearray, memoryview)):
+        # The decoded text alone does not order this group:
+        # distinct stored bytes that decode, with undecodable
+        # bytes dropped, to the same text would tie on it and
+        # fall back to the iteration order of the handed set,
+        # which the hash seed governs. The raw stored bytes
+        # stand as the tie break after the decoded text, in the
+        # form of the sibling cure at MOD-03, so two identifiers
+        # of this group tie only where their stored bytes stand
+        # identical as well.
         return (1, bytes(name).decode("utf-8", "ignore"),
-                type(name).__name__)
+                type(name).__name__, bytes(name))
     return (2, type(name).__name__, repr(name))
 
 
@@ -737,7 +821,8 @@ def search_record_validation_failures(record, fixed_class=None):
                     "the fixed class")
     search = _base_dict_get(record, "search_record", {})
     if not isinstance(search, dict):
-        failures.append("the search record field list stands absent")
+        failures.append(
+            "the search record field list stands in no record form")
     else:
         for field in SEARCH_RECORD_FIELDS:
             key = field.replace(" ", "_")
@@ -755,8 +840,13 @@ def search_record_validation_failures(record, fixed_class=None):
                         + field)
     bond = _base_dict_get(record, "bond_parameter_search")
     if not isinstance(bond, dict):
-        failures.append(
-            "the bond parameter search limb stands absent")
+        if _base_dict_contains(record, "bond_parameter_search"):
+            failures.append(
+                "the bond parameter search limb stands in no "
+                "record form")
+        else:
+            failures.append(
+                "the bond parameter search limb stands absent")
     else:
         if _base_dict_get(bond, "worst_griefing_factor") is None:
             failures.append(
@@ -989,7 +1079,7 @@ def build_search_record(run_carriage, points_tried,
     search point only with both C-7 standings carried beside it.
     """
     uses = []
-    for use in case_uses or []:
+    for use in _base_items(case_uses):
         entry = _stored_copy(use)
         if entry.get("fixture") == "F-26":
             entry["use"] = "strategy search point only"
@@ -1008,13 +1098,14 @@ def build_search_record(run_carriage, points_tried,
             "starting_points": _stored_copy(starting_points),
             "order_of_search": _stored_copy(order_of_search),
             "per_point_outcome": _stored_copy(per_point_outcome),
-            "every_adaptation": _stored_copy(adaptations or []),
+            "every_adaptation": _stored_copy(
+                adaptations if adaptations is not None else []),
         },
         "bond_parameter_search": bond_search(
             bond_candidates, griefing_evaluator),
         "case_uses": uses,
         "external_profit_swept_values": list(
-            external_profit_swept_values or []),
+            _base_sequence(external_profit_swept_values)),
         "mid_run_strategies": list(mid_run_strategies or []),
         "stopping_rule": stopping_rule_state(
             _base_dict_get(run_carriage, "ladder_position")),
@@ -1054,7 +1145,13 @@ def readout(search_record, found_failure=True, wording="",
     adjudication robustness readout that ran no conditional
     briber strategy, or that ran with the external profit
     parameter fixed at zero only, stands reported as an in
-    protocol result only, never as an economic security result.
+    protocol result only, never as an economic security result,
+    and the unit states its result kind in both cases. The no
+    failure sentence stands added only where the search record
+    itself records no failure at its points, whatever the
+    caller's flag states, and a wording that carries an
+    established claim or an economic security claim stands
+    refused in the same form as the established flag.
     """
     if not isinstance(search_record, dict):
         raise NamedAttackerFailure(
@@ -1075,6 +1172,16 @@ def readout(search_record, found_failure=True, wording="",
             "established while DQ7-10 stands open, and none "
             "before its stopping conditions stand met"
         )
+    if isinstance(wording, str):
+        wording_text = str.lower(str.__str__(wording))
+        if "established" in wording_text or (
+                "economically secure" in wording_text) or (
+                "economic security" in wording_text):
+            raise NamedAttackerFailure(
+                "readout rejected: no readout stands reported as "
+                "established while DQ7-10 stands open, and none "
+                "before its stopping conditions stand met"
+            )
     if not stopping_rule_state(position)["readout_point"]:
         status = "not at the readout point"
     else:
@@ -1100,6 +1207,17 @@ def readout(search_record, found_failure=True, wording="",
             _stands_numeric(v) and v > 0
             for v in _base_sequence(swept))
     )
+    search_limb = _base_dict_get(search_record, "search_record", {})
+    recorded_failure = False
+    if isinstance(search_limb, dict):
+        outcomes = _base_dict_get(
+            search_limb, "per_point_outcome", [])
+        for entry in _base_sequence(outcomes):
+            if isinstance(entry, dict) and _stored_eq(
+                    _base_dict_get(entry, "outcome"),
+                    "failure found"):
+                recorded_failure = True
+                break
     unit = {
         "wording": wording,
         "coverage_sentence": COVERAGE_SENTENCE,
@@ -1107,10 +1225,12 @@ def readout(search_record, found_failure=True, wording="",
         "readout_status": status,
         "units": UNITS,
     }
-    if not found_failure:
+    if not found_failure and not recorded_failure:
         unit["no_failure_sentence"] = NO_FAILURE_SENTENCE
     if in_protocol_only:
         unit["result_kind"] = "in protocol result only"
+    else:
+        unit["result_kind"] = "economic security result"
     return unit
 
 

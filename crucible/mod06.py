@@ -649,9 +649,26 @@ def _key_matches_multi_reading(key, target):
 def _key_reads_as(key, folded_name):
     if isinstance(key, (dict, list, tuple, set, frozenset)):
         if _has_unordered_split(key):
-            for candidate in _joined_text_candidates(key):
-                if candidate and _key_reads_as(candidate, folded_name):
-                    return True
+            joined_text = _joined_stored_text(key)
+            low = 0
+            high = 0
+            for character in _fold_characters(joined_text):
+                lengths = []
+                for option in _character_reading_options(character):
+                    plain_option = "".join(
+                        part for part in option if part.isalnum())
+                    lengths.append(len(plain_option))
+                    lengths.append(len("".join(
+                        part for part in plain_option
+                        if not part.isdigit())))
+                if lengths:
+                    low += min(lengths)
+                    high += max(lengths)
+            if low <= len(folded_name) <= high:
+                for candidate in _joined_text_candidates(key):
+                    if candidate and _key_reads_as(
+                            candidate, folded_name):
+                        return True
         if _seg_exact(key, folded_name):
             return True
         joined = _joined_stored_text(key)
@@ -2119,6 +2136,71 @@ def _payload_carries_barred(value, _depth=0, _seen=None, _walked=None):
     return result
 
 
+def _dict_node_split_barred(value):
+    """Whether a barred marker stands split across two or more
+    keys of one dict, in the form settlement S-11 states: the
+    dict node itself stands judged, in its stored key order,
+    where an occurrence of the marker crosses a boundary
+    between consecutive keys, the first key contributing a
+    tail of one of its readings that stands as the opening of
+    the marker, each middle key contributing one whole reading
+    as an exact piece of it, and the last key contributing a
+    reading that begins with its closing. A marker standing
+    inside one key alone stands judged by the per key acts,
+    never here. The money marker bars only where a value
+    stands under every key the occurrence uses, as the walk
+    states for a money name; the anchor marker bars on its
+    reading alone, as the walk states for it."""
+    pairs = list(dict.items(value))
+    if len(pairs) < 2:
+        return False
+    texts = [_joined_stored_text(key) for key, item in pairs]
+    spaces = []
+    spaces.append((
+        [{text.lower()} if text else {""} for text in texts],
+        (("anchor_set", False), ("real_money", True))))
+    spaces.append((
+        [set(_folded_readings(text)) if text else {""}
+         for text in texts],
+        (("anchorset", False), ("realmoney", True),
+         ("realmani", True))))
+    for readings, patterns in spaces:
+        for pattern, money in patterns:
+            for start in range(len(pairs)):
+                for reading in readings[start]:
+                    if not reading:
+                        continue
+                    for cut in range(len(reading)):
+                        piece = reading[cut:]
+                        if not piece or len(piece) >= len(pattern):
+                            continue
+                        if piece != pattern[:len(piece)]:
+                            continue
+                        present = pairs[start][1] is not None
+                        stack = [(start + 1, len(piece), present)]
+                        while stack:
+                            index, pos, ok = stack.pop()
+                            if pos >= len(pattern):
+                                if not money or ok:
+                                    return True
+                                continue
+                            if index >= len(pairs):
+                                continue
+                            next_ok = ok and (
+                                pairs[index][1] is not None)
+                            for option in readings[index]:
+                                if not option:
+                                    continue
+                                if option == pattern[pos:pos + len(option)]:
+                                    stack.append((
+                                        index + 1,
+                                        pos + len(option), next_ok))
+                                elif option.startswith(pattern[pos:]):
+                                    if not money or next_ok:
+                                        return True
+    return False
+
+
 def _payload_walk_barred(value, _depth=0, _seen=None, _walked=None):
     """The walk behind _payload_carries_barred, carrying the
     path scoped seen set its cycle guard states and reaching its
@@ -2132,6 +2214,8 @@ def _payload_walk_barred(value, _depth=0, _seen=None, _walked=None):
         if id(value) in seen:
             return True
         seen.add(id(value))
+        if _dict_node_split_barred(value):
+            return True
         all_keys = []
         for key in dict.keys(value):
             all_keys.extend(_key_and_parts(key))
@@ -2281,18 +2365,24 @@ def escrow_contract_state(contract_identifier, variant="B-4", lien_state="no lie
     carried as a field whose value set stands unstated at
     OP-21 G-10, and no value is invented for it."""
     if not _base_member(variant, ("B-3", "B-4")):
-        raise ValueError("the escrow variant stands outside the B-3 and B-4 set: " + str(variant))
+        raise ValueError(
+            "escrow_contract_state stands refused: the escrow variant "
+            "stands outside the B-3 and B-4 set: " + str(variant)
+            + ", and no escrow contract state stands returned")
     if not _base_member(lien_state, mod01.LIEN_STATES):
-        raise ValueError("the lien state stands outside the closed four value set: " + str(lien_state))
+        raise ValueError(
+            "escrow_contract_state stands refused: the lien state "
+            "stands outside the closed four value set: " + str(lien_state)
+            + ", and no escrow contract state stands returned")
     state = {
         "contract_identifier": contract_identifier,
-        "pair_identifiers": copy.deepcopy(pair_identifiers),
+        "pair_identifiers": _undirected_copy(pair_identifiers),
         "standard_or_profile_identifier": standard_or_profile_identifier,
         "variant": variant,
         "lien_state": lien_state,
         "estimated_cost_value": estimated_cost_value,
         "pause_state": pause_state,
-        "pause_cap_value": copy.deepcopy(pause_cap_value) if pause_cap_value is not None else pause_cap(variant)["per_variant_pause_value"],
+        "pause_cap_value": _undirected_copy(pause_cap_value) if pause_cap_value is not None else pause_cap(variant)["per_variant_pause_value"],
         "k1_and_l2_state": "carried; value set open at OP-21 G-10",
         "lost_contact_clause_on": bool(lost_contact_clause_on),
     }
@@ -2622,13 +2712,13 @@ def report_difference(difference, folding_record=None):
     an unfolded difference only, in no ruling effect wording."""
     if folding_record is not None and validate_folding_record(folding_record):
         return {
-            "difference": copy.deepcopy(difference),
+            "difference": _undirected_copy(difference),
             "reported_as": "ruling effect",
             "ruling_effect_wording": True,
-            "folding_record": copy.deepcopy(folding_record),
+            "folding_record": _undirected_copy(folding_record),
         }
     return {
-        "difference": copy.deepcopy(difference),
+        "difference": _undirected_copy(difference),
         "reported_as": "unfolded difference only",
         "ruling_effect_wording": False,
         "folding_record": None,
@@ -2685,7 +2775,7 @@ def validate_dq_arrival_table(rows):
 def enter_ruling(rows, item, ruling_text):
     """Enter a ruling in the final column of its row, verbatim,
     when the ruling for that item arrives."""
-    updated = copy.deepcopy(list(rows))
+    updated = _undirected_copy(list(rows))
     for row in updated:
         if row.get("item") == item:
             row["final_column"] = ruling_text

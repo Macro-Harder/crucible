@@ -91,11 +91,24 @@ def retirement_tally(fixture):
     return tally
 
 
+def _verdict_text_stands(value, stated):
+    """Whether a handed verdict or recorded failure value stands
+    in one stated text, judged on the stored text of the value
+    where the value stands in text form, never through an
+    equality reading the value itself supplies."""
+    return isinstance(value, str) \
+        and str.__eq__(str.__str__(value), stated)
+
+
 def validate_publication_record(record):
     """Return True only for a complete publication record: it
     names the retirement test run that covered the unit, the
     version that run used, the verdict on each of the fifteen
-    checks, and every failure that run recorded."""
+    checks, and every failure that run recorded. The verdicts
+    key set stands read through the base dict keys reading, so
+    the stored pairs decide completeness, and each verdict
+    stands read against the stated verdict set, passed, failed,
+    or not applicable, on its stored text."""
     if not isinstance(record, dict):
         return False
     if not dict.get(record, "test_run") \
@@ -104,15 +117,26 @@ def validate_publication_record(record):
     verdicts = dict.get(record, "verdicts")
     if not isinstance(verdicts, dict):
         return False
-    if tuple(sorted(verdicts)) != tuple(sorted(RETIREMENT_CHECKS)):
+    if tuple(sorted(dict.keys(verdicts))) \
+            != tuple(sorted(RETIREMENT_CHECKS)):
         return False
+    for check in RETIREMENT_CHECKS:
+        verdict = dict.get(verdicts, check)
+        if not any(_verdict_text_stands(verdict, stated)
+                   for stated in ("passed", "failed",
+                                  "not applicable")):
+            return False
     recorded_failures = list(
         dict.get(record, "failures_recorded") or [])
     expected = [
         check for check in RETIREMENT_CHECKS
-        if dict.get(verdicts, check) == "failed"
+        if _verdict_text_stands(dict.get(verdicts, check), "failed")
     ]
-    return recorded_failures == expected
+    if len(recorded_failures) != len(expected):
+        return False
+    return all(
+        _verdict_text_stands(item, check)
+        for item, check in zip(recorded_failures, expected))
 
 
 def unit_is_publishable(unit):
@@ -376,17 +400,30 @@ def validate_registry_entry(entry, compiler, checker, run_log=None):
 def make_headline_unit(values):
     """Build one HeadlineResultUnit in the fixed Shape 15 field
     order. The unit is a closed unit: every field required, no
-    field beyond the fourteen, quotable whole or not at all."""
+    field beyond the fourteen, quotable whole or not at all.
+    Every field value stands copied through base class readings
+    only, in the form quote_headline_unit copies by, so no copy
+    protocol a part supplies is ever invoked at the build."""
     if not isinstance(values, dict):
-        raise ValueError("a headline unit is built from a field mapping")
+        raise ValueError(
+            "make_headline_unit stands refused: the headline unit "
+            "stands in no record form, a headline unit stands as a "
+            "field mapping, and no unit stands built")
     extra = [key for key in values if key not in HEADLINE_UNIT_FIELDS]
     if extra:
-        raise ValueError("fields beyond the closed unit: " + ", ".join(extra))
+        raise ValueError(
+            "make_headline_unit stands refused: fields beyond the "
+            "closed unit: "
+            + ", ".join(str(key) for key in extra)
+            + ", and no unit stands built")
     unit = {}
     for field in HEADLINE_UNIT_FIELDS:
         if field not in values or values[field] is None:
-            raise ValueError("headline unit field absent: " + field)
-        unit[field] = copy.deepcopy(values[field])
+            raise ValueError(
+                "make_headline_unit stands refused: headline unit "
+                "field absent: " + field
+                + ", and no unit stands built")
+        unit[field] = _quoted_copy(values[field])
     return unit
 
 
@@ -863,7 +900,9 @@ def _readable_stem(word):
     and ism limbs stand as derivation limbs beside those, each
     yielding the base the derivation stands on, with the ation
     limb yielding its ate base and the ibility limb yielding
-    its ible base. The s limb refuses the bases whose plural
+    its ible base. The able limb stands as a derivation limb
+    beside those, yielding its base in the plain form and in
+    the e dropping form. The s limb refuses the bases whose plural
     stands in no s form, and the ed limb refuses the bases
     whose past form stands in no ed form."""
     stems = []
@@ -893,18 +932,25 @@ def _readable_stem(word):
     # the papers name as no regular formation of the language.
     no_gradable = frozenset(
         ("sun", "dog", "table", "chair", "book", "house",
-         "window"))
+         "window", "good"))
     no_y_derivation = frozenset(
         ("book", "chair", "house", "window"))
     # Bases whose plural stands in no s form at all.
     no_s_plural = frozenset(
         ("child", "man", "woman", "sheep", "tooth", "wife",
-         "mouse", "foot"))
+         "mouse", "foot", "leaf", "life", "half", "shelf",
+         "children", "data", "information"))
     # Bases whose past form stands in no ed form at all, and
     # the past form went, which stands in the lexicon as a
     # form of go and so yields itself as an ed stem.
     no_ed_past = frozenset(
-        ("went", "teach", "bring", "run", "swim"))
+        ("went", "teach", "bring", "run", "swim", "catch",
+         "think", "speak", "steal", "write", "ride", "grow",
+         "know", "throw", "seek", "sell", "tell", "fall",
+         "take", "make", "give", "break", "choose", "drive",
+         "find", "say", "feel", "keep", "sleep", "leave",
+         "rise", "sit", "win", "hold", "stand", "forget",
+         "lose", "draw", "lead"))
 
     if word.startswith("un") and len(word) > 4:
         stems.append(word[2:])
@@ -985,6 +1031,9 @@ def _readable_stem(word):
         stems.append(word[:-3])
     if word.endswith("ism") and len(word) > 5:
         stems.append(word[:-3])
+    if word.endswith("able") and len(word) > 5:
+        stems.append(word[:-4])
+        stems.append(word[:-4] + "e")
     if word.endswith("ed") and len(word) > 3:
         ed_stems = [word[:-2], word[:-1]]
         plain = undoubled(word[:-2])
@@ -992,6 +1041,8 @@ def _readable_stem(word):
             ed_stems.append(plain)
         if word[:-2].endswith("i"):
             ed_stems.append(word[:-3] + "y")
+        if word[:-2] in no_ed_past or word[:-1] in no_ed_past:
+            ed_stems = []
         for ed_stem in ed_stems:
             if ed_stem not in no_ed_past:
                 stems.append(ed_stem)
@@ -1293,7 +1344,17 @@ def _parley_grounds_stated(other):
     stands read after the q limb, the joined ordinal stands
     read before the Parley name with the q limb after the
     name, and the numbered wording stands read with no
-    question or q limb in the statement."""
+    question or q limb in the statement. The ordinal fused
+    before the Parley name with the question word standing
+    after it, in one token or with the q or question limb
+    standing spaced beside that token, the ordinal fused
+    before the question word and the Parley name in one
+    token, the Parley name fused before the ordinal and the
+    question word in one token, the plural Parley name fused
+    to the q limb and its number, the ordinal standing spaced
+    before a fused parleyq or parleyquestion token, and the
+    fused name and question token standing beside a spaced
+    number stand read beside those forms."""
     tokens = _ground_tokens(other)
     grounds = set()
     ordinal_numbers = {
@@ -1332,6 +1393,10 @@ def _parley_grounds_stated(other):
             r"parleyq([125])", token)
         if joined is not None:
             grounds.add(joined.group(1))
+        plural_name_q = re.fullmatch(
+            r"parleysq([125])", token)
+        if plural_name_q is not None:
+            grounds.add(plural_name_q.group(1))
         joined_word = re.fullmatch(
             r"parleyq(one|two|five)", token)
         if joined_word is not None:
@@ -1393,6 +1458,9 @@ def _parley_grounds_stated(other):
                 r"parleyq" + ordinal_word,
                 ordinal_word + r"qparley",
                 ordinal_word + r"parleyq",
+                ordinal_word + r"parleyquestions?",
+                ordinal_word + r"questions?parley",
+                r"parley" + ordinal_word + r"questions?",
                 r"q" + ordinal_word + r"parley"):
             ordinal_joined = re.fullmatch(ordinal_pattern, token)
             if ordinal_joined is not None:
@@ -1598,6 +1666,21 @@ def _parley_grounds_stated(other):
                     and tokens[index + 1] in _PARLEY_GROUND_NUMBERS:
                 grounds.add(_PARLEY_GROUND_NUMBERS[
                     tokens[index + 1]])
+    for index in range(len(tokens) - 1):
+        first, second = tokens[index], tokens[index + 1]
+        ordinal_parley_token = re.fullmatch(
+            r"(first|second|fifth|1st|2nd|5th)parley", first)
+        if ordinal_parley_token is not None \
+                and second in ("q", "question", "questions"):
+            grounds.add(ordinal_numbers[
+                ordinal_parley_token.group(1)])
+        if first in ordinal_numbers \
+                and second in ("parleyq", "parleyquestion",
+                               "parleyquestions"):
+            grounds.add(ordinal_numbers[first])
+        if first in ("parleyquestion", "parleyquestions") \
+                and second in _PARLEY_GROUND_NUMBERS:
+            grounds.add(_PARLEY_GROUND_NUMBERS[second])
     return grounds
 
 
@@ -2230,15 +2313,45 @@ def weekly_count(summary_records, week):
     """Compute the weekly headline reading load from the stored
     summary records alone: distinct headline unit identifiers
     whose witness records fall in the week, one unit counting
-    once however many runs support it."""
-    identifiers = set()
+    once however many runs support it. The failures of the
+    count stand stated in the split forms its sister act at
+    MOD-14 states: a record with no week field, and a record
+    of the week with no headline unit identifier field, fail
+    apart, in the named form; neither is counted silently as
+    zero. A record of another week stands passed over, its
+    identifier field never read. A record of the week whose
+    identifier field stands at None, or in a form the count
+    cannot read as a list of identifiers, fails in the same
+    named form. A bare string identifier field counts as the
+    one identifier it states, never as its characters."""
+    identifiers = []
     for record in summary_records or []:
-        if not isinstance(record, dict) or "week" not in record or "headline_unit_identifiers" not in record:
-            raise ValueError("weekly count stands refused in named form: a summary record carries no week or no headline unit identifiers, and no silent zero stands counted")
+        if not isinstance(record, dict) or "week" not in record:
+            raise ValueError(
+                "summary record carries no week field, so its "
+                "weekly headline count cannot stand read")
         if record.get("week") != week:
             continue
-        for identifier in record.get("headline_unit_identifiers") or []:
-            identifiers.add(identifier)
+        if "headline_unit_identifiers" not in record:
+            raise ValueError(
+                "summary record for the week carries no "
+                "headline_unit_identifiers field")
+        field = record.get("headline_unit_identifiers")
+        if field is None:
+            raise ValueError(
+                "summary record for the week carries a "
+                "headline_unit_identifiers field standing at "
+                "no value")
+        if isinstance(field, str):
+            field = (field,)
+        elif not isinstance(field, (list, tuple, set, frozenset)):
+            raise ValueError(
+                "summary record for the week carries a "
+                "headline_unit_identifiers field the count "
+                "cannot read: " + type(field).__name__)
+        for identifier in field:
+            if identifier not in identifiers:
+                identifiers.append(identifier)
     return len(identifiers)
 
 

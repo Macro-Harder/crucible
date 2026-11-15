@@ -1792,6 +1792,7 @@ def _clean_value(value, _depth=0, _seen=None, _path=""):
         if id(value) in state["active"]:
             raise NamedFailure(
                 "projection cleaning found a cycle at " + (_path or "root")
+                + ", and no cleaning stands performed on the cyclic value"
             )
         state["active"].add(id(value))
         try:
@@ -1926,6 +1927,9 @@ def _value_appears(value, node, _seen=None, _depth=0, _walked=None):
                 "canary presence read bound reached: the value stands "
                 "deeper than the stated bound of "
                 + str(VALUE_APPEARS_DEPTH_BOUND)
+                + ", counted with every container standing around a "
+                "part counting toward that bound, and no presence "
+                "answer stands"
             )
         seen = _seen if _seen is not None else set()
         if id(node) in seen:

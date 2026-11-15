@@ -90,12 +90,16 @@ def _copy_guard(value, _depth=0, _seen=None, _path="root",
             raise ValueError(
                 "adapter copy stands refused in named form: a "
                 "value stands deeper than the stated bound of "
-                + str(COPY_DEPTH_BOUND) + " at " + _path)
+                + str(COPY_DEPTH_BOUND) + " at " + _path
+                + ", counted with every container standing around a "
+                "part counting toward that bound, and no copy stands "
+                "made")
         seen = _seen if _seen is not None else set()
         if id(value) in seen:
             raise ValueError(
                 "adapter copy stands refused in named form: a "
-                "value carries a cycle at " + _path)
+                "value carries a cycle at " + _path
+                + ", and no copy stands made")
         walked = _walked if _walked is not None else {}
         if (id(value), _depth) in walked:
             return
@@ -238,6 +242,80 @@ def _stored_text_eq(value, stated):
         str.__str__(value), stated) is True
 
 
+def _stored_pair_equal(first, second):
+    """Whether two handed values store the same value, judged on
+    their stored forms only, never through an equality reading
+    either value itself supplies: text values by their stored
+    characters, bytes form values by their stored bytes, numbers
+    and booleans by the base class operations of their kind,
+    containers part by part on their stored parts, and any other
+    value by identity alone."""
+    if isinstance(first, str) or isinstance(second, str):
+        return isinstance(first, str) and isinstance(second, str) \
+            and str.__eq__(
+                str.__str__(first), str.__str__(second)) is True
+    if isinstance(first, (bytes, bytearray, memoryview)) \
+            or isinstance(second, (bytes, bytearray, memoryview)):
+        return isinstance(first, (bytes, bytearray, memoryview)) \
+            and isinstance(second, (bytes, bytearray, memoryview)) \
+            and bytes.__eq__(bytes(first), bytes(second)) is True
+    if first is None or second is None:
+        return first is None and second is None
+    if isinstance(first, bool) or isinstance(second, bool):
+        return isinstance(first, bool) and isinstance(second, bool) \
+            and first is second
+    if isinstance(first, int) and isinstance(second, int):
+        return int.__eq__(first, second) is True
+    if isinstance(first, float) and isinstance(second, float):
+        return float.__eq__(first, second) is True
+    if isinstance(first, dict) and isinstance(second, dict):
+        if dict.__len__(first) != dict.__len__(second):
+            return False
+        second_items = list(dict.items(second))
+        for key, item in dict.items(first):
+            matched = None
+            for index, (other_key, other_item) in enumerate(second_items):
+                if _stored_pair_equal(key, other_key):
+                    matched = index
+                    matched_item = other_item
+                    break
+            if matched is None:
+                return False
+            if not _stored_pair_equal(item, matched_item):
+                return False
+            second_items.pop(matched)
+        return True
+    if isinstance(first, (list, tuple)) \
+            and isinstance(second, (list, tuple)):
+        if type(first) is not type(second):
+            return False
+        first_parts = _base_sequence(first)
+        second_parts = _base_sequence(second)
+        if len(first_parts) != len(second_parts):
+            return False
+        return all(
+            _stored_pair_equal(one, two)
+            for one, two in zip(first_parts, second_parts))
+    if isinstance(first, (set, frozenset)) \
+            and isinstance(second, (set, frozenset)):
+        first_parts = _base_sequence(first)
+        second_parts = _base_sequence(second)
+        if len(first_parts) != len(second_parts):
+            return False
+        remaining = list(second_parts)
+        for part in first_parts:
+            matched = None
+            for index, other in enumerate(remaining):
+                if _stored_pair_equal(part, other):
+                    matched = index
+                    break
+            if matched is None:
+                return False
+            remaining.pop(matched)
+        return True
+    return first is second
+
+
 def seam_gap_counts():
     """Return the seam gap counts R10 records: creation 7, release
     6, slash execution 8, standing over the fourteen open semantic
@@ -271,7 +349,7 @@ def validate_dependency_record(record):
         parts = _base_sequence(edge)
         if len(parts) != 2:
             return False
-        edges.append(tuple(_stored_copy(part) for part in parts))
+        edges.append(tuple(_stored_edge_text(part) for part in parts))
     for source, target in edges:
         if {source, target} == {"MOD-05", "MOD-06"}:
             return False
@@ -308,12 +386,12 @@ def make_adapter_choice(choice_identifier, reading_applied,
         "governing_text_version": governing_text_version,
         "escrow_variant_and_fold_version": escrow_variant_and_fold_version,
         "parley_test_total_source": parley_test_total_source,
-        "dependence_marks": list(dependence_marks or []),
+        "dependence_marks": _stored_copy(dependence_marks or []),
         "recorded_as": "adapter choice",
         "presented_as_rule_of": None,
         "approval": _stored_copy(approval),
-        "drives": list(drives or []),
-        "ruling_references": list(ruling_references or []),
+        "drives": _stored_copy(drives or []),
+        "ruling_references": _stored_copy(ruling_references or []),
         "seam_status": COMPUTED_NOT_SETTLED,
     }
 
@@ -364,7 +442,12 @@ def validate_choice_pair(log_entry, run_entry):
             if field != "dependence_marks" \
                     and _stored_text_eq(dict.get(entry, field), ""):
                 return False
-        if _stored_copy(dict.get(log_entry, field)) != _stored_copy(
+        if field == "dependence_marks":
+            if not _stored_pair_equal(
+                    dict.get(log_entry, field),
+                    dict.get(run_entry, field)):
+                return False
+        elif _stored_copy(dict.get(log_entry, field)) != _stored_copy(
                 dict.get(run_entry, field)):
             return False
     return True
@@ -531,6 +614,18 @@ def _stored_text(value):
     if isinstance(value, (bytes, bytearray, memoryview)):
         return bytes.decode(bytes(value), "utf-8", "ignore")
     return ""
+
+
+def _stored_edge_text(value):
+    """The text one edge part stores, in scalar or container
+    dress: a scalar part by its stored text, and a list or
+    tuple part by the stored text of its parts joined in
+    order, so an edge part handed in split container dress
+    stands judged as the text it stores."""
+    if isinstance(value, (list, tuple)):
+        return "".join(
+            _stored_edge_text(part) for part in _base_sequence(value))
+    return _stored_text(value)
 
 
 def _passage_text_states_something(text):
@@ -731,7 +826,7 @@ def joint_run_failure(run):
     choices = _bget(run, "adapter_choices")
     if choices is None:
         choices = []
-    if not isinstance(choices, (list, tuple)):
+    if not isinstance(choices, (list, tuple, set, frozenset)):
         return mod01.failure_value(
             "joint run adapter choices stand in no record list form fails")
     for choice in _base_sequence(choices):
@@ -748,7 +843,8 @@ def joint_run_failure(run):
             return mod01.failure_value(
                 "joint run choice pair stands in disagreement")
     records = _bget(run, "tracer_passage_records")
-    if isinstance(records, dict):
+    if records is not None and not isinstance(
+            records, (list, tuple, set, frozenset)):
         return mod01.failure_value(
             "joint run tracer passage records stand in no list form fails")
     if not isinstance(records, (list, tuple, set, frozenset)):
@@ -761,7 +857,16 @@ def joint_run_failure(run):
             stored_records, _bget(run, "positive_control")):
         return mod01.failure_value(
             "joint run has no valid tracer passage record")
-    for effect in _base_sequence(_bget(run, "cross_seam_effects")):
+    effects = _bget(run, "cross_seam_effects")
+    if effects is not None and not isinstance(
+            effects, (list, tuple, set, frozenset)):
+        if isinstance(effects, dict) \
+                and not validate_cross_seam_effect(effects):
+            return mod01.failure_value(
+                "cross seam effect carries settled wording")
+        return mod01.failure_value(
+            "joint run cross seam effects stand in no list form fails")
+    for effect in _base_sequence(effects):
         if not validate_cross_seam_effect(effect):
             return mod01.failure_value(
                 "cross seam effect carries settled wording")

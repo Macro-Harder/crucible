@@ -1607,12 +1607,16 @@ def _find_barred(node, path="", _depth=0, _seen=None, _walked=None):
                 + (path or "root")
                 + ": the value stands deeper than the stated bound of "
                 + str(BARRED_SEARCH_DEPTH_BOUND)
+                + ", counted with every container standing around a "
+                "part counting toward that bound, and no delivery "
+                "stands accepted on it"
             )
         seen = _seen if _seen is not None else set()
         if id(node) in seen:
             raise NamedDetectionFailure(
                 "delivery rejected: barred field search found a cycle at "
                 + (path or "root")
+                + ", and no delivery stands accepted on it"
             )
         walked = _walked if _walked is not None else {}
         standing = walked.get((id(node), _depth))
@@ -1680,6 +1684,9 @@ def _undirected_copy(value, _memo=None, _depth=0):
                 "delivery rejected: barred field search bound reached: "
                 "the value stands deeper than the stated bound of "
                 + str(BARRED_SEARCH_DEPTH_BOUND)
+                + ", counted with every container standing around a "
+                "part counting toward that bound, and no copy stands "
+                "made on it"
             )
     if _memo is None:
         _memo = {}
@@ -1773,13 +1780,13 @@ def accept_detection_input(record):
     if not isinstance(identifier_raw, str):
         raise NamedDetectionFailure(
             "delivery rejected: the agent identifier stands in no "
-            "identifier form"
+            "identifier form: " + repr(identifier_raw)
         )
     identifier = str.__str__(identifier_raw)
     if not identifier:
         raise NamedDetectionFailure(
-            "delivery rejected: the agent identifier stands in no "
-            "identifier form"
+            "delivery rejected: the agent identifier stands empty, "
+            "no identifier stands stated in it: " + repr(identifier_raw)
         )
     day_raw = dict.get(values, "day")
     if isinstance(day_raw, bool) or not isinstance(day_raw, int):
@@ -2494,7 +2501,7 @@ def compare_verdict_determinism(material_a, material_b=None):
 
     def _canonical(records):
         return sorted(
-            (copy.deepcopy(record) for record in records),
+            (_undirected_copy(record) for record in records),
             key=lambda record: (
                 str(_record_values(record).get("agent_identifier")),
                 _record_values(record).get("day"),

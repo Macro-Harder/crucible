@@ -2413,6 +2413,11 @@ def _panel_clean(value, _depth=0, _seen=None, _path="", _walked=None):
         seen.add(id(value))
         try:
             if isinstance(value, dict):
+                if _panel_key_barred(value) and not any(
+                        _panel_key_barred(key)
+                        for key in dict.keys(value)):
+                    walked[walked_key] = {}
+                    return {}
                 cleaned = {}
                 for key, item in dict.items(value):
                     if _panel_key_barred(key):
@@ -2477,7 +2482,11 @@ def _panel_carries_barred(value, _depth=0, _seen=None, _path="",
         seen.add(id(value))
         try:
             if isinstance(value, dict):
-                result = any(
+                result = (
+                    _panel_key_barred(value) and not any(
+                        _panel_key_barred(key)
+                        for key in dict.keys(value))
+                ) or any(
                     _panel_key_barred(key)
                     or _panel_carries_barred(
                         key, _depth + 1, seen, _path + "/" + str(key),

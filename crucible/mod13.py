@@ -258,14 +258,29 @@ def _stored_key_texts(value):
     holding at most seven direct parts and while the distinct
     joins stand at or under 5040. Past either bound the
     unordered container contributes its sorted join alone,
-    as _stored_key_text states it."""
+    as _stored_key_text states it. The ordered limb stands
+    bounded by the same stated discipline, in the form
+    settlement S-13 states: the combination total of its
+    parts' texts stands computed before any join stands
+    built, and where that total passes 5040 the ordered
+    container contributes its stored order join alone, as
+    _stored_key_text states it, so no cross product past
+    the bound stands ever built."""
     if isinstance(value, (tuple, list)):
+        part_texts = [
+            _stored_key_texts(part)
+            for part in _base_container_items(value)]
+        total = 1
+        for texts in part_texts:
+            total *= len(texts)
+            if total > 5040:
+                return {_stored_key_text(value)}
         joined = {""}
-        for part in _base_container_items(value):
+        for texts in part_texts:
             joined = {
                 head + (tail if tail is not None else "")
                 for head in joined
-                for tail in _stored_key_texts(part)}
+                for tail in texts}
         return joined
     if isinstance(value, (set, frozenset)):
         parts = _base_container_items(value)
@@ -444,6 +459,10 @@ def _strict_eq(first, second, _seen=None, _depth=0, _walked=None):
                 "comparison depth bound reached: the value stands "
                 "deeper than the stated bound of "
                 + str(COMPARISON_DEPTH_BOUND)
+                + ", counted on the containers only basis, the depth "
+                "of a value counting the containers standing above it "
+                "and a scalar leaf counting no depth of its own, and "
+                "no comparison stands performed on it"
             )
     if first is None or second is None:
         return first is None and second is None
@@ -1104,7 +1123,7 @@ def verdict_record_validation_failures(record):
     if isinstance(claim_identifier, str):
         if str.__len__(claim_identifier) == 0:
             failures.append("claim_identifier stands empty")
-    elif not claim_identifier:
+    elif not _stored_present(claim_identifier):
         failures.append("claim_identifier stands absent")
     if not _base_str_member(
             dict.get(record, "outcome"), ("rests", "does not rest")):
@@ -1179,10 +1198,21 @@ def resume_claim_validation_failures(claim):
                     _base_sequence_items(points),
                     DETECTION_COMPARISON_POINTS):
                 if not _base_str_eq(stored_point, named_point):
-                    failures.append(
-                        "detection_comparison_points name a point "
-                        "outside the two named points: "
-                        + repr(stored_point))
+                    if any(
+                            _base_str_eq(stored_point, named)
+                            for named in DETECTION_COMPARISON_POINTS):
+                        failures.append(
+                            "detection_comparison_points stand in "
+                            "an order other than the two named "
+                            "points in their stated order: "
+                            + repr(stored_point)
+                            + " stands at a position other than "
+                            "its named position")
+                    else:
+                        failures.append(
+                            "detection_comparison_points name a point "
+                            "outside the two named points: "
+                            + repr(stored_point))
                     break
     return failures
 
@@ -1252,9 +1282,18 @@ def aggregate_form_validation_failures(form):
     elif not all(
             _base_str_eq(stored_item, daily_item)
             for stored_item, daily_item in zip(stored_form, daily)):
-        failures.append(
-            "the aggregate form names a field outside the daily "
-            "aggregate form")
+        if all(
+                any(
+                    _base_str_eq(stored_item, daily_item)
+                    for daily_item in daily)
+                for stored_item in stored_form):
+            failures.append(
+                "the aggregate form stands in an order other "
+                "than the daily aggregate form")
+        else:
+            failures.append(
+                "the aggregate form names a field outside the daily "
+                "aggregate form")
     return failures
 
 
@@ -1300,7 +1339,7 @@ def validate_verdict_record(record):
     if isinstance(claim_identifier, str):
         if str.__len__(claim_identifier) == 0:
             return False
-    elif not claim_identifier:
+    elif not _stored_present(claim_identifier):
         return False
     if not _base_str_member(
             dict.get(record, "outcome"), ("rests", "does not rest")):
@@ -1518,10 +1557,42 @@ def validate_rerun_reading(reading):
     read_as = _base_get(reading, "read_as")
     if _base_str_eq(read_as, "corrected version of the original"):
         return False
-    if _base_get(reading, "overwrites_original"):
+    if _stored_present(_base_get(reading, "overwrites_original")):
         return False
     return read_as is None or _base_str_eq(
         read_as, "difference between two rule sets only")
+
+
+def rerun_reading_validation_failures(reading):
+    """The named failures companion of validate_rerun_reading:
+    each ground the act refuses on stands named apart, so an
+    operator can tell a reading stated as the corrected version
+    of the original from a reading that overwrites the original
+    and from a reading stated in no stated form. This companion
+    states the act's grounds only and settles nothing under
+    OP-16, which stands OPEN."""
+    if not isinstance(reading, dict):
+        return ["the rerun reading stands in no record form"]
+    failures = []
+    read_as = _base_get(reading, "read_as")
+    if _base_str_eq(read_as, "corrected version of the original"):
+        failures.append(
+            "read_as stands as the corrected version of the "
+            "original: a rerun stands read as a report of the "
+            "difference between two rule sets only, never as "
+            "the corrected version of the original")
+    elif read_as is not None and not _base_str_eq(
+            read_as, "difference between two rule sets only"):
+        failures.append(
+            "read_as stands outside the stated reading "
+            "(difference between two rule sets only): "
+            + repr(read_as))
+    if _stored_present(_base_get(reading, "overwrites_original")):
+        failures.append(
+            "overwrites_original stands asserted: a rerun "
+            "overwrites neither the original result, nor the "
+            "original record, nor the original standing")
+    return failures
 
 
 _HISTORY_CONTAINER_TYPES = (dict, list, tuple, set, frozenset)
@@ -1660,7 +1731,8 @@ def extend_history(history, segment):
         if past:
             grounds.append(
                 label + " stands past the bound of "
-                + str(COMPARISON_DEPTH_BOUND))
+                + str(COMPARISON_DEPTH_BOUND)
+                + " (counted on the containers only basis)")
         if cyclic:
             grounds.append(label + " carries a cycle")
     if grounds:
@@ -2293,6 +2365,7 @@ __all__ = [
     "validate_scoring_record",
     "witness_rerun",
     "validate_rerun_reading",
+    "rerun_reading_validation_failures",
     "extend_history",
     "compare_registry_against_run_log",
     "daily_aggregate_form",

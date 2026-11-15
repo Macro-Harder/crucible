@@ -1500,10 +1500,15 @@ def _traversal_guard(value, depth, seen, path):
             "ground truth traversal bound reached at " + (path or "root")
             + ": the value stands deeper than the stated bound of "
             + str(TRAVERSAL_DEPTH_BOUND)
+            + ", counted on the containers only basis, the depth of "
+            "a value counting the containers standing above it and a "
+            "scalar leaf counting no depth of its own, and no "
+            "traversal stands performed past that bound"
         )
     if id(value) in seen:
         raise NamedGeneratorFailure(
             "ground truth traversal found a cycle at " + (path or "root")
+            + ", and no traversal stands performed on the cyclic value"
         )
 
 
@@ -1761,20 +1766,24 @@ def _stream_values(stream_state, preferred_key=None):
     if stream_state is None:
         return []
     if isinstance(stream_state, (list, tuple)):
-        return list(stream_state)
+        return list(_base_iter(stream_state))
     if isinstance(stream_state, dict):
         if preferred_key is not None and isinstance(
-                stream_state.get(preferred_key), (list, tuple)):
-            return list(stream_state[preferred_key])
-        if isinstance(stream_state.get("values"), (list, tuple)):
-            return list(stream_state["values"])
+                _base_get(stream_state, preferred_key),
+                (list, tuple)):
+            return list(_base_iter(
+                _base_get(stream_state, preferred_key)))
+        if isinstance(
+                _base_get(stream_state, "values"), (list, tuple)):
+            return list(_base_iter(
+                _base_get(stream_state, "values")))
         candidates = [
-            (key, value) for key, value in stream_state.items()
+            (key, value) for key, value in dict.items(stream_state)
             if isinstance(value, (list, tuple))
         ]
         if candidates:
             candidates.sort(key=lambda item: str(item[0]))
-            return list(candidates[0][1])
+            return list(_base_iter(candidates[0][1]))
     return []
 
 
@@ -1914,9 +1923,9 @@ def build_cast(point, archetype_records, stream_state=None,
     for edge in edge_source or ():
         if isinstance(edge, dict):
             edges.append({
-                "voucher": edge.get("voucher"),
-                "vouchee": edge.get("vouchee"),
-                "stake": edge.get("stake", 0),
+                "voucher": _base_get(edge, "voucher"),
+                "vouchee": _base_get(edge, "vouchee"),
+                "stake": _base_get(edge, "stake", 0),
             })
         elif isinstance(edge, (str, bytes)):
             raise NamedGeneratorFailure(
@@ -1976,9 +1985,9 @@ def cast_agent_record(agent):
     if not isinstance(agent, dict):
         return {}
     return {
-        "agent_identifier": agent.get("agent_id"),
-        "archetype_identifier": agent.get("archetype_id"),
-        "membership_ground_truth": agent.get("ground_truth"),
+        "agent_identifier": _base_get(agent, "agent_id"),
+        "archetype_identifier": _base_get(agent, "archetype_id"),
+        "membership_ground_truth": _base_get(agent, "ground_truth"),
     }
 
 
@@ -1992,9 +2001,9 @@ def cast_edge_record(edge):
     if not isinstance(edge, dict):
         return {}
     return {
-        "voucher": edge.get("voucher"),
-        "vouchee": edge.get("vouchee"),
-        "stake": edge.get("stake"),
+        "voucher": _base_get(edge, "voucher"),
+        "vouchee": _base_get(edge, "vouchee"),
+        "stake": _base_get(edge, "stake"),
     }
 
 
@@ -2142,8 +2151,8 @@ def construct_farm(member_ids, farm_size=None, edges=None):
             first, second = pair_item(edge, 0), pair_item(edge, 1)
         else:
             raise NamedGeneratorFailure(
-                "farm rejected: an edge is not a voucher and "
-                "vouchee pair of size two: " + repr(edge))
+                "farm rejected: an edge stands in no pair form, "
+                "not as a voucher and vouchee pair: " + repr(edge))
         farm_id = farm_of.get(_stored_member_key(first))
         if farm_id is not None and farm_id == farm_of.get(
                 _stored_member_key(second)):
@@ -2404,6 +2413,11 @@ def _value_carries_ground_truth(value, _depth=0, _seen=None, _path=""):
         try:
             result = False
             if isinstance(value, dict):
+                if _is_barred_key(value) and not any(
+                        _is_barred_key(key)
+                        for key in dict.keys(value)):
+                    state["done"][marker] = True
+                    return True
                 for key, item in dict.items(value):
                     if isinstance(
                             key, (dict, list, tuple, set, frozenset)):
@@ -2474,6 +2488,12 @@ def _strip_ground_truth_value(value, _depth=0, _seen=None, _path=""):
         state["active"].add(id(value))
         try:
             if isinstance(value, dict):
+                if _is_barred_key(value) and not any(
+                        _is_barred_key(key)
+                        for key in dict.keys(value)):
+                    result = {}
+                    state["done"][marker] = result
+                    return result
                 stripped = {}
                 for key, item in dict.items(value):
                     if isinstance(

@@ -435,6 +435,57 @@ def family_record_validation_failures(record):
     for item in FAMILY_COMPLETENESS_ITEMS:
         if not _stored_value_present(dict.get(record, item)):
             failures.append("missing completeness item: " + item)
+    if not _mod01.validate_record("1", record):
+        failures.append("the MOD-01 record judgement stands refused")
+    if not _mod01.family_supports_reportable_run(record):
+        failures.append(
+            "the reportable run judgement stands refused")
+    if _stored_value_present(dict.get(record, "sealed")) \
+            and _stored_value_present(
+                dict.get(record, "edited_after_seal")):
+        if not _stored_value_present(
+                dict.get(record, "identifier_changed")):
+            failures.append(
+                "sealed and edited record carries no identifier "
+                "change: the sealed and edited identifier gate "
+                "stands refused")
+    kill_named = False
+    for field in ("kill_check_fields", "kill_checks"):
+        checks = dict.get(record, field)
+        if not isinstance(checks, (list, tuple)):
+            continue
+        standing_claims = dict.get(record, "headline_claims")
+        if not isinstance(standing_claims, (list, tuple)):
+            standing_claims = dict.get(record, "claims")
+        if not isinstance(standing_claims, (list, tuple)):
+            continue
+        frozen_claims = _freeze(standing_claims)
+        check_items = (
+            list.__iter__(checks) if isinstance(checks, list)
+            else tuple.__iter__(checks))
+        for check in check_items:
+            if isinstance(check, dict) \
+                    and dict.get(check, "claim") is not None \
+                    and _freeze(dict.get(check, "claim")) \
+                    not in frozen_claims:
+                kill_named = True
+    if kill_named:
+        failures.append(
+            "a kill check names a claim standing nowhere among "
+            "the record claims: the kill check gate stands refused")
+    if _freeze(dict.get(record, "ecology_point")) == "fixed" \
+            and not _stored_value_present(
+                dict.get(record, "amendment_landed")):
+        failures.append(
+            "ecology point stands fixed with no amendment landed: "
+            "the ecology point gate stands refused")
+    if _stored_value_present(
+            dict.get(record, "data_dependent_top_up")) \
+            and not _stored_value_present(
+                dict.get(record, "look_register")):
+        failures.append(
+            "data dependent top up stands with no look register: "
+            "the data dependent top up gate stands refused")
     return failures
 
 
@@ -1419,13 +1470,23 @@ def readout_status(readout):
     battery = dict.get(readout, "check_artefact_battery")
     if isinstance(battery, dict):
         passed = _base_sequence(dict.get(battery, "passed"))
+        battery_checks = tuple(
+            "A-%02d" % number for number in range(1, 12))
+        distinct = []
+        for part in passed:
+            if not any(_stored_eq(part, check)
+                       for check in battery_checks):
+                continue
+            if any(_stored_eq(part, kept) for kept in distinct):
+                continue
+            distinct.append(part)
         battery_ok = all(
-            any(_stored_eq(part, mark) for part in passed)
+            any(_stored_eq(part, mark) for part in distinct)
             for mark in ("A-04", "A-05", "A-09", "A-10", "A-11")
-        ) and len(passed) >= 11
+        ) and len(distinct) >= 11
     else:
-        battery_ok = battery is True
-    rung = dict.get(readout, "search_completed_at_rung", 6)
+        battery_ok = False
+    rung = dict.get(readout, "search_completed_at_rung")
     rung_ok = isinstance(rung, int) \
         and not isinstance(rung, bool) and int.__eq__(rung, 6)
     conditions = {
@@ -1582,12 +1643,14 @@ def sample_statement(runs=None):
                 break
         if matched is None:
             continue
-        counts[matched] += 1
         name = dict.get(run, "run_id")
         if not _stored_value_present(name):
             name = dict.get(run, "run_identifier")
         if not _stored_value_present(name):
-            name = matched
+            continue
+        if any(_stored_values_equal(name, kept) for kept in named):
+            continue
+        counts[matched] += 1
         named.append(name)
     total = sum(counts.values())
     if not total:

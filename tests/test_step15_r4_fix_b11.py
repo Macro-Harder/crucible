@@ -367,7 +367,7 @@ class TestR3058RemovalForm(unittest.TestCase):
         body = source[start:start + 2500]
         self.assertIn("flag_conditions_fired", body)
         self.assertIn("inputs", body)
-        self.assertIn("promotion by a person after close is barred", body)
+        self.assertIn("flag evaluation by a person is barred", body)
         self.assertIn("the flag rule never demotes", body)
 
     def run_tg103_under_mutant(self, old, new):
@@ -389,15 +389,20 @@ class TestR3058RemovalForm(unittest.TestCase):
 
     def test_person_bar_removal_kills_tg103_test(self):
         proc = self.run_tg103_under_mutant(
-            '        raise ValueError("promotion by a person after '
-            'close is barred")',
+            '        raise ValueError(\n'
+            '            "flag evaluation by a person is barred: the flag rule "\n'
+            '            "stands evaluated by a program alone, and no flag "\n'
+            '            "evaluation stands performed")',
             "        pass")
         self.assertNotEqual(proc.returncode, 0,
                             proc.stdout + proc.stderr)
 
     def test_demote_bar_removal_kills_tg103_test(self):
         proc = self.run_tg103_under_mutant(
-            '        raise ValueError("the flag rule never demotes")',
+            '        raise ValueError(\n'
+            '            "the flag rule never demotes: the stated outcome "\n'
+            '            "stands as demote, and no demotion stands effected "\n'
+            '            "by it")',
             "        pass")
         self.assertNotEqual(proc.returncode, 0,
                             proc.stdout + proc.stderr)

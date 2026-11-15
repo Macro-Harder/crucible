@@ -2072,7 +2072,8 @@ class RecorderStore:
             raise ValueError(
                 "identity less record: a run record stands as a record "
                 "carrying a run identifier, and no other form stands retained")
-        rid = record.get("run_id") or record.get("run_identifier")
+        rid = dict.get(record, "run_id") or dict.get(
+            record, "run_identifier")
         if rid is None:
             raise ValueError(
                 "identity less record: no run identifier stands on the "
@@ -2281,14 +2282,14 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
             continue
         for field in ("joint_outcome_components",
                       "component_denominators"):
-            values = delivery.get(field)
+            values = dict.get(delivery, field)
             if isinstance(values, (list, tuple)):
                 for component in values:
                     if _numeric_component(component):
                         continue
                     where = (
-                        " for viewer " + str(delivery.get("viewer_id"))
-                        + " at day " + str(delivery.get("simulated_day")))
+                        " for viewer " + str(dict.get(delivery, "viewer_id"))
+                        + " at day " + str(dict.get(delivery, "simulated_day")))
                     if isinstance(component, (int, float)) and not isinstance(
                             component, bool):
                         raise ValueError(
@@ -2306,8 +2307,8 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
     stored = _AGGREGATE_DELIVERIES.setdefault(run_id, {})
     for delivery in deliveries:
         key = (
-            _retention_day_key(delivery.get("simulated_day")),
-            _stored_form(delivery.get("viewer_id")))
+            _retention_day_key(dict.get(delivery, "simulated_day")),
+            _stored_form(dict.get(delivery, "viewer_id")))
         stored[key] = _safe_copy(delivery)
     return len(stored)
 
@@ -2566,9 +2567,13 @@ def rederive_regime_classification(aggregates):
 
 
 def validate_daily_aggregates(aggregates):
+    if not isinstance(aggregates, (list, tuple)):
+        return False
     if not aggregates:
         return False
     for record in aggregates:
+        if not isinstance(record, dict):
+            return False
         if "singular_vector" in record:
             return False
         if "viewer_id" not in record:
@@ -2697,7 +2702,7 @@ def retain_event_log_entry(entry, store_kind="sweep"):
         raise ValueError(
             "identity less entry: an event log entry stands as a record, "
             "and no other form stands retained")
-    run_id = entry.get("run_identifier") or entry.get("run_id")
+    run_id = dict.get(entry, "run_identifier") or dict.get(entry, "run_id")
     if run_id is None:
         raise ValueError(
             "identity less entry: no run identifier stands on the "
@@ -2728,7 +2733,8 @@ def retain_daily_snapshot(snapshot, store_kind="sweep"):
         raise ValueError(
             "identity less snapshot: a daily snapshot stands as a record, "
             "and no other form stands retained")
-    run_id = snapshot.get("run_identifier") or snapshot.get("run_id")
+    run_id = dict.get(snapshot, "run_identifier") or dict.get(
+        snapshot, "run_id")
     if run_id is None:
         raise ValueError(
             "identity less snapshot: no run identifier stands on the "
@@ -3356,14 +3362,16 @@ def storage_accounting(retained):
             "storage accounting count in named form: the retained set "
             "stands as a record of counts, and no other form stands "
             "accounted")
-    summaries = _stated_count(retained.get("summaries", 0), "summaries")
+    summaries = _stated_count(
+        dict.get(retained, "summaries", 0), "summaries")
     snapshots = _stated_count(
-        retained.get("daily_snapshots", 0), "daily_snapshots")
-    logs = _stated_count(retained.get("event_logs", 0), "event_logs")
+        dict.get(retained, "daily_snapshots", 0), "daily_snapshots")
+    logs = _stated_count(
+        dict.get(retained, "event_logs", 0), "event_logs")
     checkpoints = _stated_count(
-        retained.get("checkpoints", 0), "checkpoints")
+        dict.get(retained, "checkpoints", 0), "checkpoints")
     copies = _stated_count(
-        retained.get("held_corpus_copies", 0), "held_corpus_copies")
+        dict.get(retained, "held_corpus_copies", 0), "held_corpus_copies")
     return {
         "result_count": summaries + snapshots + logs,
         "checkpoint_count": checkpoints + copies,
@@ -3385,18 +3393,20 @@ def validate_storage_accounting(claimed):
             "stands as a record of counts, and no other form stands "
             "validated")
     expected = (
-        _stated_count(claimed.get("summaries", 0), "summaries")
-        + _stated_count(claimed.get("daily_snapshots", 0), "daily_snapshots")
-        + _stated_count(claimed.get("event_logs", 0), "event_logs")
+        _stated_count(dict.get(claimed, "summaries", 0), "summaries")
+        + _stated_count(
+            dict.get(claimed, "daily_snapshots", 0), "daily_snapshots")
+        + _stated_count(dict.get(claimed, "event_logs", 0), "event_logs")
     )
-    if claimed.get("result_count") != expected:
+    if dict.get(claimed, "result_count") != expected:
         return False
-    if "checkpoint_count" in claimed:
+    if dict.__contains__(claimed, "checkpoint_count"):
         expected_stock = (
-            _stated_count(claimed.get("checkpoints", 0), "checkpoints")
+            _stated_count(dict.get(claimed, "checkpoints", 0), "checkpoints")
             + _stated_count(
-                claimed.get("held_corpus_copies", 0), "held_corpus_copies"))
-        if claimed.get("checkpoint_count") != expected_stock:
+                dict.get(claimed, "held_corpus_copies", 0),
+                "held_corpus_copies"))
+        if dict.get(claimed, "checkpoint_count") != expected_stock:
             return False
     return True
 
@@ -3478,6 +3488,8 @@ def retention_policy_table():
 
 
 def validate_storage_claim(claim):
+    if not isinstance(claim, dict):
+        return False
     if claim.get("basis") == "DQ7-08" and claim.get("reliance") == "governing":
         return False
     return True
@@ -3492,7 +3504,8 @@ def write_summary_record(record):
             "in no record form, a summary record stands as a record, "
             "and no summary record stands retained")
     _guard_retention_shape(record, "write_summary_record", "record")
-    run_id = record.get("run_id") or record.get("run_identifier")
+    run_id = dict.get(record, "run_id") or dict.get(
+        record, "run_identifier")
     _SUMMARY_RECORDS[run_id] = _safe_copy(record)
     return _safe_copy(record)
 
@@ -4215,18 +4228,24 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
         consequence="and no flag evaluation stands performed")
     actor = _normalised_actor(actor)
     if actor == "person":
-        raise ValueError("promotion by a person after close is barred")
+        raise ValueError(
+            "flag evaluation by a person is barred: the flag rule "
+            "stands evaluated by a program alone, and no flag "
+            "evaluation stands performed")
     if outcome is not None and outcome not in _FLAG_OUTCOMES:
         raise ValueError(
             "flag evaluation outcome outside the stated vocabulary: "
             + str(outcome))
     if outcome == "demote":
-        raise ValueError("the flag rule never demotes")
+        raise ValueError(
+            "the flag rule never demotes: the stated outcome "
+            "stands as demote, and no demotion stands effected "
+            "by it")
     if tier is not None and tier not in _TIER_RANKS:
         raise ValueError(
             "flag evaluation tier outside the tiers the rule names: "
             + str(tier))
-    current = record.get("retention_tier")
+    current = dict.get(record, "retention_tier")
     if (tier is not None and current in _TIER_RANKS
             and _TIER_RANKS[tier] < _TIER_RANKS[current]):
         raise ValueError(
@@ -4240,9 +4259,9 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
                 "promotion stands effected by it")
         fired = []
         if isinstance(inputs, dict):
-            fired = inputs.get("flag_conditions_fired") or []
+            fired = dict.get(inputs, "flag_conditions_fired") or []
         if not fired:
-            fired = record.get("flag_conditions_fired") or []
+            fired = dict.get(record, "flag_conditions_fired") or []
         if not _has_stated_condition(fired):
             raise ValueError(
                 "flag promotion with no stated flag condition fired: "
@@ -4444,6 +4463,8 @@ def retention_record_for_run(run_id, store_kind="sweep"):
 
 
 def validate_retention_report(report):
+    if not isinstance(report, dict):
+        return False
     if report.get("source") == "interval_records" and report.get("tier_claim") == "final":
         return False
     return True
@@ -4594,6 +4615,8 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
 
 
 def validate_annotation_claim(claim):
+    if not isinstance(claim, dict):
+        return False
     if claim.get("claim") == "annotation_state_equal_across_append":
         return False
     return True
@@ -4624,6 +4647,8 @@ def retention_sizing(fixture="F-27", costing_forms="F-19"):
 
 
 def validate_retention_sizing(sizing):
+    if not isinstance(sizing, dict):
+        return False
     workings = sizing.get("workings") or {}
     if "central_form" not in workings or "high_form" not in workings:
         return False
@@ -4665,6 +4690,8 @@ def pre_registered_full_log_sample(family_id="family-under-test"):
 
 
 def validate_sample_record(sample):
+    if not isinstance(sample, dict):
+        return False
     if sample.get("presented_as") == "generator_test_battery_sample":
         return False
     if sample.get("kind") == "retention_sample":
@@ -4676,6 +4703,8 @@ def validate_sample_record(sample):
 
 
 def validate_retention_record(record):
+    if not isinstance(record, dict):
+        return False
     governing = str(record.get("governing_rule") or "")
     if governing.startswith("DQ7-08") and record.get("reliance") == "governing":
         return False
@@ -4687,6 +4716,8 @@ def store_indexes():
 
 
 def validate_store_placement(artefact):
+    if not isinstance(artefact, dict):
+        return False
     if artefact.get("kind") == "pilot":
         if artefact.get("store") != "pilot":
             return False
@@ -4973,17 +5004,19 @@ def _is_barred_view_key(key):
     of its one part. A bytes part inside a container key stands
     read on its decoded stored bytes, as a bare bytes key
     stands read."""
-    if isinstance(key, _CONTAINER_KEY_FORMS):
+    if isinstance(key, _CONTAINER_KEY_FORMS + (dict,)):
         stack = [key]
         seen = set()
         containers = []
         while stack:
             part = stack.pop()
-            if isinstance(part, _CONTAINER_KEY_FORMS):
+            if isinstance(part, _CONTAINER_KEY_FORMS + (dict,)):
                 if id(part) in seen:
                     continue
                 seen.add(id(part))
-                parts = _container_parts(part)
+                parts = (
+                    list(dict.keys(part)) if isinstance(part, dict)
+                    else _container_parts(part))
                 containers.append((part, len(parts)))
                 stack.extend(parts)
             elif _is_barred_view_key(part):
@@ -5039,6 +5072,10 @@ def _carries_barred_key(value):
             if id(node) in visited:
                 continue
             visited.add(id(node))
+            if _is_barred_view_key(node) and not any(
+                    _is_barred_view_key(key)
+                    for key in dict.keys(node)):
+                return True
             for key, item in dict.items(node):
                 if _is_barred_view_key(key):
                     return True
@@ -5107,7 +5144,9 @@ def run_view_leak_check(view_record):
                 "view leak check failure: form field_validation, view "
                 + view_name + ", field " + field + " stands absent")
     day = _timing_day(dict.get(view_record, "simulated_day"))
-    first_seen = dict.get(view_record, "first_seen_day_per_record") or {}
+    first_seen = dict.get(view_record, "first_seen_day_per_record")
+    if first_seen is None:
+        first_seen = {}
     if not isinstance(first_seen, dict):
         raise ValueError(
             "view leak check failure: form timing, view "

@@ -566,7 +566,9 @@ def _stream_set_classes(stream_set):
         else:
             raise ValueError(
                 "stream class inventory stands in no stated form: "
-                + repr(inventory))
+                "the handed inventory stands as a "
+                + type(inventory).__name__
+                + ", in no stated stream set form")
     classes = []
     for entry in inventory or []:
         if isinstance(entry, dict):
@@ -579,17 +581,21 @@ def _stream_set_classes(stream_set):
             if name is None:
                 raise ValueError(
                     "stream class inventory entry names no class: "
-                    + repr(entry))
+                    "the handed entry stands as a "
+                    + type(entry).__name__
+                    + ", carrying no class name")
             classes.append(name)
         else:
             classes.append(entry)
     for name in classes:
         try:
             hash(name)
-        except (TypeError, RuntimeError):
+        except Exception:
             raise ValueError(
                 "stream class entry stands in no stated form: "
-                + repr(name)) from None
+                "the handed entry stands as a "
+                + type(name).__name__
+                + ", in no stated stream set form") from None
     return classes
 
 
@@ -675,12 +681,13 @@ def _base_name_eq(name, candidate):
     """Return whether two class names stand equal under the base
     string equality, never under a hash or equality reading a
     handed name supplies. Names that are not strings stand judged
-    by identity or by their plain form, as before."""
+    on their stored contents through base value equality, never
+    through a reading a handed name supplies."""
     if isinstance(name, str) and isinstance(candidate, str):
         return str.__eq__(name, candidate) is True
     if isinstance(name, str) or isinstance(candidate, str):
         return False
-    return name is candidate or name == candidate
+    return _base_value_eq(name, candidate)
 
 
 def cardinality_basis():
@@ -821,7 +828,13 @@ def make_derivation_input(derivation_version=None, domain=None,
                 raise ValueError(
                     "parameter values stand in no stated form: "
                     "each entry stands as a name and value pair")
-            params[pair_items[0]] = pair_items[1]
+            try:
+                params[pair_items[0]] = pair_items[1]
+            except Exception:
+                raise ValueError(
+                    "parameter values stand in no stated form: "
+                    "each entry stands as a name and value pair"
+                    ) from None
     else:
         raise ValueError(
             "parameter values stand in no stated form: supply "
@@ -830,7 +843,7 @@ def make_derivation_input(derivation_version=None, domain=None,
     for key, value in params.items():
         if not isinstance(value, str):
             raise ValueError(
-                "parameter value for " + str(key)
+                "parameter value for " + _stored_name(key)
                 + " is not a recorded string")
     return {
         "derivation_version": derivation_version,
@@ -1202,7 +1215,14 @@ def _position_value(value):
         return int(str.__str__(value))
     plain = _plain_number(value)
     if plain is not None:
-        return int(plain)
+        try:
+            return int(plain)
+        except Exception:
+            raise ValueError(
+                "position stands in no stated form: a position "
+                "stands as a plain number or as a text of plain "
+                "digits, and a value in no such form carries no "
+                "position") from None
     raise ValueError(
         "position stands in no stated form: a position stands "
         "as a plain number or as a text of plain digits, and a "

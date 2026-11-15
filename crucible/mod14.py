@@ -238,9 +238,13 @@ _COMMAND_DETAILS = {
         ("summary_records", "week"), (),
         "run_command('weekly_headline_count', {'summary_records': [], 'week': 'W1'})"),
     "flag_evaluation": (
-        "Run the flag evaluation program check on one summary record.",
+        "Run the flag evaluation program check on one summary record: "
+        "inputs stands optional beside the other outcomes and stands "
+        "required for a promotion, in the form of a mapping carrying "
+        "flag_conditions_fired with at least one stated flag "
+        "condition fired.",
         ("summary_record",), ("inputs", "outcome", "tier"),
-        "run_command('flag_evaluation', {'summary_record': {}, 'outcome': 'promote', 'tier': 'Tier 3'})"),
+        "run_command('flag_evaluation', {'summary_record': {'retention_tier': 'Tier 2', 'flag_conditions_fired': ['condition-1']}, 'inputs': {'flag_conditions_fired': ['condition-1']}, 'outcome': 'promote', 'tier': 'Tier 3'})"),
 }
 
 
@@ -310,6 +314,9 @@ def error_carriage(failure, run_id=None, stage=None):
                 fields["failure"] = raw_message
         elif isinstance(carried, dict) and "name" in fields:
             fields.setdefault("message", raw_message)
+        if not fields:
+            fields["name"] = class_name
+            fields["message"] = name
     carriage = {
         "failure": name,
         "failure_value": fields,
@@ -505,7 +512,21 @@ def _screen_pilot_key(key, _seen=None, _depth=0):
 _PILOT_ARTEFACT_DEPTH_BOUND = 100
 
 
-def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None):
+def _pilot_path_part(value):
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, bool):
+        return bool.__str__(value)
+    if isinstance(value, int):
+        return int.__str__(value)
+    if isinstance(value, float):
+        return float.__str__(value)
+    if isinstance(value, bytes):
+        return bytes.__repr__(value)
+    return "unreadable part"
+
+
+def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None, _path="root"):
     """Screen one artefact part, recursively. A dict part
     stands read through the base dict items reading, a set or
     frozenset part through its base iteration reading, and a
@@ -521,12 +542,19 @@ def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None):
     if isinstance(value, (dict, list, tuple, set, frozenset)):
         if _depth > _PILOT_ARTEFACT_DEPTH_BOUND:
             raise NamedShellFailure(
-                "pilot artefact stands deeper than the stated "
-                "depth bound of " + str(_PILOT_ARTEFACT_DEPTH_BOUND))
+                "pilot artefact stands refused: the pilot artefact "
+                "stands deeper than the stated depth bound of "
+                + str(_PILOT_ARTEFACT_DEPTH_BOUND) + " at " + _path
+                + ", counted with the handed artefact standing at "
+                "depth 0 and every container standing around a part "
+                "counting toward that bound, and no pilot run stands "
+                "performed on it")
         seen = _seen if _seen is not None else set()
         if id(value) in seen:
             raise NamedShellFailure(
-                "pilot artefact carries a cycle")
+                "pilot artefact stands refused: the pilot artefact "
+                "carries a cycle at " + _path
+                + ", and no pilot run stands performed on it")
         walked = _walked if _walked is not None else {}
         if (id(value), _depth) in walked:
             return
@@ -534,9 +562,9 @@ def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None):
         try:
             if isinstance(value, dict):
                 for key, item in dict.items(value):
-                    _screen_pilot_artefact(key, _depth + 1, seen, walked)
+                    _screen_pilot_artefact(key, _depth + 1, seen, walked, _path + "/key")
                     _screen_pilot_key(key)
-                    _screen_pilot_artefact(item, _depth + 1, seen, walked)
+                    _screen_pilot_artefact(item, _depth + 1, seen, walked, _path + "/" + _pilot_path_part(key))
                 if not validate_pilot_claim(value):
                     raise NamedShellFailure(
                         "pilot artefact carries a claim the pilot check bars")
@@ -545,10 +573,10 @@ def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None):
                     items = list(list.__iter__(value))
                 else:
                     items = list(tuple.__iter__(value))
-                for item in items:
+                for index, item in enumerate(items):
                     if not isinstance(item, (dict, list, set)):
                         _screen_pilot_key(item)
-                    _screen_pilot_artefact(item, _depth + 1, seen, walked)
+                    _screen_pilot_artefact(item, _depth + 1, seen, walked, _path + "[" + str(index) + "]")
             else:
                 if isinstance(value, frozenset):
                     base_iter = frozenset.__iter__
@@ -557,12 +585,10 @@ def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None):
                 for item in base_iter(value):
                     if not isinstance(item, dict):
                         _screen_pilot_key(item)
-                    _screen_pilot_artefact(item, _depth + 1, seen, walked)
+                    _screen_pilot_artefact(item, _depth + 1, seen, walked, _path + "/part")
         finally:
             seen.discard(id(value))
         walked[(id(value), _depth)] = True
-
-
 
 
 def pilot_run(use, artefact=None):
@@ -891,15 +917,18 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
     unseen."""
     if not isinstance(summary_record, dict):
         raise NamedShellFailure(
-            "flag evaluation carries no summary record to evaluate")
+            "flag evaluation in named form: the evaluation stands "
+            "on a summary record, and no other form stands evaluated")
     if outcome == "promote":
         if tier not in RETENTION_TIERS:
             raise NamedShellFailure(
-                "flag promotion to a tier the rule does not name: "
-                + str(tier))
+                "flag evaluation tier outside the tiers the rule "
+                "names: " + str(tier))
         if inputs is None:
             raise NamedShellFailure(
-                "flag promotion with no inputs supplied")
+                "flag promotion with no inputs supplied: a promotion "
+                "stands only with inputs actually supplied, and no "
+                "promotion stands effected by it")
         fired = []
         if isinstance(inputs, dict):
             fired = _base_get(inputs, "flag_conditions_fired") or []
@@ -908,7 +937,10 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
                 summary_record, "flag_conditions_fired") or []
         if not _has_stated_condition(fired):
             raise NamedShellFailure(
-                "flag promotion with no stated flag condition fired")
+                "flag promotion with no stated flag condition "
+                "fired: a promotion stands only with at least one "
+                "stated flag condition fired, and no promotion "
+                "stands effected by it")
     return _mod10.apply_flag_evaluation(
         _plain_stored_copy(summary_record), outcome=outcome, tier=tier,
         actor=_normalise_actor(actor),
@@ -928,6 +960,12 @@ def weekly_headline_count(summary_records, week):
     of identifiers, fails in the same named form. A bare string
     identifier field counts as the one identifier it states,
     never as its characters."""
+    if summary_records is not None and not isinstance(
+            summary_records, (list, tuple, set, frozenset)):
+        raise NamedShellFailure(
+            "weekly_headline_count stands refused: the "
+            "summary_records argument stands in no list form: "
+            "a list of summary records stands required")
     seen = []
     for record in summary_records or ():
         if not isinstance(record, dict) or not _base_contains(record, "week"):
@@ -970,11 +1008,25 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
     the outcome stands computed from the dependency manifest and
     the process and network call log and from no other source,
     and stands in the outside call check field of the run record.
-    A pass certifies only the absence the check reads."""
+    A pass certifies only the absence the check reads. Both
+    inputs stand required in record form: an input standing
+    absent or in no record form stands refused in the named
+    form, and no clean outcome stands returned for a check
+    that examined nothing."""
     if extra_source is not None:
         raise NamedShellFailure(
             "outside call check computed from a third source is barred"
         )
+    if not isinstance(dependency_manifest, dict):
+        raise NamedShellFailure(
+            "outside call check carries no dependency manifest to "
+            "read: a manifest in record form stands required, and "
+            "no outside call standing stands certified without it")
+    if not isinstance(call_log, dict):
+        raise NamedShellFailure(
+            "outside call check carries no call log to read: a "
+            "call log in record form stands required, and no "
+            "outside call standing stands certified without it")
     calls = []
     if isinstance(call_log, dict):
         calls = _base_get(call_log, "calls") or _base_get(

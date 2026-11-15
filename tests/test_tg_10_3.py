@@ -56,19 +56,19 @@ class TestFlagRuleAmendmentForm(unittest.TestCase):
         self.assertIn("outcome", updated["flag_evaluation"])
 
     def test_person_promotion_and_demotion_fail(self):
-        """Fixture: a closed run with a promotion attempted by a person after close, and a flag evaluation attempting a demotion, as TG-10.3 states.
+        """Fixture: a closed run with a promotion attempted by a person, and a flag evaluation attempting a demotion, as TG-10.3 states.
         Pins: both acts are rejected; the stored summary record stands unchanged by either.
-        Bar: promotion by a person after close is barred, and the flag rule never demotes.
+        Bar: flag evaluation by a person is barred, and the flag rule never demotes.
         Failure: while the surface stands absent the test fails naming this behaviour and TG-10.3; with the surface present, acceptance of either act fails.
         """
         require_surface(self, "person promotion barred and demotion barred", "apply_flag_evaluation")
         record = {"run_id": "r", "retention_tier": "Tier 2", "written_at": "run_close", "flag_conditions_fired": ["condition-1"]}
         with self.assertRaises(ValueError) as person_caught:
             SURFACE.apply_flag_evaluation(record, outcome="promote", tier="Tier 3", actor="person", inputs={"flag_conditions_fired": ["condition-1"]})
-        self.assertEqual(str(person_caught.exception), "promotion by a person after close is barred")
+        self.assertEqual(str(person_caught.exception), "flag evaluation by a person is barred: the flag rule stands evaluated by a program alone, and no flag evaluation stands performed")
         with self.assertRaises(ValueError) as demote_caught:
             SURFACE.apply_flag_evaluation(record, outcome="demote", tier="Tier 1", inputs={"flag_conditions_fired": ["condition-1"]})
-        self.assertEqual(str(demote_caught.exception), "the flag rule never demotes")
+        self.assertEqual(str(demote_caught.exception), "the flag rule never demotes: the stated outcome stands as demote, and no demotion stands effected by it")
 
     def test_interval_tier_presented_as_final_fails(self):
         """Fixture: a report built from interval records presenting an interval tier as final, as TG-10.3 states.
