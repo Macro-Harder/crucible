@@ -17,6 +17,8 @@ import ast
 import itertools
 import re
 import unicodedata
+from decimal import Decimal
+from fractions import Fraction
 
 from crucible import mod01 as _mod01
 from crucible import mod10 as _mod10
@@ -85,7 +87,14 @@ def _freeze(value, _depth=0, _memo=None):
     a key already carried in the same dict stands carried
     under a distinct numbered form of that key, so two
     distinct keys past the bound never collapse into one key
-    and no carried entry is silently dropped. A dict part
+    and no carried entry is silently dropped. A dict
+    assignment whose key hash or equality reading raises at
+    the assignment itself stands carried under a distinct
+    numbered form in the same manner, a plain text numbered
+    form where a form carrying the key itself cannot stand
+    inserted, so no carried entry is silently dropped on
+    that reading either and no bare error escapes the copy.
+    A dict part
     stands read through the base dict items reading, and a
     set or frozenset part stands read through its base
     iteration reading and rebuilt through the plain set or
@@ -102,6 +111,10 @@ def _freeze(value, _depth=0, _memo=None):
     form stands materialised out of such a part."""
     if value is None or isinstance(value, (str, bytes, int, float, bool)):
         return value
+    if isinstance(value, bytearray):
+        return bytearray(value)
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
     if _depth > _FREEZE_DEPTH_BOUND and isinstance(
             value, (dict, list, tuple, set, frozenset)):
         return _FREEZE_TOO_DEEP
@@ -135,7 +148,25 @@ def _freeze(value, _depth=0, _memo=None):
                         frozen_key = distinct_key
                         break
                     counter += 1
-            copied[frozen_key] = frozen_item
+            try:
+                copied[frozen_key] = frozen_item
+            except Exception:
+                counter = 2
+                while True:
+                    if isinstance(frozen_key, str):
+                        candidate = (
+                            str.__str__(frozen_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (frozen_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = frozen_item
+                        break
+                    except Exception:
+                        counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in memo:
@@ -827,10 +858,15 @@ def validate_pilot_claim(claim):
     and where a pilot output stands worded as settling a
     population behaviour rate: events per agent per day and trust
     graph average degree are not settled as population behaviour
-    rates by the pilot in any wording."""
+    rates by the pilot in any wording. The kind stands judged on
+    the text it stores, read through the stored text form of this
+    module, never through an equality reading the kind itself
+    supplies, so a kind in text subclass dress or in bytes dress
+    storing the word behaviour stands judged as that word."""
     if not isinstance(claim, dict):
         return False
-    if dict.get(claim, "cites_pilot_output") and dict.get(claim, "kind") == "behaviour":
+    if dict.get(claim, "cites_pilot_output") and str.__eq__(
+            _stored_text(dict.get(claim, "kind")), "behaviour"):
         return False
     if dict.get(claim, "settles_population_behaviour_rate"):
         return False
@@ -891,8 +927,15 @@ def dual_rule_retention_simulation(families):
     """The dual rule retention simulation, over synthetic families
     only, reported as one paired field and no single total. A
     family that does not stand marked synthetic is refused in
-    the named form."""
-    families = list(families or ())
+    the named form. The families argument stands read through
+    the base iteration reading of its form, never through an
+    iteration reading the argument itself supplies, so a stored
+    family the supplied reading does not yield still reaches
+    the synthetic test."""
+    if isinstance(families, (list, tuple, set, frozenset)):
+        families = _container_parts(families)
+    else:
+        families = list(families or ())
     for family in families:
         if not isinstance(family, dict) or not dict.get(family, "synthetic"):
             raise NamedShellFailure(
@@ -1210,29 +1253,170 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
     )
 
 
-def _week_stands_equal(stored_week, handed_week):
-    """Judge two week values equal kind first: two text weeks
-    by the base text equality of their stored characters, a
-    boolean week only against a boolean week, two plain number
-    weeks by their plain number equality, and any other pair
-    only where both stand in the same kind, judged by a guarded
-    equality that a raising reading answers as not equal. No
-    handed equality reading decides a pair across kinds."""
-    if isinstance(stored_week, str) and isinstance(handed_week, str):
-        return str.__eq__(stored_week, handed_week)
-    if isinstance(stored_week, bool) or isinstance(handed_week, bool):
-        return (isinstance(stored_week, bool)
-                and isinstance(handed_week, bool)
-                and stored_week is handed_week)
-    if isinstance(stored_week, (int, float)) and isinstance(
-            handed_week, (int, float)):
-        return stored_week == handed_week
-    if type(stored_week) is not type(handed_week):
+def _week_plain_number(value):
+    """The plain number a week value stores, built through
+    base class operations, or None where the value stands in
+    no plain number form: an integer week as a plain int and
+    a float week as a plain float, so no equality reading a
+    handed number supplies decides its own judgement."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return int.__new__(int, int.__int__(value))
+    if isinstance(value, float):
+        return float.__new__(float, float.__float__(value))
+    return None
+
+
+def _week_value_equal(stored, handed, _seen=None):
+    """Judge two week values equal kind first at every level:
+    two text values by the base text equality of their stored
+    characters, a boolean only against a boolean, a Decimal
+    only against a Decimal and a Fraction only against a
+    Fraction, each by its base class equality on plain copies,
+    two plain number values by the plain numbers they store,
+    built through base class operations so no handed equality
+    reading decides, and container values part by part under
+    this same reading, lists and tuples in order, sets and
+    frozensets order insensitively, and dicts by matched keys
+    and their values. Any other pair stands equal only where
+    both stand in the same kind, judged by a guarded equality
+    that a raising reading answers as not equal."""
+    if stored is None or handed is None:
+        return stored is None and handed is None
+    if isinstance(stored, str) or isinstance(handed, str):
+        return (isinstance(stored, str) and isinstance(handed, str)
+                and str.__eq__(stored, handed) is True)
+    if isinstance(stored, bool) or isinstance(handed, bool):
+        return (isinstance(stored, bool) and isinstance(handed, bool)
+                and stored is handed)
+    if isinstance(stored, Decimal) or isinstance(handed, Decimal):
+        return (isinstance(stored, Decimal)
+                and isinstance(handed, Decimal)
+                and Decimal.__eq__(
+                    Decimal.__new__(Decimal, stored),
+                    Decimal.__new__(Decimal, handed)) is True)
+    if isinstance(stored, Fraction) or isinstance(handed, Fraction):
+        return (isinstance(stored, Fraction)
+                and isinstance(handed, Fraction)
+                and Fraction.__eq__(
+                    Fraction.__new__(Fraction, stored),
+                    Fraction.__new__(Fraction, handed)) is True)
+    stored_number = _week_plain_number(stored)
+    handed_number = _week_plain_number(handed)
+    if stored_number is not None or handed_number is not None:
+        return (stored_number is not None
+                and handed_number is not None
+                and stored_number == handed_number)
+    if isinstance(stored, (bytes, bytearray, memoryview)) or isinstance(
+            handed, (bytes, bytearray, memoryview)):
+        return (isinstance(stored, (bytes, bytearray, memoryview))
+                and isinstance(handed, (bytes, bytearray, memoryview))
+                and bytes.__eq__(bytes(stored), bytes(handed)) is True)
+    if isinstance(stored, dict) or isinstance(handed, dict):
+        if not (isinstance(stored, dict) and isinstance(handed, dict)):
+            return False
+        seen = _seen if _seen is not None else set()
+        pair = (id(stored), id(handed))
+        if pair in seen:
+            return True
+        seen = seen | {pair}
+        if dict.__len__(stored) != dict.__len__(handed):
+            return False
+        handed_items = list(dict.items(handed))
+        used = [False] * len(handed_items)
+        for stored_key, stored_item in dict.items(stored):
+            matched = False
+            for index in range(len(handed_items)):
+                if used[index]:
+                    continue
+                handed_key, handed_item = handed_items[index]
+                if _week_value_equal(
+                        stored_key, handed_key, seen) and (
+                        _week_value_equal(
+                            stored_item, handed_item, seen)):
+                    used[index] = True
+                    matched = True
+                    break
+            if not matched:
+                return False
+        return True
+    if isinstance(stored, list) or isinstance(handed, list):
+        if not (isinstance(stored, list) and isinstance(handed, list)):
+            return False
+        seen = _seen if _seen is not None else set()
+        pair = (id(stored), id(handed))
+        if pair in seen:
+            return True
+        seen = seen | {pair}
+        stored_parts = list(list.__iter__(stored))
+        handed_parts = list(list.__iter__(handed))
+        return len(stored_parts) == len(handed_parts) and all(
+            _week_value_equal(part, other, seen)
+            for part, other in zip(stored_parts, handed_parts))
+    if isinstance(stored, tuple) or isinstance(handed, tuple):
+        if not (isinstance(stored, tuple)
+                and isinstance(handed, tuple)):
+            return False
+        seen = _seen if _seen is not None else set()
+        pair = (id(stored), id(handed))
+        if pair in seen:
+            return True
+        seen = seen | {pair}
+        stored_parts = list(tuple.__iter__(stored))
+        handed_parts = list(tuple.__iter__(handed))
+        return len(stored_parts) == len(handed_parts) and all(
+            _week_value_equal(part, other, seen)
+            for part, other in zip(stored_parts, handed_parts))
+    if isinstance(stored, (set, frozenset)) or isinstance(
+            handed, (set, frozenset)):
+        if isinstance(stored, set) != isinstance(handed, set):
+            return False
+        if isinstance(stored, frozenset) != isinstance(
+                handed, frozenset):
+            return False
+        seen = _seen if _seen is not None else set()
+        pair = (id(stored), id(handed))
+        if pair in seen:
+            return True
+        seen = seen | {pair}
+        if isinstance(stored, frozenset):
+            stored_parts = list(frozenset.__iter__(stored))
+            handed_parts = list(frozenset.__iter__(handed))
+        else:
+            stored_parts = list(set.__iter__(stored))
+            handed_parts = list(set.__iter__(handed))
+        if len(stored_parts) != len(handed_parts):
+            return False
+        remaining = list(handed_parts)
+        for part in stored_parts:
+            matched = None
+            for index, other in enumerate(remaining):
+                if _week_value_equal(part, other, seen):
+                    matched = index
+                    break
+            if matched is None:
+                return False
+            remaining.pop(matched)
+        return True
+    if type(stored) is not type(handed):
         return False
     try:
-        return bool(stored_week == handed_week)
+        return bool(stored == handed)
     except Exception:
         return False
+
+
+def _week_stands_equal(stored_week, handed_week):
+    """Judge two week values equal kind first, at the top
+    level and inside any container week, under
+    _week_value_equal: no handed equality reading decides a
+    pair across kinds, a plain number week stands judged by
+    the plain number it stores, and a container week stands
+    judged part by part under the same kind first reading, so
+    a boolean, a Decimal, or a Fraction standing inside a
+    container week never stands equal to a plain number."""
+    return _week_value_equal(stored_week, handed_week)
 
 
 def weekly_headline_count(summary_records, week):
@@ -1249,7 +1433,10 @@ def weekly_headline_count(summary_records, week):
     never as its characters. Both inputs stand required: an
     absent records argument or an absent week stands refused in
     named form, and no clean zero stands returned for a count
-    that never ran."""
+    that never ran. The records argument stands read through
+    the base iteration reading of its form, never through an
+    iteration or length reading the argument itself supplies,
+    as its MOD-11 sister act reads the same argument."""
     if summary_records is None:
         raise NamedShellFailure(
             "weekly_headline_count stands refused: no "
@@ -1268,7 +1455,7 @@ def weekly_headline_count(summary_records, week):
             "a list of summary records stands required, and no "
             "weekly headline count stands certified without it")
     seen = []
-    for record in summary_records or ():
+    for record in _container_parts(summary_records):
         if not isinstance(record, dict) or not _base_contains(record, "week"):
             raise NamedShellFailure(
                 "summary record carries no week field, so its weekly "
@@ -1342,7 +1529,10 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
     each call entry stands as a record carrying an
     outside_call mark, whose value stands as true or false,
     stated as a boolean, as the text true, false, yes, or
-    no, or as the number 1 or 0. A log or an entry in any
+    no, or as the number 1 or 0. A text mark stands judged on
+    the text it stores, read through the stored text form of
+    this module, never through a strip or lower reading the
+    mark itself supplies. A log or an entry in any
     other form stands refused in
     named form, never read as an empty log."""
     if extra_source is not None:
@@ -1396,7 +1586,7 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
         if isinstance(mark, bool):
             stands_outside = mark
         elif isinstance(mark, str):
-            word = mark.strip().lower()
+            word = str.lower(str.strip(_stored_text(mark)))
             if word in ("true", "yes"):
                 stands_outside = True
             elif word in ("false", "no"):

@@ -1465,7 +1465,10 @@ def _base_value_eq(left, right):
     """Return whether two handed values agree on their stored
     contents, judged through base class operations at every
     level, never through an equality, get, keys, or iteration
-    reading a handed value supplies."""
+    reading a handed value supplies. A value standing in no
+    stated kind stands judged on its stored form, the base
+    repr form this module states for such a value, and never
+    through the equality reading its type supplies."""
     if left is None or right is None:
         return left is right
     if isinstance(left, str) or isinstance(right, str):
@@ -1546,16 +1549,7 @@ def _base_value_eq(left, right):
             return False
         return bytes.__eq__(bytes(left), bytes(right)) is True
     if type(left) is type(right):
-        try:
-            judged = type(left).__eq__(left, right)
-        except Exception:
-            judged = NotImplemented
-        if isinstance(judged, bool):
-            return judged
-        try:
-            return type(left).__repr__(left) == type(right).__repr__(right)
-        except Exception:
-            return left is right
+        return _stored_form(left) == _stored_form(right)
     return left is right
 
 
@@ -1583,6 +1577,18 @@ def _base_set_eq(left, right):
             return False
         remaining.pop(matched)
     return True
+
+
+def _stored_key_match(collection, handed):
+    """Return the stored key of a collection that a handed key
+    names on its stored form, judged through _base_value_eq at
+    every level, never through a hash or equality reading the
+    handed key supplies, or None where no stored key stands
+    named by it."""
+    for stored_key in dict.keys(collection):
+        if _base_value_eq(handed, stored_key):
+            return stored_key
+    return None
 
 
 def _canonical_text(value, letter_map):
@@ -2277,7 +2283,7 @@ class RecorderStore:
                 "real money field in named form: a run record carrying "
                 "a real money value stands refused at retention, by "
                 "field name and by amount and currency shape")
-        if rid in self._records:
+        if _stored_key_match(self._records, rid) is not None:
             raise ValueError("second record for the same run is rejected: " + _safe_str(rid))
         try:
             stored = _safe_copy(record)
@@ -2301,18 +2307,20 @@ class RecorderStore:
         back through this path and no other path. Reading never
         writes: a missing run raises the named lookup failure."""
         try:
-            present = run_id in self._records
+            hash(run_id)
         except TypeError as exc:
             raise LookupFailure(run_id) from exc
-        if not present:
+        stored_key = _stored_key_match(self._records, run_id)
+        if stored_key is None:
             raise LookupFailure(run_id)
-        return _safe_copy(self._records[run_id])
+        return _safe_copy(dict.__getitem__(self._records, stored_key))
 
     def has_run_record(self, run_id):
         try:
-            return run_id in self._records
+            hash(run_id)
         except TypeError as exc:
             raise LookupFailure(run_id) from exc
+        return _stored_key_match(self._records, run_id) is not None
 
     def clear(self):
         kept_records = self._records
@@ -3021,7 +3029,10 @@ def event_log_entries(run_id, store_kind="sweep"):
     order. Reading never writes."""
     if _store_kind_stands(store_kind):
         store_kind = _canonical_store_kind(store_kind)
-    return _safe_copy(_EVENT_LOGS.get((store_kind, run_id), []))
+    stored_key = _stored_key_match(_EVENT_LOGS, (store_kind, run_id))
+    if stored_key is None:
+        return []
+    return _safe_copy(dict.__getitem__(_EVENT_LOGS, stored_key))
 
 
 def retain_daily_snapshot(snapshot, store_kind="sweep"):
@@ -3060,7 +3071,11 @@ def daily_snapshots(run_id, store_kind="sweep"):
     never writes."""
     if _store_kind_stands(store_kind):
         store_kind = _canonical_store_kind(store_kind)
-    return _safe_copy(_DAILY_SNAPSHOTS.get((store_kind, run_id), []))
+    stored_key = _stored_key_match(
+        _DAILY_SNAPSHOTS, (store_kind, run_id))
+    if stored_key is None:
+        return []
+    return _safe_copy(dict.__getitem__(_DAILY_SNAPSHOTS, stored_key))
 
 
 def _whole_day(value):
@@ -3208,7 +3223,7 @@ def retain_checkpoint(manifest, store_kind="sweep"):
         named_day = judged_form[1] if judged_form[0] == "int" else judged_day
         raise ValueError(
             "second checkpoint for the same run and day is rejected: "
-            + str(run_id) + " day " + str(named_day))
+            + _safe_str(run_id) + " day " + _safe_str(named_day))
     if len(bucket) >= 10000:
         raise ValueError("checkpoint cap in named form: a run stands at the ruled cap of 10,000 checkpoints per run under ruling Entry 18, and no further checkpoint stands retained")
     stored = _safe_copy(manifest)
@@ -3261,7 +3276,10 @@ def checkpoints_for_run(run_id, store_kind="sweep"):
     CheckpointManifest set. Reading never writes."""
     if _store_kind_stands(store_kind):
         store_kind = _canonical_store_kind(store_kind)
-    return _safe_copy(_CHECKPOINTS.get((store_kind, run_id), []))
+    stored_key = _stored_key_match(_CHECKPOINTS, (store_kind, run_id))
+    if stored_key is None:
+        return []
+    return _safe_copy(dict.__getitem__(_CHECKPOINTS, stored_key))
 
 
 def _normalised_form_text(value):
@@ -3511,8 +3529,8 @@ def close_run_retention(run_id, tier, store_kind="sweep"):
         kept_groups = [groups[-1]]
     else:
         tenth = [
-            group for position, group in enumerate(groups, start=1)
-            if position % 10 == 0
+            group for group in groups
+            if group[0][0] == "int" and group[0][1] % 10 == 0
         ]
         kept_groups = [
             group for group in groups
@@ -3608,13 +3626,16 @@ def restore_check(portable, present_identifiers):
             "stands required, and no restore standing stands "
             "returned") from None
     try:
-        return identifier in present_set
+        hash(identifier)
     except TypeError:
         raise ValueError(
             "restore_check stands refused: the relative identifier "
             "stands in an unhashable form, a present identifier in "
             "text form stands required, and no restore standing "
             "stands returned") from None
+    return any(
+        _base_value_eq(identifier, element)
+        for element in set.__iter__(present_set))
 
 
 def replay_check(original, resumed):
@@ -3645,12 +3666,14 @@ def retain_gc08_record(kind, record, owner_id):
     """Retain one GC-08 record, the dependency manifest of a build
     or the process and network call log of a run, with its outside
     call check outcome carried in the record itself."""
-    if kind not in ("dependency_manifest", "call_log"):
+    kind_text = _stored_text(kind) if isinstance(kind, str) else None
+    if kind_text not in ("dependency_manifest", "call_log"):
         raise ValueError(
             "unknown GC-08 record kind: " + _safe_str(kind)
             + "; a GC-08 record kind stands among "
             "dependency_manifest and call_log, and no record "
             "stands retained")
+    kind = kind_text
     if owner_id is None:
         raise ValueError(
             "identity less GC-08 record: no owner identifier "
@@ -3677,7 +3700,10 @@ def gc08_record(kind, owner_id):
         hash(owner_id)
     except TypeError:
         owner_unhashable = True
-    if owner_unhashable or (kind, owner_id) not in _GC08_RECORDS:
+    stored_key = None
+    if not owner_unhashable:
+        stored_key = _stored_key_match(_GC08_RECORDS, (kind, owner_id))
+    if stored_key is None:
         failure = LookupFailure(owner_id, record_kind=kind)
         failure.failure = {
             "name": ONE_LOOKUP_FAILURE_NAME,
@@ -3687,7 +3713,7 @@ def gc08_record(kind, owner_id):
             "record_kind": kind,
         }
         raise failure
-    return _safe_copy(_GC08_RECORDS[(kind, owner_id)])
+    return _safe_copy(dict.__getitem__(_GC08_RECORDS, stored_key))
 
 
 def _stated_count(value, name):
@@ -3915,11 +3941,15 @@ def summary_record_for_run(run_id="run-under-test"):
     except TypeError as exc:
         raise LookupFailure(run_id) from exc
     try:
-        summary_present = run_id in _SUMMARY_RECORDS
+        summary_key = _stored_key_match(_SUMMARY_RECORDS, run_id)
     except Exception as exc:
         raise LookupFailure(run_id) from exc
-    if summary_present:
-        return _safe_copy(_SUMMARY_RECORDS[run_id])
+    if summary_key is not None:
+        return _safe_copy(dict.__getitem__(_SUMMARY_RECORDS, summary_key))
+    try:
+        run_id in _SUMMARY_RECORDS
+    except Exception as exc:
+        raise LookupFailure(run_id) from exc
     record = None
     try:
         record = _DEFAULT_STORE.read_run_record(run_id)
@@ -4815,7 +4845,10 @@ def reserve_hold_for_run(run_id, current_day=None):
         hash(run_id)
     except TypeError as exc:
         raise LookupFailure(run_id) from exc
-    hold = _RESERVE_HOLDS.get(run_id)
+    hold_key = _stored_key_match(_RESERVE_HOLDS, run_id)
+    hold = (
+        dict.__getitem__(_RESERVE_HOLDS, hold_key)
+        if hold_key is not None else None)
     if hold is None:
         return None
     if current_day is not None and hold.get("state") == "held" and current_day >= hold.get("end_day", 0):
@@ -4835,7 +4868,20 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
     the run stands released by the same act."""
     if not isinstance(summary_record, dict):
         raise ValueError("no evaluation stands written in named form: no summary record stands for the run, and no detached evaluation stands returned")
-    if firing not in (1, 2):
+
+    def _stated_firing(value):
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        plain = int.__int__(value)
+        return plain if plain in (1, 2) else None
+
+    def _entry_firing(item):
+        if isinstance(item, dict):
+            return _stated_firing(dict.get(item, "firing"))
+        return None
+
+    firing_number = _stated_firing(firing)
+    if firing_number is None:
         raise ValueError(
             "apply_deferred_evaluation stands refused: the firing "
             + _safe_repr(firing) + " stands outside the stated firings "
@@ -4843,13 +4889,30 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
             "and no other firing, and no evaluation stands written")
     updated = _safe_copy(summary_record)
     evaluations = updated.setdefault("deferred_evaluations", [])
-    if any(item.get("firing") == firing for item in evaluations):
+    run_key = dict.get(updated, "run_id") or dict.get(
+        updated, "run_identifier")
+    stored_evaluations = []
+    if run_key is not None:
+        try:
+            hash(run_key)
+        except TypeError:
+            stored_evaluations = []
+        else:
+            stored_record = _SUMMARY_RECORDS.get(run_key) or {}
+            if isinstance(stored_record, dict):
+                stored_evaluations = (
+                    dict.get(stored_record, "deferred_evaluations")
+                    or [])
+    if any(_entry_firing(item) == firing_number
+           for item in evaluations) or any(
+            _entry_firing(item) == firing_number
+            for item in stored_evaluations):
         raise ValueError(
             "apply_deferred_evaluation stands refused: this firing "
             "already stands written, a run receives two firings "
             "(firings 1 and 2) and no firing stands written twice, "
             "and no evaluation stands written")
-    if firing == 2 and not family_states_headlines:
+    if firing_number == 2 and not family_states_headlines:
         updated["second_firing"] = "does not fire"
         return updated
     if inputs is None or outcome is None:
@@ -4857,8 +4920,7 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
             "deferred evaluation refused in named form: a firing with "
             "no inputs or no outcome stands not written, and no hold "
             "stands released by it")
-    if firing == 2:
-        run_key = updated.get("run_id") or updated.get("run_identifier")
+    if firing_number == 2:
         if run_key is not None:
             try:
                 hash(run_key)
@@ -4868,11 +4930,10 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
                     "identifier stands in an unhashable form, and "
                     "no summary record stands retained under "
                     "it") from exc
-        stored = _SUMMARY_RECORDS.get(run_key) or {}
-        stored_evaluations = stored.get("deferred_evaluations") or []
         first_standing = (
-            any(item.get("firing") == 1 for item in evaluations)
-            or any(item.get("firing") == 1 for item in stored_evaluations))
+            any(_entry_firing(item) == 1 for item in evaluations)
+            or any(_entry_firing(item) == 1
+                   for item in stored_evaluations))
         if not first_standing:
             raise ValueError(
                 "deferred evaluation refused in named form: the second "
@@ -4881,13 +4942,13 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
         if not evaluations and stored_evaluations:
             evaluations.extend(_safe_copy(stored_evaluations))
     evaluations.append({
-        "firing": firing,
+        "firing": firing_number,
         "inputs": _safe_copy(inputs),
         "outcome": outcome,
-        "conditions": [1, 2] if firing == 1 else [1, 2, 3],
+        "conditions": [1, 2] if firing_number == 1 else [1, 2, 3],
         "written_into": "summary record",
     })
-    if firing == 2:
+    if firing_number == 2:
         hold = _RESERVE_HOLDS.get(
             updated.get("run_id") or updated.get("run_identifier"))
         if hold is not None and hold.get("family_states_headlines", True):
@@ -4913,19 +4974,15 @@ def retention_record_for_run(run_id, store_kind="sweep"):
     tier = summary.get("retention_tier")
     tier_key = (
         _stored_text(tier) if isinstance(
-            tier, (str, bytes, bytearray, memoryview)) else tier)
+            tier, (str, bytes, bytearray, memoryview)) else None)
     tier_map = {
         "Tier 0": [],
         "Tier 1": ["final_checkpoint"],
         "Tier 2": ["final_checkpoint", "tenth_point_checkpoints"],
         "Tier 3": ["final_checkpoint", "daily_checkpoints"],
     }
-    try:
-        tier_judged = tier_key in tier_map
-        tier_forms = tier_map.get(tier_key, [])
-    except TypeError:
-        tier_judged = False
-        tier_forms = []
+    tier_judged = tier_key in tier_map
+    tier_forms = tier_map.get(tier_key, []) if tier_judged else []
     retained_checkpoints = checkpoints_for_run(run_id, store_kind)
     pointer_counts = {
         "checkpoints": len(retained_checkpoints),
@@ -4960,12 +5017,18 @@ def retention_record_for_run(run_id, store_kind="sweep"):
             "shortfall stands stated inside this result as a bound: "
             + str(len(not_retained)) + " of " + str(len(tier_forms))
             + " forms the tier names stand not retained")
-    else:
+    elif tier is None:
         shortfall_bound = (
             "shortfall stands not judged inside this result: no tier "
             "forms stand named for the tier the run states, the tier "
             "standing unstated or unknown, and no shortfall stands "
             "stated against it")
+    else:
+        shortfall_bound = (
+            "shortfall stands not judged inside this result: no tier "
+            "forms stand named for the tier the run states, the tier "
+            "standing stated in a form outside the tiers the record "
+            "names, and no shortfall stands stated against it")
     result = {
         "run_id": run_id,
         "retention_tier": tier_key,
@@ -5300,12 +5363,13 @@ def store_lookup(store_kinds=None, key=None, store_kind=None):
         kinds = (store_kind,)
     if kinds is None:
         kinds = ()
-    if len(tuple(kinds)) != 1:
+    kinds_tuple = tuple(kinds)
+    if len(kinds_tuple) != 1:
         raise ValueError(
             "a lookup that resolves across stores in one step is "
             "rejected: exactly one store kind stands required, and "
             "no record lookup stands performed")
-    kind = tuple(kinds)[0]
+    kind = kinds_tuple[0]
     if not _store_kind_stands(kind):
         raise ValueError(
             "unknown store kind: " + _safe_str(kind) + "; a store kind stands "
@@ -5730,7 +5794,7 @@ def run_view_leak_check(view_record):
                 dict.get(view_record, field)):
             raise ValueError(
                 "view leak check failure: form canary, view "
-                + view_name + ", field " + str(field)
+                + view_name + ", field " + _safe_str(field)
                 + " carries a barred key")
     for field in mod01.ViewRecord.FIELDS:
         if field in ("scheduling_position_identifier",
@@ -5762,7 +5826,7 @@ def run_view_leak_check(view_record):
             raise ValueError(
                 "view leak check failure: form timing, view "
                 + view_name + ", field first_seen_day_per_record: "
-                "record " + str(item) + " states a day in a non "
+                "record " + _safe_str(item) + " states a day in a non "
                 "finite form the timing comparison cannot order")
         if (isinstance(seen_day, (int, float))
                 and not isinstance(seen_day, bool)
@@ -5772,7 +5836,7 @@ def run_view_leak_check(view_record):
             raise ValueError(
                 "view leak check failure: form timing, view "
                 + view_name + ", field first_seen_day_per_record: "
-                "record " + str(item) + " first seen after the view day")
+                "record " + _safe_str(item) + " first seen after the view day")
     return {
         "forms_run": list(_VIEW_LEAK_FORMS),
         "reportable": True,
@@ -5803,7 +5867,10 @@ def retain_view_record(record, tier=None):
             "no identifier")
     run_view_leak_check(record)
     tier = tier or dict.get(record, "retention_tier") or "Tier 2"
-    if tier == "Tier 1":
+    tier_text = (
+        _stored_text(tier) if isinstance(
+            tier, (str, bytes, bytearray, memoryview)) else None)
+    if tier_text == "Tier 1":
         stored = {
             "run_identifier": run_id,
             "viewer_identifier": (
@@ -5818,7 +5885,8 @@ def retain_view_record(record, tier=None):
         }
     else:
         stored = _safe_copy(record)
-        stored["retention_tier"] = tier
+        stored["retention_tier"] = (
+            tier_text if tier_text is not None else tier)
     _VIEW_RECORDS.setdefault(run_id, []).append(stored)
     return _safe_copy(stored)
 

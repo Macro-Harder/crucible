@@ -130,16 +130,16 @@ def _stored_list(value):
 
 
 def _get(record, *names, default=None):
+    """Read one field of a handed record through the base dict
+    readings, never through a reading the record itself
+    supplies, so a record stands judged and built from the
+    contents it stores. A value in no dict form stores nothing
+    under any name and reads as the default."""
     if isinstance(record, dict):
         for name in names:
             if dict.__contains__(record, name) and dict.__getitem__(record, name) is not None:
                 return dict.__getitem__(record, name)
         return default
-    for name in names:
-        if hasattr(record, name):
-            value = getattr(record, name)
-            if value is not None:
-                return value
     return default
 
 
@@ -152,9 +152,14 @@ def _freeze(value, _memo=None):
     supplies directs the copy. A set part stands rebuilt
     through the plain set constructor and a frozenset part
     through the plain frozenset constructor, never through a
-    constructor the part itself supplies. A part in no
-    container form stands copied as itself. Shared and cyclic
-    container parts stand preserved through the memo, as a
+    constructor the part itself supplies. A bytearray part
+    stands copied apart as a new bytearray of its stored
+    bytes, and a memoryview part stands copied apart as a
+    memoryview of a new bytes copy of the bytes it views, so
+    no buffer part stands shared with the caller. A part in
+    no container or buffer form stands copied as itself.
+    Shared and cyclic container parts stand preserved
+    through the memo, as a
     plain deep copy preserves them."""
     if _memo is None:
         _memo = {}
@@ -197,6 +202,10 @@ def _freeze(value, _memo=None):
             _freeze(item, _memo) for item in set.__iter__(value))
         _memo[id(value)] = copied
         return copied
+    if isinstance(value, bytearray):
+        return bytearray(value)
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
     return value
 
 
@@ -2419,7 +2428,14 @@ def _panel_leaf_copy(value):
     base class readings in _panel_clean, so no part of the record
     can direct the copy. A leaf part stands in no container form,
     so it stands carried as itself and never through a copy
-    protocol the part itself supplies."""
+    protocol the part itself supplies. The buffer forms stand
+    carried as stored: a bytearray as a fresh bytearray and a
+    memoryview as a memoryview over fresh bytes, so no buffer
+    part stands shared with the caller."""
+    if isinstance(value, bytearray):
+        return bytearray(bytes(value))
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
     return value
 
 

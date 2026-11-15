@@ -1609,6 +1609,19 @@ def _base_iter(node):
     return iter(node)
 
 
+def _path_key_text(key):
+    """The text a key stores for a barred field path, read
+    through _stored_text where the key stands in a text or
+    buffer form, so a string reading the key itself supplies,
+    lying or raising, never stands as the path name, and
+    through _safe_str for a key in any other form, whose
+    string reading stands guarded there against the seven
+    named kinds."""
+    if isinstance(key, (str, bytes, bytearray, memoryview)):
+        return _stored_text(key)
+    return _safe_str(key)
+
+
 def _find_barred(node, path="", _depth=0, _seen=None, _walked=None):
     if isinstance(node, (dict, list, tuple, set, frozenset)):
         if _depth > BARRED_SEARCH_DEPTH_BOUND:
@@ -1641,7 +1654,7 @@ def _find_barred(node, path="", _depth=0, _seen=None, _walked=None):
                         for key in dict.keys(node)):
                     hits.append(path if path else "/")
                 for key, value in dict.items(node):
-                    here = path + "/" + str(key)
+                    here = path + "/" + _path_key_text(key)
                     if _is_barred_key(key):
                         hits.append(here)
                     hits.extend(_find_barred(
@@ -2105,10 +2118,27 @@ def validate_output(output):
     if not isinstance(output, dict):
         return False
     if not _base_str_eq(
-            dict.get(output, PROFILE_BOUND_LABEL_FIELD),
+            _profile_label_value(output),
             PROFILE_LABEL_CARRIAGE):
         return False
     return not _carries_barred_verdict(output)
+
+
+def _profile_label_value(record):
+    """The value a record carries under its profile bound
+    label field, found by the stored text of its keys, in
+    the form _stored_text states, never through the hash or
+    equality readings a handed key supplies, so a dressed
+    key impersonating the field name finds no field. A
+    record carrying no key whose stored text stands as the
+    field name carries no label value."""
+    if not isinstance(record, dict):
+        return None
+    for key, value in dict.items(record):
+        if _base_str_eq(
+                _stored_text(key), PROFILE_BOUND_LABEL_FIELD):
+            return value
+    return None
 
 
 _BARRED_VERDICT_VALUES = ("pass", "passed", "fail", "failed")
@@ -2226,6 +2256,16 @@ def _dict_node_carries_barred_verdict(node):
     pairs = list(dict.items(node))
     if len(pairs) < 2:
         return False
+    for key, value in pairs:
+        if isinstance(
+                key, (dict, list, tuple, set, frozenset)) and (
+                _barred_verdict_value(value)):
+            for candidate in _joined_text_candidates(key):
+                lowered_candidate = candidate.lower()
+                if lowered_candidate and (
+                        lowered_candidate in _VERDICT_POSITION_KEYS
+                        or "verdict" in lowered_candidate):
+                    return True
     readings = []
     for key, value in pairs:
         if isinstance(key, (dict, list, tuple, set, frozenset)):
@@ -2281,13 +2321,16 @@ def _carries_barred_verdict(node, _depth=0, _seen=None, _walked=None):
                             break
                     if isinstance(
                             key, (dict, list, tuple, set, frozenset)):
-                        joined = _joined_stored_text(key).lower()
-                        if joined and (
-                                joined in _VERDICT_POSITION_KEYS
-                                or "verdict" in joined):
-                            if _barred_verdict_value(value):
-                                result = True
-                                break
+                        for candidate in _joined_text_candidates(key):
+                            joined = candidate.lower()
+                            if joined and (
+                                    joined in _VERDICT_POSITION_KEYS
+                                    or "verdict" in joined):
+                                if _barred_verdict_value(value):
+                                    result = True
+                                    break
+                        if result:
+                            break
                     if _carries_barred_verdict(
                             key, _depth + 1, seen, walked):
                         result = True
@@ -2482,10 +2525,215 @@ def validate_use_naming(artefact, run_record_uses=None):
         recorded = list(_base_iter(run_record_uses))
         if sorted(recorded) != sorted(named):
             raise SilentUseMovement(
-                "use naming check: the artefact names one use while "
-                "the run record names the other, or neither"
+                "use naming check: the artefact names "
+                + (", ".join(_safe_str(use) for use in named)
+                   if named else "no use")
+                + " while the run record names "
+                + (", ".join(_safe_str(use) for use in recorded)
+                   if recorded else "no use")
             )
     return True
+
+
+def _barred_verdict_locus(node):
+    """The locus at which a figure carries a barred verdict
+    on a judgement of its contents, as the stored text of the
+    key under which the barred value stands, the position
+    name a split across the keys of one dict joins to, or the
+    joined candidate of a container key, in the forms
+    _carries_barred_verdict judges. A figure standing read
+    as carrying the barred form only on the walk cycle or
+    depth readings carries no locus here. The search stands
+    iterative on an explicit stack of frames, path scoped
+    against cycles, and bounded in depth at 500 containers,
+    past which no locus stands taken by this act, so a
+    container chain at any depth stands answered and no
+    recursion stands spent per container level."""
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return None
+    seen = set()
+    stack = [{
+        "node": node, "depth": 0, "stage": 0, "index": 0,
+        "child": 0, "pairs": None, "items": None,
+    }]
+    while stack:
+        frame = stack[-1]
+        current = frame["node"]
+        if frame["stage"] == 0:
+            if frame["depth"] > 500 or id(current) in seen:
+                stack.pop()
+                continue
+            seen.add(id(current))
+            frame["stage"] = 1
+            if isinstance(current, dict):
+                frame["pairs"] = list(dict.items(current))
+                if _dict_node_carries_barred_verdict(current):
+                    pairs = frame["pairs"]
+                    readings = []
+                    for key, value in pairs:
+                        if isinstance(
+                                key, (dict, list, tuple, set,
+                                      frozenset)):
+                            readings.append(
+                                _joined_stored_text(key).lower())
+                        else:
+                            readings.append(
+                                _stored_text(key).lower())
+                    for target in _VERDICT_POSITION_KEYS:
+                        if _verdict_keys_tile_exact(
+                                readings, pairs, target):
+                            return target
+                    if _verdict_keys_carry_split(readings, pairs):
+                        return "verdict"
+                    for key, value in pairs:
+                        if isinstance(
+                                key, (dict, list, tuple, set,
+                                      frozenset)) and (
+                                _barred_verdict_value(value)):
+                            for candidate in (
+                                    _joined_text_candidates(key)):
+                                lowered_candidate = (
+                                    candidate.lower())
+                                if lowered_candidate and (
+                                        lowered_candidate
+                                        in _VERDICT_POSITION_KEYS
+                                        or "verdict"
+                                        in lowered_candidate):
+                                    return lowered_candidate
+            else:
+                frame["items"] = list(_base_iter(current))
+            continue
+        if isinstance(current, dict):
+            pairs = frame["pairs"]
+            if frame["index"] >= len(pairs):
+                seen.discard(id(current))
+                stack.pop()
+                continue
+            key, value = pairs[frame["index"]]
+            if frame["child"] == 0:
+                frame["child"] = 1
+                lowered = _stored_text(key).lower()
+                if (lowered in _VERDICT_POSITION_KEYS or (
+                        "verdict" in lowered)) and (
+                        _barred_verdict_value(value)):
+                    return lowered
+                if isinstance(
+                        key, (dict, list, tuple, set, frozenset)):
+                    for candidate in _joined_text_candidates(key):
+                        joined = candidate.lower()
+                        if joined and (
+                                joined in _VERDICT_POSITION_KEYS
+                                or "verdict" in joined) and (
+                                _barred_verdict_value(value)):
+                            return joined
+                if isinstance(
+                        key, (dict, list, tuple, set, frozenset)):
+                    stack.append({
+                        "node": key, "depth": frame["depth"] + 1,
+                        "stage": 0, "index": 0, "child": 0,
+                        "pairs": None, "items": None,
+                    })
+                continue
+            if frame["child"] == 1:
+                frame["child"] = 2
+                if isinstance(
+                        value, (dict, list, tuple, set, frozenset)):
+                    stack.append({
+                        "node": value, "depth": frame["depth"] + 1,
+                        "stage": 0, "index": 0, "child": 0,
+                        "pairs": None, "items": None,
+                    })
+                continue
+            frame["child"] = 0
+            frame["index"] += 1
+            continue
+        items = frame["items"]
+        if frame["index"] >= len(items):
+            seen.discard(id(current))
+            stack.pop()
+            continue
+        item = items[frame["index"]]
+        frame["index"] += 1
+        if isinstance(item, (dict, list, tuple, set, frozenset)):
+            stack.append({
+                "node": item, "depth": frame["depth"] + 1,
+                "stage": 0, "index": 0, "child": 0,
+                "pairs": None, "items": None,
+            })
+    return None
+
+
+def _verdict_walk_children(value):
+    """The children of one container for the verdict walk
+    ground acts, read through base class operations: a dict
+    contributes its keys and its values in stored order, and
+    every other container its elements in its base
+    iteration order."""
+    if isinstance(value, dict):
+        children = []
+        for key, item in dict.items(value):
+            children.append(key)
+            children.append(item)
+        return children
+    return list(_base_iter(value))
+
+
+def _verdict_walk_revisits_container(value):
+    """Whether a value revisits a container on its own path,
+    in the cycle form _carries_barred_verdict states, judged
+    on an iterative path scoped traversal of its own, so a
+    container chain at any depth stands answered."""
+    if not isinstance(value, (dict, list, tuple, set, frozenset)):
+        return False
+    seen = set()
+    stack = [(value, False)]
+    while stack:
+        node, leaving = stack.pop()
+        if leaving:
+            seen.discard(id(node))
+            continue
+        if not isinstance(
+                node, (dict, list, tuple, set, frozenset)):
+            continue
+        if id(node) in seen:
+            return True
+        seen.add(id(node))
+        stack.append((node, True))
+        for child in _verdict_walk_children(node):
+            stack.append((child, False))
+    return False
+
+
+def _verdict_walk_past_depth_bound(value):
+    """Whether a container of a value stands at a depth past
+    the stated bound, in the counting _carries_barred_
+    verdict states: the top container stands at depth 0,
+    each child container one deeper, and a container
+    standing at a depth greater than BARRED_SEARCH_DEPTH_
+    BOUND stands past the bound. The traversal stands
+    iterative and path scoped, so a container chain at any
+    depth stands answered."""
+    if not isinstance(value, (dict, list, tuple, set, frozenset)):
+        return False
+    seen = set()
+    stack = [(value, 0, False)]
+    while stack:
+        node, depth, leaving = stack.pop()
+        if leaving:
+            seen.discard(id(node))
+            continue
+        if not isinstance(
+                node, (dict, list, tuple, set, frozenset)):
+            continue
+        if depth > BARRED_SEARCH_DEPTH_BOUND:
+            return True
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        stack.append((node, depth, True))
+        for child in _verdict_walk_children(node):
+            stack.append((child, depth + 1, False))
+    return False
 
 
 def report(figures=None):
@@ -2515,12 +2763,32 @@ def report(figures=None):
             if not isinstance(figure, dict):
                 ground = (
                     "the figure stands in no record form (no dict form)")
-            elif dict.get(figure, PROFILE_BOUND_LABEL_FIELD) != (
+            elif not _base_str_eq(
+                    _profile_label_value(figure),
                     PROFILE_LABEL_CARRIAGE):
                 ground = (
                     "the figure stands without its profile bound label "
                     "in the stated carriage form (its profile bound "
                     "label stands missing or carries another value)")
+            elif _barred_verdict_locus(figure) is not None:
+                ground = (
+                    "the figure carries a barred pass or fail verdict "
+                    "(" + _barred_verdict_locus(figure) + "), which "
+                    "stands not reported")
+            elif _carries_barred_verdict(figure) and (
+                    _verdict_walk_revisits_container(figure)):
+                ground = (
+                    "the figure carries a cycle on its own path, so "
+                    "it stands read as carrying the barred form on "
+                    "its cycle ground alone, which stands not "
+                    "reported")
+            elif _carries_barred_verdict(figure) and (
+                    _verdict_walk_past_depth_bound(figure)):
+                ground = (
+                    "the figure stands deeper than the stated bound "
+                    "of 100, so it stands read as carrying the "
+                    "barred form on its depth bound ground alone, "
+                    "which stands not reported")
             else:
                 ground = (
                     "the figure carries a barred pass or fail verdict "
@@ -2598,7 +2866,7 @@ def author_sealed_class(sealed_set, kind, identifier,
                 "sleeper class", "honest challenge variant"))):
         raise NamedDetectionFailure(
             "sealed set rejected: authored kind stands unnamed: "
-            + str(kind)
+            + _safe_str(kind)
         )
     if isinstance(separations, (list, tuple, set, frozenset)):
         named = tuple(_base_iter(separations))

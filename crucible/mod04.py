@@ -241,14 +241,147 @@ class ContractAHandover:
         return _freeze(self._family_id)
 
     def verify_intact(self, point, assumption_record, seed_input_set, family_id):
+        from decimal import Decimal
+        from fractions import Fraction
+
+        def _kind_first_equal(held, other, _seen=None):
+            if held is other:
+                return True
+            if isinstance(held, str) or isinstance(other, str):
+                return (
+                    isinstance(held, str)
+                    and isinstance(other, str)
+                    and str.__eq__(
+                        str.__str__(held), str.__str__(other)) is True
+                )
+            if isinstance(held, (bytes, bytearray, memoryview)) \
+                    or isinstance(other, (bytes, bytearray, memoryview)):
+                return (
+                    isinstance(held, (bytes, bytearray, memoryview))
+                    and isinstance(other, (bytes, bytearray, memoryview))
+                    and bytes.__eq__(bytes(held), bytes(other)) is True
+                )
+            if held is None or other is None:
+                return held is None and other is None
+            if isinstance(held, bool) or isinstance(other, bool):
+                return (
+                    isinstance(held, bool)
+                    and isinstance(other, bool)
+                    and held is other
+                )
+            if isinstance(held, Decimal) or isinstance(other, Decimal):
+                return (
+                    isinstance(held, Decimal)
+                    and isinstance(other, Decimal)
+                    and Decimal.__eq__(
+                        Decimal.__new__(Decimal, held),
+                        Decimal.__new__(Decimal, other)) is True
+                )
+            if isinstance(held, Fraction) or isinstance(other, Fraction):
+                return (
+                    isinstance(held, Fraction)
+                    and isinstance(other, Fraction)
+                    and Fraction.__eq__(
+                        Fraction.__new__(Fraction, held),
+                        Fraction.__new__(Fraction, other)) is True
+                )
+            if isinstance(held, complex) or isinstance(other, complex):
+                return (
+                    isinstance(held, complex)
+                    and isinstance(other, complex)
+                    and complex.__eq__(
+                        complex.__new__(complex, held),
+                        complex.__new__(complex, other)) is True
+                )
+            if isinstance(held, (int, float)) \
+                    and isinstance(other, (int, float)):
+                held_plain = (
+                    float.__float__(held) if isinstance(held, float)
+                    else int.__int__(held))
+                other_plain = (
+                    float.__float__(other) if isinstance(other, float)
+                    else int.__int__(other))
+                return held_plain == other_plain
+            if isinstance(held, (int, float)) \
+                    or isinstance(other, (int, float)):
+                return False
+            if isinstance(held, dict) and isinstance(other, dict):
+                pair = (id(held), id(other))
+                if _seen is not None and pair in _seen:
+                    return True
+                _seen = (_seen or frozenset()) | {pair}
+                if dict.__len__(held) != dict.__len__(other):
+                    return False
+                remaining = list(dict.items(other))
+                for key, item in dict.items(held):
+                    matched = None
+                    for index, (other_key, other_item) in enumerate(
+                            remaining):
+                        if _kind_first_equal(
+                                key, other_key, _seen) \
+                                and _kind_first_equal(
+                                    item, other_item, _seen):
+                            matched = index
+                            break
+                    if matched is None:
+                        return False
+                    remaining.pop(matched)
+                return True
+            if isinstance(held, (list, tuple)) \
+                    and isinstance(other, (list, tuple)):
+                if type(held) is not type(other):
+                    return False
+                pair = (id(held), id(other))
+                if _seen is not None and pair in _seen:
+                    return True
+                _seen = (_seen or frozenset()) | {pair}
+                held_parts = list(
+                    list.__iter__(held) if isinstance(held, list)
+                    else tuple.__iter__(held))
+                other_parts = list(
+                    list.__iter__(other) if isinstance(other, list)
+                    else tuple.__iter__(other))
+                if len(held_parts) != len(other_parts):
+                    return False
+                return all(
+                    _kind_first_equal(one, two, _seen)
+                    for one, two in zip(held_parts, other_parts))
+            if isinstance(held, (set, frozenset)) \
+                    and isinstance(other, (set, frozenset)):
+                pair = (id(held), id(other))
+                if _seen is not None and pair in _seen:
+                    return True
+                _seen = (_seen or frozenset()) | {pair}
+                held_parts = list(
+                    set.__iter__(held) if isinstance(held, set)
+                    else frozenset.__iter__(held))
+                other_parts = list(
+                    set.__iter__(other) if isinstance(other, set)
+                    else frozenset.__iter__(other))
+                if len(held_parts) != len(other_parts):
+                    return False
+                remaining = list(other_parts)
+                for part in held_parts:
+                    matched = None
+                    for index, candidate in enumerate(remaining):
+                        if _kind_first_equal(part, candidate, _seen):
+                            matched = index
+                            break
+                    if matched is None:
+                        return False
+                    remaining.pop(matched)
+                return True
+            return False
+
         differing = []
-        if not point == self._point:
+        if not _kind_first_equal(point, self._point):
             differing.append("point")
-        if not assumption_record == self._assumption_record:
+        if not _kind_first_equal(
+                assumption_record, self._assumption_record):
             differing.append("assumption_record (the assumption record)")
-        if not seed_input_set == self._seed_input_set:
+        if not _kind_first_equal(seed_input_set, self._seed_input_set):
             differing.append("seed_input_set (the seed input set)")
-        if not family_id == self._family_id:
+        if not _kind_first_equal(family_id, self._family_id):
             differing.append("family_id (the family identifier)")
         if differing:
             raise AlterationBarred(

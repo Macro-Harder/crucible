@@ -543,16 +543,14 @@ def _catalogue_repr(name, _depth=0, _seen=None):
         if _seen is not None and id(name) in _seen:
             return type(name).__name__
         seen = (_seen or frozenset()) | {id(name)}
+        rendered = [
+            (str.__str__(key) if isinstance(key, str)
+             else _catalogue_repr(key, _depth + 1, seen),
+             _catalogue_repr(item, _depth + 1, seen))
+            for key, item in list(dict.items(stored))]
         parts = [
-            "%s=%s" % (
-                str.__str__(key) if isinstance(key, str)
-                else _catalogue_repr(key),
-                _catalogue_repr(item, _depth + 1, seen))
-            for key, item in sorted(
-                list(dict.items(stored)),
-                key=lambda pair: str.__str__(pair[0])
-                if isinstance(pair[0], str)
-                else _catalogue_repr(pair[0]))]
+            "%s=%s" % pair
+            for pair in sorted(rendered, key=lambda pair: pair[0])]
         return "%s(%s)" % (type(name).__name__, ", ".join(parts))
     return type(name).__name__
 
@@ -1515,6 +1513,37 @@ def _entry_outcome_state(entry):
     return (True, _outcome_stands_failure(outcome))
 
 
+def _list_entry_outcome_state(entry):
+    """The recorded outcome state of one per point outcome
+    entry handed in list carriage, judged in the same form
+    the dict carriage walk judges the identical contents. A
+    dict entry carrying an outcome key, or carrying any
+    stored value in an outcome bearing form under a key
+    other than the point key, stands walked whole by
+    _recorded_outcome_state, so a failure recorded beside
+    the outcome, under a fellow point key, or in a nested
+    record stands recorded whatever form a fellow value
+    stands in. A dict entry carrying neither stands as a
+    record entry alone, judged by _entry_outcome_state, so
+    an entry whose point key stands alone as the name of
+    its point records nothing on that name. An entry in no
+    dict form stands judged on its own stored form,
+    recording the content it carries and standing as a
+    failure where _outcome_stands_failure judges it one."""
+    if isinstance(entry, dict):
+        if _base_dict_contains(entry, "outcome") or any(
+                isinstance(item, (dict, str, bytes, bytearray,
+                                  memoryview, list, tuple, set,
+                                  frozenset))
+                for key, item in list(dict.items(entry))
+                if not (isinstance(key, str) and str.__eq__(
+                        str.__str__(key), "point"))):
+            return _recorded_outcome_state(entry)
+        return _entry_outcome_state(entry)
+    return (_outcome_carries_content(entry),
+            _outcome_stands_failure(entry))
+
+
 def _recorded_outcome_state(carriage, _depth=0):
     """The recorded outcome state of a per point outcome handed
     in dict form, as a pair of whether an outcome stands
@@ -1648,19 +1677,12 @@ def readout(search_record, found_failure=True, wording="",
                 _recorded_outcome_state(outcomes))
         else:
             for entry in _base_sequence(outcomes):
-                if isinstance(entry, dict):
-                    if _base_dict_contains(entry, "outcome") or (
-                            _base_dict_contains(entry, "point")) or (
-                            not _stands_point_mapping(entry)):
-                        entry_recorded, entry_failure = (
-                            _entry_outcome_state(entry))
-                    else:
-                        entry_recorded, entry_failure = (
-                            _recorded_outcome_state(entry))
-                    outcomes_recorded = (
-                        outcomes_recorded or entry_recorded)
-                    recorded_failure = (
-                        recorded_failure or entry_failure)
+                entry_recorded, entry_failure = (
+                    _list_entry_outcome_state(entry))
+                outcomes_recorded = (
+                    outcomes_recorded or entry_recorded)
+                recorded_failure = (
+                    recorded_failure or entry_failure)
     unit = {
         "wording": wording,
         "coverage_sentence": COVERAGE_SENTENCE,
@@ -1747,9 +1769,10 @@ def witness_carriage(witness_run, envelope_claim_names_witness=True):
             "no record form: " + _safe_repr(witness_run)
         )
     carriage = {
-        "witness_run": _base_dict_get(witness_run, "run_identifier"),
-        "regime_classification": _base_dict_get(
-            witness_run, "regime_classification"),
+        "witness_run": _render_safe_copy(
+            _base_dict_get(witness_run, "run_identifier")),
+        "regime_classification": _render_safe_copy(
+            _base_dict_get(witness_run, "regime_classification")),
     }
     if envelope_claim_names_witness:
         carriage["attacker_cost_summary"] = attacker_cost_summary(

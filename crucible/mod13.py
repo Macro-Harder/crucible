@@ -16,6 +16,8 @@ stands in this module.
 """
 
 import itertools
+from decimal import Decimal
+from fractions import Fraction
 
 from crucible import mod01 as _mod01
 
@@ -44,10 +46,14 @@ def _freeze(value, _memo=None):
     supplies directs the copy. A set part stands rebuilt
     through the plain set constructor and a frozenset part
     through the plain frozenset constructor, never through a
-    constructor the part itself supplies. A part in no
-    container form stands copied as itself. Shared and cyclic
-    container parts stand preserved through the memo, as a
-    plain deep copy preserves them."""
+    constructor the part itself supplies. A bytearray part
+    stands copied apart as a new bytearray of its stored
+    bytes, and a memoryview part stands copied apart as a
+    memoryview of a new bytes copy of the bytes it views, so
+    no buffer part stands shared with the caller. A part in
+    no container or buffer form stands copied as itself.
+    Shared and cyclic container parts stand preserved
+    through the memo, as a plain deep copy preserves them."""
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):
@@ -92,6 +98,10 @@ def _freeze(value, _memo=None):
         for item in set.__iter__(value):
             copied.add(_freeze(item, _memo))
         return copied
+    if isinstance(value, bytearray):
+        return bytearray(value)
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
     return value
 
 
@@ -127,10 +137,13 @@ COMPARABILITY_ITEMS = tuple(COMPARABILITY_ITEM_ALIASES)
 
 
 def _base_get(record, key):
-    """Read one field through the base dict get, never through a
-    get the record itself overrides."""
+    """Read one field through its stored pairs, in the form
+    _stored_get states: a field standing present where a
+    stored key carries its name in stored text, never through
+    a hash or equality reading a handed key supplies, and
+    never through a get the record itself overrides."""
     if isinstance(record, dict):
-        return dict.get(record, key)
+        return _stored_get(record, key)
     return None
 
 
@@ -259,7 +272,7 @@ def _base_str_member(value, options):
     return any(_base_str_eq(value, option) for option in options)
 
 
-def _stored_key_text(value):
+def _stored_key_text(value, _depth=0):
     """The stored text of a key or of a part of a key, under the
     governing stored text settlement, in the form crucible/mod01.py
     states for its key reading."""
@@ -272,9 +285,11 @@ def _stored_key_text(value):
     if isinstance(value, memoryview):
         return bytes.decode(memoryview.tobytes(value), "utf-8", "ignore")
     if isinstance(value, (tuple, list, set, frozenset)):
+        if _depth > COMPARISON_DEPTH_BOUND:
+            return ""
         parts = []
         for part in _base_container_items(value):
-            part_text = _stored_key_text(part)
+            part_text = _stored_key_text(part, _depth + 1)
             parts.append(part_text if part_text is not None else "")
         if isinstance(value, (set, frozenset)):
             # An unordered container stores no part order, so
@@ -287,7 +302,7 @@ def _stored_key_text(value):
     return None
 
 
-def _stored_key_texts(value):
+def _stored_key_texts(value, _depth=0, _memo=None):
     """Every joined stored text a key can stand in. An ordered
     container contributes the joins of its parts in their
     stored order, each part contributing every text of its
@@ -321,32 +336,52 @@ def _stored_key_texts(value):
     part count times the cross product of one ordering.
     Where a partial join set passes 5040 the unordered
     container contributes its sorted join alone, in the
-    bound form this reading already states."""
+    bound form this reading already states. One reading
+    carries a memo of the parts it has already read, keyed
+    on the identity of the part beside the depth it stands
+    read at, threaded through every level of the reading:
+    a part standing twice in one key, as the same object
+    at the same depth, stands read once, and its texts
+    stand shared by every standing of it."""
+    if _depth > COMPARISON_DEPTH_BOUND:
+        return {""}
+    if _memo is None:
+        _memo = {}
+    _memo_key = None
+    if isinstance(value, (tuple, list, set, frozenset)):
+        _memo_key = (id(value), _depth)
+        if _memo_key in _memo:
+            return _memo[_memo_key]
+
+    def _done(result):
+        if _memo_key is not None:
+            _memo[_memo_key] = result
+        return result
     if isinstance(value, (tuple, list)):
         part_texts = [
-            _stored_key_texts(part)
+            _stored_key_texts(part, _depth + 1, _memo)
             for part in _base_container_items(value)]
         total = 1
         for texts in part_texts:
             total *= len(texts)
             if total > 5040:
-                return {_stored_key_text(value)}
+                return _done({_stored_key_text(value, _depth)})
         joined = {""}
         for texts in part_texts:
             joined = {
                 head + (tail if tail is not None else "")
                 for head in joined
                 for tail in texts}
-        return joined
+        return _done(joined)
     if isinstance(value, (set, frozenset)):
         parts = _base_container_items(value)
         if len(parts) <= 7:
-            part_texts = [_stored_key_texts(part) for part in parts]
+            part_texts = [_stored_key_texts(part, _depth + 1, _memo) for part in parts]
             total = 1
             for texts in part_texts:
                 total *= len(texts)
                 if total > 5040:
-                    return {_stored_key_text(value)}
+                    return _done({_stored_key_text(value, _depth)})
             states = {0: {""}}
             for _level in range(len(parts)):
                 next_states = {}
@@ -362,14 +397,14 @@ def _stored_key_texts(value):
                                     head
                                     + (tail if tail is not None else ""))
                                 if len(grown) > 5040:
-                                    return {_stored_key_text(value)}
+                                    return _done(
+                                        {_stored_key_text(value, _depth)})
                 states = next_states
-            return states.get((1 << len(parts)) - 1, set())
-        return {_stored_key_text(value)}
-    return {_stored_key_text(value)}
+            return _done(states.get((1 << len(parts)) - 1, set()))
+        return _done({_stored_key_text(value, _depth)})
+    return {_stored_key_text(value, _depth)}
 
-
-def _stored_text(value):
+def _stored_text(value, _depth=0):
     """The stored text of a handed value under the governing
     stored text settlement: a text value through its stored
     characters, a bytes, bytearray, or memoryview value through
@@ -385,9 +420,11 @@ def _stored_text(value):
     if isinstance(value, memoryview):
         return bytes.decode(memoryview.tobytes(value), "utf-8", "ignore")
     if isinstance(value, (tuple, list, set, frozenset)):
+        if _depth > COMPARISON_DEPTH_BOUND:
+            return None
         items = _base_container_items(value)
         if len(items) == 1:
-            return _stored_text(items[0])
+            return _stored_text(items[0], _depth + 1)
         return None
     return None
 
@@ -668,6 +705,12 @@ def _strict_eq(first, second, _seen=None, _depth=0, _walked=None):
                 return False
         _walked[walked_key] = True
         return True
+    if isinstance(first, (Decimal, Fraction)) or isinstance(
+            second, (Decimal, Fraction)):
+        if type(first) is not type(second):
+            return False
+        result = type(first).__eq__(first, second)
+        return result if result is not NotImplemented else False
     if isinstance(first, int) and isinstance(second, int):
         result = int.__eq__(first, second)
         if result is not NotImplemented:

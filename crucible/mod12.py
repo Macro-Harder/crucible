@@ -112,7 +112,7 @@ def _stored_id_text(value):
     stored = _stored_text(value)
     if stored is not None:
         return stored
-    return str(value)
+    return _safe_str(value)
 
 
 def _stored_value_present(value):
@@ -402,7 +402,7 @@ def apply_family_edit(record, change=None):
             raise NamedControllerFailure(
                 "family edit refused: a claims value handed in "
                 "does not stand in list or tuple form: "
-                + repr(raw))
+                + _safe_repr(raw))
         standing = [
             _freeze(item) for item in (
                 list.__iter__(raw) if isinstance(raw, list)
@@ -420,7 +420,7 @@ def apply_family_edit(record, change=None):
                 raise NamedControllerFailure(
                     "family edit refused: a kill check field names "
                     "a claim that no longer stands: "
-                    + str(dict.get(check, "claim")))
+                    + _safe_str(dict.get(check, "claim")))
     elif explicit_checks:
         standing_now = dict.get(edited, "headline_claims")
         if not isinstance(standing_now, (list, tuple)):
@@ -434,7 +434,7 @@ def apply_family_edit(record, change=None):
                     raise NamedControllerFailure(
                         "family edit refused: a kill check field "
                         "names a claim that no longer stands: "
-                        + str(dict.get(check, "claim")))
+                        + _safe_str(dict.get(check, "claim")))
     if isinstance(record, dict) and _stored_value_present(
             dict.get(record, "sealed")):
         base_id = dict.get(record, "family_identifier")
@@ -870,7 +870,7 @@ def _key_stored_text(key, _depth=0):
 _DRESS_TEXTS_BOUND = 4096
 
 
-def _key_stored_texts(key, _depth=0):
+def _key_stored_texts(key, _depth=0, _memo=None):
     """Every stored text one key composes, as a set of texts.
     A scalar key composes its one stored text. A key in
     tuple or list form composes the joins of its parts in
@@ -904,38 +904,58 @@ def _key_stored_texts(key, _depth=0):
     the factorial of the part count times the cross product
     of one ordering. Where a partial join set passes the
     stated bound, the fallback stands taken at once, in the
-    bound form this reading already states."""
+    bound form this reading already states. One reading
+    carries a memo of the parts it has already read, keyed
+    on the identity of the part beside the depth it stands
+    read at, threaded through every level of the reading:
+    a part standing twice in one key, as the same object at
+    the same depth, stands read once, and its texts stand
+    shared by every standing of it."""
     text = _stored_text(key)
     if text is not None:
         return {text}
+    if _memo is None:
+        _memo = {}
+    _memo_key = None
+    if isinstance(key, (tuple, list, set, frozenset)):
+        _memo_key = (id(key), _depth)
+        if _memo_key in _memo:
+            return _memo[_memo_key]
+
+    def _done(result):
+        if _memo_key is not None:
+            _memo[_memo_key] = result
+        return result
+
     if _depth > _MAX_BARRED_READ_DEPTH:
-        return {""}
+        return _done({""})
     if isinstance(key, (tuple, list)):
         options = [
-            _key_stored_texts(part, _depth + 1)
+            _key_stored_texts(part, _depth + 1, _memo)
             for part in _base_iter(key)]
         total = 1
         for part_options in options:
             total *= len(part_options)
             if total > _DRESS_TEXTS_BOUND:
-                return {_key_stored_text(key, _depth)}
+                return _done({_key_stored_text(key, _depth)})
         texts = {""}
         for part_options in options:
             texts = {
                 head + option
                 for head in texts for option in part_options}
-        return texts
+        return _done(texts)
     if isinstance(key, (frozenset, set)):
         parts = list(_base_iter(key))
         if len(parts) > 7:
-            return {_key_stored_text(key, _depth)}
+            return _done({_key_stored_text(key, _depth)})
         options = [
-            _key_stored_texts(part, _depth + 1) for part in parts]
+            _key_stored_texts(part, _depth + 1, _memo)
+            for part in parts]
         total = 1
         for part_options in options:
             total *= len(part_options)
             if total > _DRESS_TEXTS_BOUND:
-                return {_key_stored_text(key, _depth)}
+                return _done({_key_stored_text(key, _depth)})
         states = {0: {""}}
         for _level in range(len(parts)):
             next_states = {}
@@ -949,9 +969,10 @@ def _key_stored_texts(key, _depth=0):
                         for option in options[index]:
                             grown.add(head + option)
                             if len(grown) > _DRESS_TEXTS_BOUND:
-                                return {_key_stored_text(key, _depth)}
+                                return _done(
+                                    {_key_stored_text(key, _depth)})
             states = next_states
-        return states.get((1 << len(parts)) - 1, set())
+        return _done(states.get((1 << len(parts)) - 1, set()))
     return {""}
 
 
@@ -1639,72 +1660,174 @@ def _values_equal_kind_first(one, two):
     Containers stand judged part by part under this same
     reading, and a value of any other kind stands judged by
     identity, so no equality reading a handed value itself
-    supplies decides the judgement."""
-    one_text = _stored_text(one)
-    two_text = _stored_text(two)
-    if one_text is not None or two_text is not None:
-        if one_text is None or two_text is None:
-            return False
-        result = str.__eq__(one_text, two_text)
-        return result if result is not NotImplemented else False
-    if one is None or two is None:
-        return one is None and two is None
-    if isinstance(one, bool) or isinstance(two, bool):
-        return isinstance(one, bool) and isinstance(two, bool) \
-            and one is two
-    if isinstance(one, int) or isinstance(two, int):
-        return isinstance(one, int) and isinstance(two, int) \
-            and int.__eq__(one, two) is True
-    if isinstance(one, float) or isinstance(two, float):
-        return isinstance(one, float) and isinstance(two, float) \
-            and float.__eq__(one, two) is True
-    if isinstance(one, (Decimal, Fraction, complex)) \
-            or isinstance(two, (Decimal, Fraction, complex)):
-        return type(one) is type(two) \
-            and type(one).__eq__(one, two) is True
-    if isinstance(one, dict) and isinstance(two, dict):
-        if dict.__len__(one) != dict.__len__(two):
-            return False
-        remaining = list(dict.items(two))
-        for key, item in dict.items(one):
-            matched = None
-            for index, (other_key, other_item) in enumerate(remaining):
-                if _values_equal_kind_first(key, other_key) \
-                        and _values_equal_kind_first(item, other_item):
-                    matched = index
-                    break
-            if matched is None:
-                return False
-            remaining.pop(matched)
-        return True
-    if isinstance(one, (list, tuple)) and isinstance(two, (list, tuple)):
-        if type(one) is not type(two):
-            return False
-        one_parts = _base_sequence(one)
-        two_parts = _base_sequence(two)
-        if len(one_parts) != len(two_parts):
-            return False
-        return all(
-            _values_equal_kind_first(part, other)
-            for part, other in zip(one_parts, two_parts))
-    if isinstance(one, (set, frozenset)) \
-            and isinstance(two, (set, frozenset)):
-        one_parts = _base_sequence(one)
-        two_parts = _base_sequence(two)
-        if len(one_parts) != len(two_parts):
-            return False
-        remaining = list(two_parts)
-        for part in one_parts:
-            matched = None
-            for index, other in enumerate(remaining):
-                if _values_equal_kind_first(part, other):
-                    matched = index
-                    break
-            if matched is None:
-                return False
-            remaining.pop(matched)
-        return True
-    return one is two
+    supplies decides the judgement. The part by part judgement
+    stands walked on an explicit stack, in the walk form of
+    the sibling act, so a value nested at any depth answers
+    under this reading and never escapes as a bare
+    RecursionError."""
+    result = False
+    stack = [{"first": one, "second": two, "state": "enter",
+              "awaiting": False}]
+
+    def deliver(value):
+        nonlocal result
+        result = value
+        stack.pop()
+
+    while stack:
+        frame = stack[-1]
+        state = frame["state"]
+        if state == "enter":
+            left = frame["first"]
+            right = frame["second"]
+            left_text = _stored_text(left)
+            right_text = _stored_text(right)
+            if left_text is not None or right_text is not None:
+                if left_text is None or right_text is None:
+                    deliver(False)
+                else:
+                    eq = str.__eq__(left_text, right_text)
+                    deliver(eq if eq is not NotImplemented else False)
+                continue
+            if left is None or right is None:
+                deliver(left is None and right is None)
+                continue
+            if isinstance(left, bool) or isinstance(right, bool):
+                deliver(isinstance(left, bool)
+                        and isinstance(right, bool) and left is right)
+                continue
+            if isinstance(left, int) or isinstance(right, int):
+                deliver(isinstance(left, int) and isinstance(right, int)
+                        and int.__eq__(left, right) is True)
+                continue
+            if isinstance(left, float) or isinstance(right, float):
+                deliver(isinstance(left, float)
+                        and isinstance(right, float)
+                        and float.__eq__(left, right) is True)
+                continue
+            if isinstance(left, (Decimal, Fraction, complex)) \
+                    or isinstance(right, (Decimal, Fraction, complex)):
+                deliver(type(left) is type(right)
+                        and type(left).__eq__(left, right) is True)
+                continue
+            if isinstance(left, dict) and isinstance(right, dict):
+                if dict.__len__(left) != dict.__len__(right):
+                    deliver(False)
+                    continue
+                frame["items"] = list(dict.items(left))
+                frame["remaining"] = list(dict.items(right))
+                frame["index"] = 0
+                frame["state"] = "dict_next"
+                continue
+            if isinstance(left, (list, tuple)) \
+                    and isinstance(right, (list, tuple)):
+                if type(left) is not type(right):
+                    deliver(False)
+                    continue
+                left_parts = _base_sequence(left)
+                right_parts = _base_sequence(right)
+                if len(left_parts) != len(right_parts):
+                    deliver(False)
+                    continue
+                frame["pairs"] = list(zip(left_parts, right_parts))
+                frame["index"] = 0
+                frame["state"] = "seq_next"
+                continue
+            if isinstance(left, (set, frozenset)) \
+                    and isinstance(right, (set, frozenset)):
+                left_parts = _base_sequence(left)
+                right_parts = _base_sequence(right)
+                if len(left_parts) != len(right_parts):
+                    deliver(False)
+                    continue
+                frame["items"] = left_parts
+                frame["remaining"] = right_parts
+                frame["index"] = 0
+                frame["state"] = "set_next"
+                continue
+            deliver(left is right)
+            continue
+        if state == "seq_next":
+            if frame["awaiting"]:
+                frame["awaiting"] = False
+                if not result:
+                    deliver(False)
+                    continue
+                frame["index"] += 1
+            if frame["index"] >= len(frame["pairs"]):
+                deliver(True)
+                continue
+            pair = frame["pairs"][frame["index"]]
+            frame["awaiting"] = True
+            stack.append({"first": pair[0], "second": pair[1],
+                          "state": "enter", "awaiting": False})
+            continue
+        if state == "dict_next":
+            if frame["index"] >= len(frame["items"]):
+                deliver(True)
+                continue
+            frame["candidate"] = 0
+            frame["state"] = "dict_key"
+            continue
+        if state == "dict_key":
+            if frame["awaiting"]:
+                frame["awaiting"] = False
+                if result:
+                    frame["state"] = "dict_value"
+                    continue
+                frame["candidate"] += 1
+            if frame["candidate"] >= len(frame["remaining"]):
+                deliver(False)
+                continue
+            frame["awaiting"] = True
+            stack.append({
+                "first": frame["items"][frame["index"]][0],
+                "second": frame["remaining"][frame["candidate"]][0],
+                "state": "enter", "awaiting": False})
+            continue
+        if state == "dict_value":
+            if frame["awaiting"]:
+                frame["awaiting"] = False
+                if result:
+                    frame["remaining"].pop(frame["candidate"])
+                    frame["index"] += 1
+                    frame["state"] = "dict_next"
+                    continue
+                frame["candidate"] += 1
+                frame["state"] = "dict_key"
+                continue
+            frame["awaiting"] = True
+            stack.append({
+                "first": frame["items"][frame["index"]][1],
+                "second": frame["remaining"][frame["candidate"]][1],
+                "state": "enter", "awaiting": False})
+            continue
+        if state == "set_next":
+            if frame["index"] >= len(frame["items"]):
+                deliver(True)
+                continue
+            frame["candidate"] = 0
+            frame["state"] = "set_part"
+            continue
+        if state == "set_part":
+            if frame["awaiting"]:
+                frame["awaiting"] = False
+                if result:
+                    frame["remaining"].pop(frame["candidate"])
+                    frame["index"] += 1
+                    frame["state"] = "set_next"
+                    continue
+                frame["candidate"] += 1
+            if frame["candidate"] >= len(frame["remaining"]):
+                deliver(False)
+                continue
+            frame["awaiting"] = True
+            stack.append({
+                "first": frame["items"][frame["index"]],
+                "second": frame["remaining"][frame["candidate"]],
+                "state": "enter", "awaiting": False})
+            continue
+    return result
 
 
 def _stored_ids_equal(first, second):
@@ -1759,6 +1882,11 @@ def _stored_ids_equal(first, second):
                 continue
             if isinstance(one, float) and isinstance(two, float):
                 deliver(float.__eq__(one, two) is True)
+                continue
+            if isinstance(one, (Decimal, Fraction, complex)) \
+                    or isinstance(two, (Decimal, Fraction, complex)):
+                deliver(type(one) is type(two)
+                        and type(one).__eq__(one, two) is True)
                 continue
             if _carries_cycle(one) or _carries_cycle(two):
                 deliver(one is two)
@@ -2659,11 +2787,11 @@ def validate_seed_placement(placement):
     if not isinstance(placement, dict):
         return False
     if _stored_value_present(
-            dict.get(placement, "replicates_inside_base_design")):
+            _run_field(placement, "replicates_inside_base_design")):
         return False
     return not _stored_values_equal(
-        dict.get(placement, "confirmation_family"),
-        dict.get(placement, "screening_family"))
+        _run_field(placement, "confirmation_family"),
+        _run_field(placement, "screening_family"))
 
 
 # ---------------------------------------------------------------------------
@@ -2676,7 +2804,7 @@ def record_version_sets(record_kinds=()):
     data."""
     return {
         kind: "rule-version-set-1"
-        for kind in sorted(record_kinds or (), key=str)
+        for kind in sorted(record_kinds or (), key=_safe_str)
     }
 
 
@@ -2685,13 +2813,13 @@ def validate_record_version(record):
     version set it was not produced under."""
     if not isinstance(record, dict):
         return False
-    if not _stored_value_present(dict.get(record, "produced_under")) \
+    if not _stored_value_present(_run_field(record, "produced_under")) \
             or not _stored_value_present(
-                dict.get(record, "presented_under")):
+                _run_field(record, "presented_under")):
         return False
     return _stored_values_equal(
-        dict.get(record, "produced_under"),
-        dict.get(record, "presented_under"))
+        _run_field(record, "produced_under"),
+        _run_field(record, "presented_under"))
 
 
 def family_version_parts(family_id="family-under-test"):

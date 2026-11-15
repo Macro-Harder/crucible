@@ -570,8 +570,9 @@ def reading_for_result(log, choice_identifier):
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        if _stored_copy(_bget(entry, "choice_identifier")) \
-                == _stored_copy(choice_identifier):
+        if _stored_pair_equal(
+                _stored_copy(_bget(entry, "choice_identifier")),
+                _stored_copy(choice_identifier)):
             _copy_guard(entry)
             return _stored_copy(entry)
     return None
@@ -922,12 +923,14 @@ def _stored_pair_stands(run, choice):
         "run_record_choices", "record_entries"))
     log_entry = next(
         (entry for entry in log_entries
-         if _stored_copy(_bget(entry, "choice_identifier"))
-         == identifier), None)
+         if _stored_pair_equal(
+             _stored_copy(_bget(entry, "choice_identifier")),
+             identifier)), None)
     run_entry = next(
         (entry for entry in run_entries
-         if _stored_copy(_bget(entry, "choice_identifier"))
-         == identifier), None)
+         if _stored_pair_equal(
+             _stored_copy(_bget(entry, "choice_identifier")),
+             identifier)), None)
     try:
         if log_entry is None and run_entry is None:
             return validate_choice_pair(

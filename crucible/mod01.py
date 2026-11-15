@@ -928,12 +928,19 @@ def _joined_text_candidates(value, _active=None, _cap=None):
     _JOIN_CANDIDATE_BOUND. Past either bound the container
     contributes its iteration order join alone, beside the
     standing per part readings, as the paper for this cure
-    states. A part already on the walk path contributes the
+    states. One reading carries a memo of the containers it
+    has already read whole, keyed on the identity of the
+    container: a container standing twice in one key, as
+    the same object off the walk path, stands read once,
+    and its candidates stand shared by every standing of
+    it, the path guard standing untouched for a container
+    standing on its own path. A part already on the walk path contributes the
     empty text, so a cyclic part cannot loop the read. The walk stands iterative on an explicit stack of frames, so a container chain at any depth stands answered on the same terms and no recursion stands spent per container level. A caller may state a wider candidate cap through _cap, as the segmentation readings do, without moving the standing bound this act states for its other callers."""
     if _cap is None:
         _cap = _JOIN_CANDIDATE_BOUND
     if _active is None:
         _active = set()
+    _memo = {}
 
     def combine(node, parts, child):
         if (
@@ -977,6 +984,8 @@ def _joined_text_candidates(value, _active=None, _cap=None):
                 result = ((_stored_key_text(node) or ""),)
             elif id(node) in _active:
                 result = ("",)
+            elif id(node) in _memo:
+                result = _memo[id(node)]
             else:
                 _active.add(id(node))
                 parts = _join_container_parts(node)
@@ -986,6 +995,7 @@ def _joined_text_candidates(value, _active=None, _cap=None):
                     continue
                 _active.discard(id(node))
                 result = combine(node, parts, [])
+                _memo[id(node)] = result
         while result is not None:
             if not stack:
                 return result
@@ -999,6 +1009,7 @@ def _joined_text_candidates(value, _active=None, _cap=None):
             stack.pop()
             _active.discard(id(frame[0]))
             result = combine(frame[0], frame[1], frame[2])
+            _memo[id(frame[0])] = result
 
 
 def _seg_tiles_exact(options, target):
@@ -2526,7 +2537,11 @@ def _base_value_equals(left, right):
     values stand equal. A complex value stands equal only to a
     complex value holding the same stored value. Container values
     stand equal only to a container of the same kind whose parts
-    stand equal under this same judgement, part by part."""
+    stand equal under this same judgement, part by part.
+    A buffer value stands equal only to a buffer value holding
+    the same stored bytes. A value of any other kind stands
+    equal only to itself, by identity alone, so no equality
+    reading a handed value supplies decides the judgement."""
     if isinstance(left, str) or isinstance(right, str):
         return (
             isinstance(left, str)
@@ -2619,7 +2634,14 @@ def _base_value_equals(left, right):
     if isinstance(left, (dict, list, tuple, set, frozenset)) or isinstance(
             right, (dict, list, tuple, set, frozenset)):
         return False
-    return left is right or _stored_plain(left) == _stored_plain(right)
+    if isinstance(left, (bytes, bytearray, memoryview)) or isinstance(
+            right, (bytes, bytearray, memoryview)):
+        return (
+            isinstance(left, (bytes, bytearray, memoryview))
+            and isinstance(right, (bytes, bytearray, memoryview))
+            and bytes.__eq__(bytes(left), bytes(right)) is True
+        )
+    return left is right
 
 
 def validate_lien_state(value, cross_seam=False):

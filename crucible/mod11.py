@@ -17,6 +17,8 @@ weekly container in arrival order.
 import copy
 import itertools
 import re
+from decimal import Decimal
+from fractions import Fraction
 
 from crucible import mod01
 from crucible import mod10
@@ -98,9 +100,10 @@ def retirement_verdicts(fixture):
     """Return the per check verdicts of the retirement test for a
     fixture, over all fifteen checks T-01 to T-15 in the version of
     the report format paper pinned in the family record."""
-    if fixture == "F-01":
+    if _verdict_text_stands(fixture, "F-01"):
         return dict(_F01_VERDICTS)
-    if fixture in ("F-02", "EX-01"):
+    if _verdict_text_stands(fixture, "F-02") \
+            or _verdict_text_stands(fixture, "EX-01"):
         return dict(_EX01_VERDICTS)
     raise ValueError(
         "no retirement verdict stands recorded for: " + _safe_str(fixture)
@@ -114,7 +117,7 @@ def retirement_tally(fixture):
     stand never merged."""
     tally = _tally(retirement_verdicts(fixture))
     tally["fixture"] = fixture
-    if fixture == "F-01":
+    if _verdict_text_stands(fixture, "F-01"):
         tally["centre_quarantine_breach"] = True
     return tally
 
@@ -251,7 +254,7 @@ def _registry_key_text(value, _depth=0):
     return None
 
 
-def _registry_key_texts(value, _depth=0):
+def _registry_key_texts(value, _depth=0, _memo=None):
     """Every stored text one registry key composes, as a set of
     texts, in the fuller dress reading form of settlement S-15:
     a key in tuple or list form composes the joins of its parts
@@ -275,38 +278,60 @@ def _registry_key_texts(value, _depth=0):
     passes 1000000 the fallback stands taken at once, so the
     orderings themselves stand counted in the bound and not only
     the texts one ordering composes. Parts past the depth bound
-    of 100 stand unread, as at _registry_key_text."""
+    of 100 stand unread, as at _registry_key_text. One reading
+    carries a memo of the parts it has already read, keyed on
+    the identity of the part beside the depth it stands read
+    at, threaded through every level of the reading: a part
+    standing twice in one key, as the same object at the same
+    depth, stands read once, and its texts stand shared by
+    every standing of it, so the work of one whole reading
+    stands bounded by the distinct part standings it carries
+    and not by the pairings above them."""
+    if _memo is None:
+        _memo = {}
+    _memo_key = None
+    if isinstance(value, (tuple, list, set, frozenset)):
+        _memo_key = (id(value), _depth)
+        if _memo_key in _memo:
+            return _memo[_memo_key]
+
+    def _done(result):
+        if _memo_key is not None:
+            _memo[_memo_key] = result
+        return result
+
     if _depth > _DEPTH_BOUND and isinstance(
             value, (tuple, list, set, frozenset)):
-        return {""}
+        return _done({""})
     if isinstance(value, (tuple, list)):
         options = [
-            _registry_key_texts(part, _depth + 1)
+            _registry_key_texts(part, _depth + 1, _memo)
             for part in _base_iter(value)]
         total = 1
         for part_options in options:
             total *= len(part_options)
             if total > 4096:
-                return {_registry_key_text(value, _depth)}
+                return _done({_registry_key_text(value, _depth)})
         texts = {""}
         for part_options in options:
             texts = {
                 head + (option if option is not None else "")
                 for head in texts for option in part_options}
-        return texts
+        return _done(texts)
     if isinstance(value, (set, frozenset)):
         parts = list(_base_iter(value))
         if len(parts) > 7:
-            return {_registry_key_text(value, _depth)}
+            return _done({_registry_key_text(value, _depth)})
         options = [
-            _registry_key_texts(part, _depth + 1) for part in parts]
+            _registry_key_texts(part, _depth + 1, _memo)
+            for part in parts]
         total = 1
         for part_options in options:
             total *= len(part_options)
             if total > 4096:
-                return {_registry_key_text(value, _depth)}
+                return _done({_registry_key_text(value, _depth)})
         if total * _factorial(len(parts)) > 1000000:
-            return {_registry_key_text(value, _depth)}
+            return _done({_registry_key_text(value, _depth)})
         texts = set()
         for order in itertools.permutations(range(len(parts))):
             composed = {""}
@@ -316,8 +341,8 @@ def _registry_key_texts(value, _depth=0):
                     for head in composed for option in options[index]}
             texts.update(composed)
             if len(texts) > 4096:
-                return {_registry_key_text(value, _depth)}
-        return texts
+                return _done({_registry_key_text(value, _depth)})
+        return _done(texts)
     return {_registry_key_text(value, _depth)}
 
 
@@ -699,7 +724,13 @@ def _part_text(value, _depth=0, _budget=None):
     part past six parts stands read in the one deterministic
     sorted order of its part texts. The orders one whole reading
     composes stand under one shared budget of 1000000 composed
-    characters across every level of the reading: where the
+    characters across every level of the reading: the estimate
+    a level stands charged against the budget counts every
+    character of every order it would compose and every
+    newline separator joining those orders in the delivered
+    text, one separator fewer than the order count, so the
+    delivered text of one whole reading stands inside the
+    budget the estimate stands kept against. Where the
     orders a level would compose pass the budget that stands
     left, that level stands read in the one deterministic sorted
     order instead, so an unordered part nested inside an
@@ -744,7 +775,7 @@ def _part_text(value, _depth=0, _budget=None):
             return " ".join(sorted(part_texts))
         estimate = _factorial(len(part_texts)) * (
             sum(len(text) for text in part_texts)
-            + len(part_texts) - 1)
+            + len(part_texts) - 1) + _factorial(len(part_texts)) - 1
         if estimate > _budget[0]:
             return " ".join(sorted(part_texts))
         _budget[0] -= estimate
@@ -1210,6 +1241,36 @@ def _readable_stem(word):
          "heard", "left", "sold", "thought", "led", "shot",
          "built", "reran"))
 
+    def barred_compound_stem(stem):
+        # A truncated stem standing as a compound whose head,
+        # its final part, is a base whose plural stands in no
+        # s form, with the prefix before the head standing in
+        # the lexicon itself or segmenting into lexicon parts,
+        # stands as the barred plural of that compound head in
+        # the same posture as the bare bases. The information
+        # head stands exempt, in the exact bound form the
+        # R14-033 bound carries for informationes and
+        # informations and their compounds.
+        for base in no_s_plural:
+            if base == "information":
+                continue
+            if stem.endswith(base) and len(stem) > len(base):
+                prefix = stem[:-len(base)]
+                if prefix in _READABLE_LEXICON:
+                    return True
+                size = len(prefix)
+                can = [False] * (size + 1)
+                can[0] = True
+                for start in range(size):
+                    if not can[start]:
+                        continue
+                    for end in range(start + 2, size + 1):
+                        if prefix[start:end] in _READABLE_LEXICON:
+                            can[end] = True
+                if can[size]:
+                    return True
+        return False
+
     if word.startswith("un") and len(word) > 4:
         stems.append(word[2:])
     if word.endswith("ies") and len(word) > 4:
@@ -1221,12 +1282,15 @@ def _readable_stem(word):
         stems.append(word[:-3] + "f")
         stems.append(word[:-3] + "fe")
     if word.endswith("es") and len(word) > 3:
-        if word[:-2] not in no_s_plural:
+        if word[:-2] not in no_s_plural \
+                and not barred_compound_stem(word[:-2]):
             stems.append(word[:-2])
     if word.endswith("s") and len(word) > 3:
         if word[:-1] not in no_s_plural and not (
                 word[:-1].endswith("e")
-                and word[:-2] in no_s_plural):
+                and (word[:-2] in no_s_plural
+                     or barred_compound_stem(word[:-2]))) \
+                and not barred_compound_stem(word[:-1]):
             stems.append(word[:-1])
     if word.endswith("ness") and len(word) > 6:
         stems.append(word[:-4])
@@ -1420,14 +1484,31 @@ def _is_readable_word(word):
     bound_compound_forms = frozenset(
         ("informationes", "informations"))
 
+    def barred_compound_head(stem):
+        # A truncated stem standing as a readable compound
+        # whose head, its final part, is a base whose plural
+        # stands in no s form stands as the barred plural of
+        # that compound head, in the same posture as the bare
+        # bases. The information head stands exempt, in the
+        # exact bound form the R14-033 bound carries.
+        for base in no_s_plural:
+            if base == "information":
+                continue
+            if stem.endswith(base) and len(stem) > len(base):
+                if readable(stem[:-len(base)]):
+                    return True
+        return False
+
     def barred_plural_form(candidate):
         if candidate.endswith("ies") and len(candidate) > 4:
             return candidate[:-3] in no_s_plural \
                 or candidate[:-3] + "e" in no_s_plural
         if candidate.endswith("es") and len(candidate) > 3:
-            return candidate[:-2] in no_s_plural
+            return candidate[:-2] in no_s_plural \
+                or barred_compound_head(candidate[:-2])
         if candidate.endswith("s") and len(candidate) > 3:
-            return candidate[:-1] in no_s_plural
+            return candidate[:-1] in no_s_plural \
+                or barred_compound_head(candidate[:-1])
         return False
 
     def readable(candidate):
@@ -2374,7 +2455,10 @@ def validate_bounding_headline(headline, family_record, run_record):
         axes_value = tuple(_base_iter(axes_value))
     else:
         axes_value = ()
-    if axes_value != AXES:
+    if len(axes_value) != len(AXES) or not all(
+            isinstance(element, str)
+            and str.__eq__(str.__str__(element), stated)
+            for element, stated in zip(axes_value, AXES)):
         return False
     traces = dict.get(headline, "traces") or []
     if isinstance(traces, (list, tuple)):
@@ -2389,8 +2473,13 @@ def validate_bounding_headline(headline, family_record, run_record):
     needs_witness = dict.get(headline, "rests_on_axis") == "external work issuance"
     edge_count = dict.get(run_record, "farm_internal_edge_count") if isinstance(run_record, dict) else None
     bound = dict.get(family_record, "near_zero_bound") if isinstance(family_record, dict) else None
-    if edge_count is not None and bound is not None and edge_count <= bound:
-        needs_witness = True
+    if edge_count is not None and bound is not None:
+        plain_edge = _plain_number_value(edge_count)
+        plain_bound = _plain_number_value(bound)
+        if plain_edge is None or plain_bound is None:
+            needs_witness = True
+        elif plain_edge <= plain_bound:
+            needs_witness = True
     if needs_witness and not dict.get(headline, "zero_edge_witness_shape"):
         return False
     return True
@@ -2421,6 +2510,35 @@ def validate_envelope_claim(claim):
     return True
 
 
+def _whole_number_count(value):
+    """The whole number a handed count stands as, where the
+    count stands in whole number form alone: a plain int, a
+    boolean standing apart from every number, through its
+    base class reading, so an int subclass stands read on the
+    whole number it stores and never through a conversion or
+    equality reading it supplies. A count in any other form,
+    fractional, text, boolean, Decimal, or Fraction, stands
+    in no whole number form here and reads as None."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return int.__int__(value)
+
+
+def _plain_number_value(value):
+    """The plain number a handed value stands as, where the
+    value stands in the plain number limb, an int or a float
+    with a boolean standing apart, read through its base
+    class reading, so a number subclass stands judged on the
+    number it stores and never through a comparison reading
+    it supplies. A value in any other form reads as None."""
+    if isinstance(value, bool) \
+            or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, int):
+        return int.__int__(value)
+    return float.__float__(value)
+
+
 def honest_loss_rate_h1(submitted, accepted_by_submission_period):
     """The honest loss rate in the decided H1 form: the period
     subtraction, with each accepted unit attributed to the period
@@ -2428,10 +2546,10 @@ def honest_loss_rate_h1(submitted, accepted_by_submission_period):
     equals the event count by construction and cannot fall below
     zero. The rate travels as a stored numerator and denominator
     pair."""
-    try:
-        submitted_count = int(submitted)
-        accepted_count = int(accepted_by_submission_period)
-    except Exception:
+    submitted_count = _whole_number_count(submitted)
+    accepted_count = _whole_number_count(
+        accepted_by_submission_period)
+    if submitted_count is None or accepted_count is None:
         raise ValueError(
             "honest_loss_rate_h1 stands refused: the submitted "
             "and accepted counts stand in no whole number form, "
@@ -2450,23 +2568,22 @@ def honest_loss_rate_h1(submitted, accepted_by_submission_period):
 def top_up_applies(winning_probability):
     """The top up duty at F-18, read with closed bounds: it
     applies at or above 0.1 and at or below 0.9."""
-    try:
-        return 0.1 <= winning_probability <= 0.9
-    except Exception:
+    plain_probability = _plain_number_value(winning_probability)
+    if plain_probability is None:
         raise ValueError(
             "top_up_applies stands refused: the winning "
             "probability stands in no number form, a plain "
             "number stands required, and no top up judgement "
             "stands returned") from None
+    return 0.1 <= plain_probability <= 0.9
 
 
 def point_standing(replicate_count):
     """Return the standing of one control point against the 30
     replicate floor, with its count stated. A point below the
     floor borrows no standing of a point at the floor."""
-    try:
-        count = int(replicate_count)
-    except Exception:
+    count = _whole_number_count(replicate_count)
+    if count is None:
         raise ValueError(
             "point_standing stands refused: the replicate count "
             "stands in no whole number form, a whole number "
@@ -2483,9 +2600,8 @@ def classify_run_outcome(run_length_in_days, regime_class):
     days is not classifiable as attacker winning under the final
     30 day rule: its outcome stands recorded as horizon
     insufficient and contributes to no transition figure."""
-    try:
-        run_days = int(run_length_in_days)
-    except Exception:
+    run_days = _whole_number_count(run_length_in_days)
+    if run_days is None:
         raise ValueError(
             "classify_run_outcome stands refused: the run length "
             "in days stands in no whole number form, a whole "
@@ -2774,6 +2890,35 @@ def reporter_inputs_for_family(retained_records):
     }
 
 
+def _stored_truth_stands(value):
+    """Whether a handed mark field stands, judged on the form
+    it stores and never through a truth reading the value
+    itself supplies: a boolean on its identity, a plain
+    number on its base class reading against zero, a text or
+    buffer or container form on its base length, no value as
+    not standing, and any other stored object as standing by
+    its presence alone."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value is True
+    if isinstance(value, int):
+        return int.__ne__(value, 0)
+    if isinstance(value, float):
+        return float.__ne__(value, 0.0)
+    if isinstance(value, str):
+        return str.__len__(value) > 0
+    if isinstance(value, bytes):
+        return bytes.__len__(value) > 0
+    if isinstance(value, bytearray):
+        return bytearray.__len__(value) > 0
+    if isinstance(value, dict):
+        return dict.__len__(value) > 0
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return len(list(_base_iter(value))) > 0
+    return True
+
+
 def share_report_stands(inputs, share):
     """Report whether a report may read an affected share as
     standing as reported. The function returns a boolean only: it
@@ -2783,9 +2928,16 @@ def share_report_stands(inputs, share):
     unresolved, the function returns False for that share, and it
     returns True otherwise."""
     mark = dict.get(inputs, "blocked_family_mark") if isinstance(inputs, dict) else None
-    if isinstance(mark, dict) and dict.get(mark, "affected_share") == share:
-        if dict.get(mark, "count", 0) and not dict.get(mark, "resolved"):
-            return False
+    if isinstance(mark, dict):
+        affected_text = _registry_stored_text(
+            dict.get(mark, "affected_share"))
+        share_text = _registry_stored_text(share)
+        if affected_text is not None and share_text is not None \
+                and str.__eq__(affected_text, share_text):
+            if _stored_truth_stands(dict.get(mark, "count", 0)) \
+                    and not _stored_truth_stands(
+                        dict.get(mark, "resolved")):
+                return False
     return True
 
 
@@ -2931,31 +3083,172 @@ def weekly_count(summary_records, week):
     return len(identifiers)
 
 
+def _week_plain_number(value):
+    """The plain number a week value stores, built through
+    base class operations, or None where the value stands in
+    no plain number form: an integer week as a plain int and
+    a float week as a plain float, so no equality reading a
+    handed number supplies decides its own judgement."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return int.__new__(int, int.__int__(value))
+    if isinstance(value, float):
+        return float.__new__(float, float.__float__(value))
+    return None
+
+
+def _week_value_equal(stored, handed, _seen=None):
+    """Judge two week values equal kind first at every level:
+    two text values by the base text equality of their stored
+    characters, a boolean only against a boolean, a Decimal
+    only against a Decimal and a Fraction only against a
+    Fraction, each by its base class equality on plain copies,
+    two plain number values by the plain numbers they store,
+    built through base class operations so no handed equality
+    reading decides, and container values part by part under
+    this same reading, lists and tuples in order, sets and
+    frozensets order insensitively, and dicts by matched keys
+    and their values. Any other pair stands equal only where
+    both stand in the same kind, judged by a guarded equality
+    that a raising reading answers as not equal."""
+    if stored is None or handed is None:
+        return stored is None and handed is None
+    if isinstance(stored, str) or isinstance(handed, str):
+        return (isinstance(stored, str) and isinstance(handed, str)
+                and str.__eq__(stored, handed) is True)
+    if isinstance(stored, bool) or isinstance(handed, bool):
+        return (isinstance(stored, bool) and isinstance(handed, bool)
+                and stored is handed)
+    if isinstance(stored, Decimal) or isinstance(handed, Decimal):
+        return (isinstance(stored, Decimal)
+                and isinstance(handed, Decimal)
+                and Decimal.__eq__(
+                    Decimal.__new__(Decimal, stored),
+                    Decimal.__new__(Decimal, handed)) is True)
+    if isinstance(stored, Fraction) or isinstance(handed, Fraction):
+        return (isinstance(stored, Fraction)
+                and isinstance(handed, Fraction)
+                and Fraction.__eq__(
+                    Fraction.__new__(Fraction, stored),
+                    Fraction.__new__(Fraction, handed)) is True)
+    stored_number = _week_plain_number(stored)
+    handed_number = _week_plain_number(handed)
+    if stored_number is not None or handed_number is not None:
+        return (stored_number is not None
+                and handed_number is not None
+                and stored_number == handed_number)
+    if isinstance(stored, (bytes, bytearray, memoryview)) or isinstance(
+            handed, (bytes, bytearray, memoryview)):
+        return (isinstance(stored, (bytes, bytearray, memoryview))
+                and isinstance(handed, (bytes, bytearray, memoryview))
+                and bytes.__eq__(bytes(stored), bytes(handed)) is True)
+    if isinstance(stored, dict) or isinstance(handed, dict):
+        if not (isinstance(stored, dict) and isinstance(handed, dict)):
+            return False
+        seen = _seen if _seen is not None else set()
+        pair = (id(stored), id(handed))
+        if pair in seen:
+            return True
+        seen = seen | {pair}
+        if dict.__len__(stored) != dict.__len__(handed):
+            return False
+        handed_items = list(dict.items(handed))
+        used = [False] * len(handed_items)
+        for stored_key, stored_item in dict.items(stored):
+            matched = False
+            for index in range(len(handed_items)):
+                if used[index]:
+                    continue
+                handed_key, handed_item = handed_items[index]
+                if _week_value_equal(
+                        stored_key, handed_key, seen) and (
+                        _week_value_equal(
+                            stored_item, handed_item, seen)):
+                    used[index] = True
+                    matched = True
+                    break
+            if not matched:
+                return False
+        return True
+    if isinstance(stored, list) or isinstance(handed, list):
+        if not (isinstance(stored, list) and isinstance(handed, list)):
+            return False
+        seen = _seen if _seen is not None else set()
+        pair = (id(stored), id(handed))
+        if pair in seen:
+            return True
+        seen = seen | {pair}
+        stored_parts = list(list.__iter__(stored))
+        handed_parts = list(list.__iter__(handed))
+        return len(stored_parts) == len(handed_parts) and all(
+            _week_value_equal(part, other, seen)
+            for part, other in zip(stored_parts, handed_parts))
+    if isinstance(stored, tuple) or isinstance(handed, tuple):
+        if not (isinstance(stored, tuple)
+                and isinstance(handed, tuple)):
+            return False
+        seen = _seen if _seen is not None else set()
+        pair = (id(stored), id(handed))
+        if pair in seen:
+            return True
+        seen = seen | {pair}
+        stored_parts = list(tuple.__iter__(stored))
+        handed_parts = list(tuple.__iter__(handed))
+        return len(stored_parts) == len(handed_parts) and all(
+            _week_value_equal(part, other, seen)
+            for part, other in zip(stored_parts, handed_parts))
+    if isinstance(stored, (set, frozenset)) or isinstance(
+            handed, (set, frozenset)):
+        if isinstance(stored, set) != isinstance(handed, set):
+            return False
+        if isinstance(stored, frozenset) != isinstance(
+                handed, frozenset):
+            return False
+        seen = _seen if _seen is not None else set()
+        pair = (id(stored), id(handed))
+        if pair in seen:
+            return True
+        seen = seen | {pair}
+        if isinstance(stored, frozenset):
+            stored_parts = list(frozenset.__iter__(stored))
+            handed_parts = list(frozenset.__iter__(handed))
+        else:
+            stored_parts = list(set.__iter__(stored))
+            handed_parts = list(set.__iter__(handed))
+        if len(stored_parts) != len(handed_parts):
+            return False
+        remaining = list(handed_parts)
+        for part in stored_parts:
+            matched = None
+            for index, other in enumerate(remaining):
+                if _week_value_equal(part, other, seen):
+                    matched = index
+                    break
+            if matched is None:
+                return False
+            remaining.pop(matched)
+        return True
+    if type(stored) is not type(handed):
+        return False
+    try:
+        return bool(stored == handed)
+    except Exception:
+        return False
+
+
 def _week_stands_equal(stored_week, handed_week):
     """Judge two week values equal on their stored text alone
     where both stand in text form, through the base text
     equality, never through an equality reading a handed or
     stored value supplies. Values in other forms stand judged
-    kind first: a boolean week only against a boolean week,
-    two plain number weeks by their plain number equality,
-    and any other pair only where both stand in the same
-    kind, judged by a guarded equality that a raising reading
-    answers as not equal."""
-    if isinstance(stored_week, str) and isinstance(handed_week, str):
-        return str.__eq__(stored_week, handed_week)
-    if isinstance(stored_week, bool) or isinstance(handed_week, bool):
-        return (isinstance(stored_week, bool)
-                and isinstance(handed_week, bool)
-                and stored_week is handed_week)
-    if isinstance(stored_week, (int, float)) and isinstance(
-            handed_week, (int, float)):
-        return stored_week == handed_week
-    if type(stored_week) is not type(handed_week):
-        return False
-    try:
-        return bool(stored_week == handed_week)
-    except Exception:
-        return False
+    kind first at every level under _week_value_equal: a
+    boolean week only against a boolean week, a plain number
+    week by the plain number it stores, and a container week
+    part by part under the same kind first reading, so a
+    boolean, a Decimal, or a Fraction standing inside a
+    container week never stands equal to a plain number."""
+    return _week_value_equal(stored_week, handed_week)
 
 
 _UNIT_IDENTIFIER_PATTERN = re.compile(r"u[0-9]+")
@@ -3037,7 +3330,18 @@ def claim_enters_family(family_record, claim, results_seen):
     family after results are seen."""
     if results_seen:
         return False
-    return claim in _stored_unit_list(dict.get(family_record, "headline_claims")) if isinstance(family_record, dict) else False
+    if not isinstance(family_record, dict):
+        return False
+    claim_text = _registry_stored_text(claim)
+    if claim_text is None:
+        return False
+    return any(
+        stored_text is not None
+        and str.__eq__(stored_text, claim_text)
+        for stored_text in (
+            _registry_stored_text(stored)
+            for stored in _stored_unit_list(
+                dict.get(family_record, "headline_claims"))))
 
 
 _VISUAL_PRESENTATIONS = ("position", "extent", "colour", "layout")

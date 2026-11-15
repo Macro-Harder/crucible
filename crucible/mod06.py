@@ -2541,6 +2541,194 @@ def _payload_walk_barred(value, _depth=0, _seen=None, _walked=None):
     return False
 
 
+def _namer_key_text(key):
+    """The text a key stores for the item namer, read through
+    _stored_text where the key stands in a text or buffer
+    form, so a string reading the key itself supplies, lying
+    or raising, never stands as the name, and through
+    _refusal_text for a key in any other form, whose string
+    reading stands guarded there against every exception."""
+    if isinstance(key, (str, bytes, bytearray, memoryview)):
+        return _stored_text(key)
+    return _refusal_text(key)
+
+
+def _dict_node_actual_barred(value):
+    """Whether one dict node itself carries a barred form on
+    its own judgements, in the local form _payload_walk_barred
+    states for a dict node, without the walk cycle and depth
+    readings: the split and pair node acts, the per key plain
+    and folded readings, the container key joined readings,
+    and the spanning act. A node standing barred only through
+    a child stands judged at that child, not here."""
+    if _dict_node_split_barred(value):
+        return True
+    all_keys = []
+    for key in dict.keys(value):
+        all_keys.extend(_key_and_parts(key))
+    keys = {_stored_text(key).lower() for key in all_keys}
+    if "amount" in keys and "currency" in keys:
+        return True
+    if (
+        any(_key_reads_as(key, "amount") for key in all_keys)
+        and any(_key_reads_as(key, "currency") for key in all_keys)
+    ):
+        return True
+    if _dict_node_pair_barred(value):
+        return True
+    for key, item in dict.items(value):
+        for key_form in _key_and_parts(key):
+            lowered = _stored_text(key_form).lower()
+            if "anchor_set" in lowered or (
+                "real_money" in lowered and item is not None
+            ):
+                return True
+            if _payload_folded_carries(
+                    key_form, "anchorset") or (
+                    item is not None
+                    and _payload_folded_carries(
+                        key_form, "realmoney")):
+                return True
+        if isinstance(key, (dict, list, tuple, set, frozenset)):
+            if _has_unordered_split(key):
+                joined_forms = _joined_text_candidates(key)
+            else:
+                joined_forms = (_joined_stored_text(key),)
+            if not _has_unordered_split(key) or \
+                    _payload_pair_can_stand(key):
+                for joined in joined_forms:
+                    if joined:
+                        lowered_joined = joined.lower()
+                        if (
+                            "amount" in lowered_joined
+                            and "currency" in lowered_joined
+                        ):
+                            return True
+                        if _payload_folded_carries_pair(
+                                joined, "amount", "currency"):
+                            return True
+        if _seg_payload_key(key, item is not None):
+            return True
+    return False
+
+
+def _payload_contains_barred_content(payload):
+    """Whether a payload carries a barred form on a judgement
+    of its contents, as distinct from the walk readings that
+    read a payload past the depth bound, and a payload that
+    revisits a container on its own path, as barred. The
+    traversal stands iterative, path scoped against cycles,
+    and bounded in depth at 1000 containers, past which no
+    content judgement stands taken by this act."""
+    stack = [(payload, 0, frozenset())]
+    while stack:
+        value, depth, seen = stack.pop()
+        if depth > 1000:
+            continue
+        if not isinstance(
+                value, (dict, list, tuple, set, frozenset)):
+            continue
+        if id(value) in seen:
+            continue
+        seen = seen | {id(value)}
+        if isinstance(value, dict):
+            if _dict_node_actual_barred(value):
+                return True
+            for key, item in dict.items(value):
+                stack.append((item, depth + 1, seen))
+                stack.append((key, depth + 1, seen))
+        else:
+            base_iter = (
+                list.__iter__ if isinstance(value, list)
+                else tuple.__iter__ if isinstance(value, tuple)
+                else frozenset.__iter__
+                if isinstance(value, frozenset)
+                else set.__iter__)
+            for item in base_iter(value):
+                stack.append((item, depth + 1, seen))
+    return False
+
+
+def _payload_children(value):
+    """The children of one container, read through base
+    class operations: a dict contributes its keys and its
+    values in stored order, and every other container its
+    elements in its base iteration order."""
+    if isinstance(value, dict):
+        children = []
+        for key, item in dict.items(value):
+            children.append(key)
+            children.append(item)
+        return children
+    if isinstance(value, list):
+        return list(list.__iter__(value))
+    if isinstance(value, tuple):
+        return list(tuple.__iter__(value))
+    if isinstance(value, frozenset):
+        return list(frozenset.__iter__(value))
+    return list(set.__iter__(value))
+
+
+def _payload_revisits_container(value):
+    """Whether a payload revisits a container on its own
+    path, in the cycle form _payload_carries_barred states,
+    judged on an iterative path scoped traversal of its
+    own, so a container chain at any depth stands answered
+    and no recursion stands spent per container level."""
+    if not isinstance(value, (dict, list, tuple, set, frozenset)):
+        return False
+    seen = set()
+    stack = [(value, False)]
+    while stack:
+        node, leaving = stack.pop()
+        if leaving:
+            seen.discard(id(node))
+            continue
+        if not isinstance(
+                node, (dict, list, tuple, set, frozenset)):
+            continue
+        if id(node) in seen:
+            return True
+        seen.add(id(node))
+        stack.append((node, True))
+        for child in _payload_children(node):
+            stack.append((child, False))
+    return False
+
+
+def _payload_past_depth_bound(value):
+    """Whether a container of a payload stands at a depth
+    past the stated bound, in the counting _payload_walk_
+    barred states: the top container stands at depth 0, each
+    child container one deeper, and a container standing at
+    a depth greater than _PAYLOAD_DEPTH_BOUND stands past
+    the bound. A part shared on different paths stands read
+    on each path, as the walk reads it. The traversal stands
+    iterative and path scoped, so a container chain at any
+    depth stands answered."""
+    if not isinstance(value, (dict, list, tuple, set, frozenset)):
+        return False
+    seen = set()
+    stack = [(value, 0, False)]
+    while stack:
+        node, depth, leaving = stack.pop()
+        if leaving:
+            seen.discard(id(node))
+            continue
+        if not isinstance(
+                node, (dict, list, tuple, set, frozenset)):
+            continue
+        if depth > _PAYLOAD_DEPTH_BOUND:
+            return True
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        stack.append((node, depth, True))
+        for child in _payload_children(node):
+            stack.append((child, depth + 1, False))
+    return False
+
+
 def _barred_payload_item(payload):
     found = []
     stack = [(payload, 0, frozenset())]
@@ -2552,19 +2740,45 @@ def _barred_payload_item(payload):
             if id(value) in seen:
                 continue
             seen = seen | {id(value)}
-            keys = [str(key) for key in dict.keys(value)]
+            keys = [_namer_key_text(key) for key in dict.keys(value)]
             lowered = [key.lower() for key in keys]
             if "amount" in lowered and "currency" in lowered:
                 found.append("an amount and currency pair")
+            if _dict_node_pair_barred(value):
+                found.append("an amount and currency pair")
+            joined_text = "".join(
+                _joined_stored_text(key) for key in dict.keys(value))
             for key, item in dict.items(value):
-                text = str(key).lower().replace(" ", "_")
+                text = _namer_key_text(key).lower().replace(" ", "_")
                 if "anchor_set" in text:
                     found.append("a supplied anchor set (anchor_set)")
                 if "real_money" in text and item is not None:
                     found.append(
                         "a real money value (real_money_value)")
+                for key_form in _key_and_parts(key):
+                    if _payload_folded_carries(key_form, "anchorset"):
+                        found.append(
+                            "a supplied anchor set (anchor_set)")
+                    if item is not None and _payload_folded_carries(
+                            key_form, "realmoney"):
+                        found.append(
+                            "a real money value (real_money_value)")
                 stack.append((item, depth + 1, seen))
                 stack.append((key, depth + 1, seen))
+            joined_lowered = joined_text.lower().replace(" ", "_")
+            if "anchor_set" in joined_lowered:
+                found.append("a supplied anchor set (anchor_set)")
+            if "real_money" in joined_lowered and any(
+                    item is not None for item in dict.values(value)):
+                found.append("a real money value (real_money_value)")
+            for reading in _folded_readings(joined_text):
+                if "anchorset" in reading:
+                    found.append("a supplied anchor set (anchor_set)")
+                if "realmoney" in reading and any(
+                        item is not None
+                        for item in dict.values(value)):
+                    found.append(
+                        "a real money value (real_money_value)")
         elif isinstance(value, (list, tuple, set, frozenset)):
             if id(value) in seen:
                 continue
@@ -2583,6 +2797,12 @@ def escrow_result(kind, variant="B-4", payload=None, contract_state=None):
             "escrow_result stands refused: the escrow variant stands outside the B-3 and B-4 set: "
             + _refusal_text(variant) + ", and no escrow result stands returned")
     if _payload_carries_barred(payload):
+        if not _payload_contains_barred_content(payload):
+            if _payload_revisits_container(payload):
+                raise ValueError(
+                    "escrow_result stands refused: the payload revisits a container on its own path, so it stands read as barred on its cycle ground alone, a payload carries no real money value and no supplied anchor set, and no escrow result stands returned")
+            raise ValueError(
+                "escrow_result stands refused: the payload stands past the stated depth bound of 100, so it stands read as barred on its depth bound ground alone, a payload carries no real money value and no supplied anchor set, and no escrow result stands returned")
         raise ValueError(
             "escrow_result stands refused: the payload carries a barred value, "
             + _barred_payload_item(payload)
