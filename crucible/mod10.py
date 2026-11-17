@@ -2518,7 +2518,72 @@ class RecorderStore:
         tmp_path = self.path + ".tmp"
         try:
             with open(tmp_path, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, sort_keys=True)
+                parts = []
+                active = set()
+                stack = [("value", payload)]
+                while stack:
+                    task, node = stack.pop()
+                    if task == "text":
+                        parts.append(node)
+                        continue
+                    if task == "done":
+                        active.discard(node)
+                        continue
+                    if isinstance(node, dict):
+                        if id(node) in active:
+                            raise ValueError(
+                                "Circular reference detected")
+                        active.add(id(node))
+                        items = sorted(node.items())
+                        stack.append(("done", id(node)))
+                        stack.append(("text", "}"))
+                        for pos in range(len(items) - 1, -1, -1):
+                            key, item = items[pos]
+                            if isinstance(key, str):
+                                key_text = json.dumps(key)
+                            elif key is True:
+                                key_text = "true"
+                            elif key is False:
+                                key_text = "false"
+                            elif key is None:
+                                key_text = "null"
+                            elif isinstance(key, int):
+                                key_text = int.__repr__(key)
+                            elif isinstance(key, float):
+                                key_text = json.dumps(key)
+                            else:
+                                raise TypeError(
+                                    "keys must be str, int, float, "
+                                    "bool or None, not "
+                                    + type(key).__name__)
+                            stack.append(("value", item))
+                            stack.append(("text", ": "))
+                            stack.append(("text", key_text))
+                            if pos:
+                                stack.append(("text", ", "))
+                        stack.append(("text", "{"))
+                        continue
+                    if isinstance(node, (list, tuple)):
+                        if id(node) in active:
+                            raise ValueError(
+                                "Circular reference detected")
+                        active.add(id(node))
+                        stack.append(("done", id(node)))
+                        stack.append(("text", "]"))
+                        for pos in range(len(node) - 1, -1, -1):
+                            stack.append(("value", node[pos]))
+                            if pos:
+                                stack.append(("text", ", "))
+                        stack.append(("text", "["))
+                        continue
+                    if isinstance(node, (str, int, float, bool)) \
+                            or node is None:
+                        parts.append(json.dumps(node))
+                        continue
+                    raise TypeError(
+                        "Object of type " + type(node).__name__
+                        + " is not JSON serializable")
+                handle.write("".join(parts))
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp_path, self.path)
@@ -3461,7 +3526,10 @@ def _timing_day(value):
         return value
     if isinstance(value, Decimal):
         if not value.is_finite():
-            return float(value)
+            try:
+                return float(value)
+            except ValueError:
+                return math.nan
         if value == value.to_integral_value():
             return int(value)
         return float(value)

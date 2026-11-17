@@ -201,7 +201,7 @@ class TestStoreFlush(Fix3Base):
             path = os.path.join(tmp, "store.json")
             store = mod10.RecorderStore(store_kind="sweep", path=path)
             store.retain_run_record({"run_id": "run-fix3-a"})
-            with mock.patch("crucible.mod10.json.dump",
+            with mock.patch("crucible.mod10.json.dumps",
                             side_effect=OSError("interrupted")):
                 with self.assertRaises(ValueError):
                     store.retain_run_record({"run_id": "run-fix3-b"})
