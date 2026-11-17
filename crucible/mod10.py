@@ -2461,7 +2461,7 @@ class RecorderStore:
                 with open(path, "r", encoding="utf-8") as handle:
                     data = json.load(handle)
                 stored_records = data["records"]
-            except (json.JSONDecodeError, TypeError, KeyError) as exc:
+            except (json.JSONDecodeError, TypeError, KeyError, ValueError) as exc:
                 failure = LookupFailure(path)
                 failure.failure = {
                     "name": ONE_LOOKUP_FAILURE_NAME,
@@ -3404,21 +3404,22 @@ def _whole_day(value):
         return value
     if isinstance(value, str):
         text = str.__str__(value).strip()
+        digits = None
+        negative = False
         if text.isdecimal():
-            try:
-                return int(text)
-            except ValueError:
-                return value
-        if text.startswith("+") and text[1:].isdecimal():
-            try:
-                return int(text)
-            except ValueError:
-                return value
-        if text.startswith("-") and text[1:].isdecimal():
-            try:
-                return int(text)
-            except ValueError:
-                return value
+            digits = text
+        elif text.startswith("+") and text[1:].isdecimal():
+            digits = text[1:]
+        elif text.startswith("-") and text[1:].isdecimal():
+            digits = text[1:]
+            negative = True
+        if digits is not None:
+            result = 0
+            for char in digits:
+                result = result * 10 + int(char)
+            if negative:
+                return -result
+            return result
     return value
 
 

@@ -3087,8 +3087,22 @@ def transition_wording(location_a, location_b, location_reported=None):
     try:
         shift = region_shift_steps(location_a, location_b)
     except ValueError:
-        pair_a = _grid_pair(location_a, "transition_wording")
-        pair_b = _grid_pair(location_b, "transition_wording")
+        try:
+            pair_a = _grid_pair(location_a, "transition_wording")
+        except (KeyboardInterrupt, SystemExit):
+            raise ValueError(
+                "transition_wording stands refused: a location must "
+                "stand as a pair of grid numbers, and the handed "
+                "location " + type(location_a).__name__
+                + " stands in no such form") from None
+        try:
+            pair_b = _grid_pair(location_b, "transition_wording")
+        except (KeyboardInterrupt, SystemExit):
+            raise ValueError(
+                "transition_wording stands refused: a location must "
+                "stand as a pair of grid numbers, and the handed "
+                "location " + type(location_b).__name__
+                + " stands in no such form") from None
         shift = (abs(pair_a[0] - pair_b[0]), abs(pair_a[1] - pair_b[1]))
     if shift[0] <= 1 and shift[1] <= 1:
         return {"wording": "holding", "holding_statement": True}
