@@ -2534,7 +2534,8 @@ class RecorderStore:
                             raise ValueError(
                                 "Circular reference detected")
                         active.add(id(node))
-                        items = sorted(node.items())
+                        items = sorted(
+                            node.items(), key=lambda pair: pair[0])
                         stack.append(("done", id(node)))
                         stack.append(("text", "}"))
                         for pos in range(len(items) - 1, -1, -1):
@@ -2542,15 +2543,15 @@ class RecorderStore:
                             if isinstance(key, str):
                                 key_text = json.dumps(key)
                             elif key is True:
-                                key_text = "true"
+                                key_text = json.dumps("true")
                             elif key is False:
-                                key_text = "false"
+                                key_text = json.dumps("false")
                             elif key is None:
-                                key_text = "null"
+                                key_text = json.dumps("null")
                             elif isinstance(key, int):
-                                key_text = int.__repr__(key)
+                                key_text = json.dumps(int.__repr__(key))
                             elif isinstance(key, float):
-                                key_text = json.dumps(key)
+                                key_text = json.dumps(json.dumps(key))
                             else:
                                 raise TypeError(
                                     "keys must be str, int, float, "
