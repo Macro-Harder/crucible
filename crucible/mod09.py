@@ -623,7 +623,25 @@ def _catalogue_repr(name, _depth=0, _seen=None):
     if isinstance(name, bool):
         return repr(name)
     if isinstance(name, int):
-        return repr(int.__int__(name))
+        plain = int.__int__(name)
+        try:
+            return repr(plain)
+        except ValueError:
+            remaining = plain
+            sign = ""
+            if remaining < 0:
+                sign = "-"
+                remaining = -remaining
+            chunks = []
+            while remaining:
+                remaining, chunk = divmod(remaining, 10 ** 9)
+                chunks.append(chunk)
+            if not chunks:
+                return "0"
+            parts = [str(chunks[-1])]
+            for chunk in reversed(chunks[:-1]):
+                parts.append(str(chunk).rjust(9, "0"))
+            return sign + "".join(parts)
     if isinstance(name, float):
         return repr(float.__float__(name))
     if isinstance(name, complex):

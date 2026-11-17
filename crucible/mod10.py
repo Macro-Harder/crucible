@@ -98,7 +98,13 @@ def _vocabulary_text(value):
     integer beyond the interpreter integer string conversion
     limit stands rendered in its plain form at that rendering,
     built in digit chunks from the plain integer itself, so
-    the sentence stands delivered whole on that handing. Any
+    the sentence stands delivered whole on that handing. A
+    plain Fraction whose numerator or denominator stands
+    beyond that limit stands rendered in its plain form at
+    that rendering as well, its numerator and denominator
+    each built in digit chunks, joined in the plain Fraction
+    text form, so the sentence stands delivered whole on
+    that handing. Any
     other form stands rendered through _stored_text as well, on
     the text it stores, which stands as the empty text for a
     value carrying no text form, so no name stands rendered
@@ -110,6 +116,31 @@ def _vocabulary_text(value):
         try:
             return str(plain)
         except ValueError:
+            if isinstance(plain, Fraction):
+                def _fraction_digits(number):
+                    rest = int.__int__(number)
+                    rest_sign = ""
+                    if rest < 0:
+                        rest_sign = "-"
+                        rest = -rest
+                    rest_chunks = []
+                    while rest:
+                        rest, rest_chunk = divmod(rest, 10 ** 9)
+                        rest_chunks.append(rest_chunk)
+                    if not rest_chunks:
+                        return "0"
+                    rest_parts = [str(rest_chunks[-1])]
+                    for rest_chunk in reversed(rest_chunks[:-1]):
+                        rest_parts.append(
+                            str(rest_chunk).rjust(9, "0"))
+                    return rest_sign + "".join(rest_parts)
+                numerator = Fraction.numerator.__get__(plain)
+                denominator = Fraction.denominator.__get__(plain)
+                if denominator == 1:
+                    return _fraction_digits(numerator)
+                return (
+                    _fraction_digits(numerator) + "/"
+                    + _fraction_digits(denominator))
             if not isinstance(plain, int):
                 raise
             remaining = int.__int__(plain)
@@ -130,6 +161,57 @@ def _vocabulary_text(value):
     return _stored_text(value)
 
 
+def _int_digits(value):
+    """The decimal digits of a plain integer, built in digit
+    chunks from the plain integer itself through base integer
+    operations, the leading chunk standing unpadded and each
+    later chunk standing zero padded to 9 digits, with the sign
+    carried before the digits, so an integer standing beyond
+    the interpreter integer string conversion limit stands
+    rendered in its plain form whole."""
+    remaining = int.__int__(value)
+    sign = ""
+    if remaining < 0:
+        sign = "-"
+        remaining = -remaining
+    chunks = []
+    while remaining:
+        remaining, chunk = divmod(remaining, 10 ** 9)
+        chunks.append(chunk)
+    if not chunks:
+        return "0"
+    parts = [str(chunks[-1])]
+    for chunk in reversed(chunks[:-1]):
+        parts.append(str(chunk).rjust(9, "0"))
+    return sign + "".join(parts)
+
+
+def _plain_repr(plain):
+    """The repr of a plain number, delivered whole where the
+    plain repr itself raises ValueError on a plain integer or
+    a plain Fraction standing beyond the interpreter integer
+    string conversion limit: the integer stands rendered by
+    its chunk built digits and the Fraction stands rendered in
+    its Fraction form on the chunk built digits of its stored
+    numerator and denominator, each in the stated form the
+    plain repr delivers within the limit. A ValueError on a
+    plain number in neither form stands raised on, untouched,
+    and no interpreter limit setting stands changed."""
+    try:
+        return repr(plain)
+    except ValueError:
+        if isinstance(plain, int):
+            return _int_digits(plain)
+        if isinstance(plain, Fraction):
+            return (
+                "Fraction("
+                + _int_digits(Fraction.numerator.__get__(plain))
+                + ", "
+                + _int_digits(Fraction.denominator.__get__(plain))
+                + ")")
+        raise
+
+
 def _stored_repr(value, _depth=0):
     """Render a handed value for a refusal sentence on the form
     it stands in, built from base readings only, never through
@@ -140,7 +222,11 @@ def _stored_repr(value, _depth=0):
     the stored reprs of its parts, and any other value stands
     as its base object repr. A container standing past a depth
     of 100 stands as its base object repr, in the posture the
-    render safe copy of the sister modules states."""
+    render safe copy of the sister modules states. A plain
+    integer or a plain number standing beyond the interpreter
+    integer string conversion limit stands rendered in its
+    stated form through _plain_repr, so the sentence stands
+    delivered whole on that handing."""
     if _depth > 100:
         return object.__repr__(value)
     if value is None:
@@ -152,12 +238,15 @@ def _stored_repr(value, _depth=0):
     if isinstance(value, (bytes, bytearray, memoryview)):
         return repr(bytes(value))
     if isinstance(value, int):
-        return repr(int.__int__(value))
+        try:
+            return repr(int.__int__(value))
+        except ValueError:
+            return _int_digits(value)
     if isinstance(value, float):
         return repr(float.__float__(value))
     plain = _plain_number(value)
     if plain is not None:
-        return repr(plain)
+        return _plain_repr(plain)
     if isinstance(value, list):
         return "[" + ", ".join(
             _stored_repr(item, _depth + 1)
@@ -1449,13 +1538,20 @@ def _stored_form(value):
     forms they stand in and the values they store agree, so a
     stored form keeps distinct stored values distinct, and a
     text value stands in it by its stored characters, never by
-    a reading the value itself supplies."""
+    a reading the value itself supplies. A plain integer or a
+    plain number standing beyond the interpreter integer string
+    conversion limit stands in its stated form through the
+    chunk built digits _int_digits and _plain_repr build, so
+    the form stands delivered whole on that handing."""
     if value is None:
         return "none"
     if isinstance(value, bool):
         return "bool:" + str(int.__int__(value))
     if isinstance(value, int):
-        return "int:" + str(int.__int__(value))
+        try:
+            return "int:" + str(int.__int__(value))
+        except ValueError:
+            return "int:" + _int_digits(value)
     if isinstance(value, float):
         return "float:" + repr(float.__float__(value))
     if isinstance(value, str):
@@ -1469,7 +1565,7 @@ def _stored_form(value):
         return "memoryview:" + bytes(value).hex()
     plain = _plain_number(value)
     if plain is not None:
-        return type(value).__name__ + ":" + repr(plain)
+        return type(value).__name__ + ":" + _plain_repr(plain)
     if isinstance(value, (list, tuple)):
         items = (
             list.__iter__(value) if isinstance(value, list)
@@ -1535,7 +1631,28 @@ def _day_match_form(value):
         if denominator == 1:
             return ("int", numerator)
         plain = Fraction.__new__(Fraction, numerator, denominator)
-        return ("other", type(value).__name__ + ":" + repr(plain))
+        try:
+            return ("other", type(value).__name__ + ":" + repr(plain))
+        except ValueError:
+            def _part_digits(number):
+                rest = int.__int__(number)
+                rest_sign = ""
+                if rest < 0:
+                    rest_sign = "-"
+                    rest = -rest
+                rest_chunks = []
+                while rest:
+                    rest, rest_chunk = divmod(rest, 10 ** 9)
+                    rest_chunks.append(rest_chunk)
+                if not rest_chunks:
+                    return "0"
+                rest_parts = [str(rest_chunks[-1])]
+                for rest_chunk in reversed(rest_chunks[:-1]):
+                    rest_parts.append(str(rest_chunk).rjust(9, "0"))
+                return rest_sign + "".join(rest_parts)
+            return ("other", type(value).__name__ + ":Fraction("
+                    + _part_digits(numerator) + ", "
+                    + _part_digits(denominator) + ")")
     return ("other", _stored_form(value))
 
 
@@ -2326,13 +2443,16 @@ class RecorderStore:
     the Recorder store reading path stand in this class."""
 
     def __init__(self, store_kind="sweep", path=None):
-        if not (isinstance(store_kind, str) and any(
-                str.__eq__(store_kind, kind) for kind in STORE_KINDS)):
+        kind_text = _stored_text(store_kind) if isinstance(
+            store_kind, (str, bytes, bytearray, memoryview)) else None
+        if kind_text is None or not any(
+                str.__eq__(kind_text, kind) for kind in STORE_KINDS):
             raise ValueError(
                 "unknown store kind: " + _vocabulary_text(store_kind)
                 + "; a store kind stands among sweep, pilot, and "
                 "live, and no store stands created")
-        self.store_kind = store_kind
+        self.store_kind = kind_text if isinstance(
+            store_kind, (bytes, bytearray, memoryview)) else store_kind
         self.path = path
         self._records = {}
         self._index = []
@@ -2377,7 +2497,9 @@ class RecorderStore:
                 pass
         for rid, record in self._records.items():
             merged[rid] = record
-        records = [merged[rid] for rid in sorted(merged, key=lambda item: _safe_str(item))]
+        records = [merged[rid] for rid in sorted(
+            merged,
+            key=lambda item: (_stored_text(item), _stored_form(item)))]
         payload = {"store_kind": self.store_kind, "records": records}
         tmp_path = self.path + ".tmp"
         try:
@@ -2540,8 +2662,10 @@ def _canonical_store_kind(store_kind):
         raise ValueError(
             "unknown store kind: " + _vocabulary_text(store_kind)
             + "; a store kind stands among sweep, pilot, and live")
+    kind_text = _stored_text(store_kind) if isinstance(
+        store_kind, (str, bytes, bytearray, memoryview)) else store_kind
     for kind in STORE_KINDS:
-        if str.__eq__(store_kind, kind):
+        if str.__eq__(kind_text, kind):
             return kind
     raise ValueError(
         "unknown store kind: " + _vocabulary_text(store_kind)
@@ -2719,7 +2843,26 @@ def _retention_day_key(day):
         return "str:" + str(len(form[1])) + ":" + form[1]
     if form[0] == "other":
         return "other:" + form[1]
-    return form[0] + ":" + str(form[1])
+    try:
+        return form[0] + ":" + str(form[1])
+    except ValueError:
+        if not isinstance(form[1], int) or isinstance(form[1], bool):
+            raise
+        remaining = int.__int__(form[1])
+        sign = ""
+        if remaining < 0:
+            sign = "-"
+            remaining = -remaining
+        chunks = []
+        while remaining:
+            remaining, chunk = divmod(remaining, 10 ** 9)
+            chunks.append(chunk)
+        if not chunks:
+            return form[0] + ":0"
+        parts = [str(chunks[-1])]
+        for chunk in reversed(chunks[:-1]):
+            parts.append(str(chunk).rjust(9, "0"))
+        return form[0] + ":" + sign + "".join(parts)
 
 
 def _delivery_complete(delivery):

@@ -138,7 +138,24 @@ def _form_repr(value, _depth=0, _seen=None):
     if isinstance(value, bool):
         return repr(value)
     if isinstance(value, int):
-        return repr(int.__int__(value))
+        try:
+            return repr(int.__int__(value))
+        except ValueError:
+            remaining = int.__int__(value)
+            sign = ""
+            if remaining < 0:
+                sign = "-"
+                remaining = -remaining
+            chunks = []
+            while remaining:
+                remaining, chunk = divmod(remaining, 10 ** 9)
+                chunks.append(chunk)
+            if not chunks:
+                return "0"
+            parts = [str(chunks[-1])]
+            for chunk in reversed(chunks[:-1]):
+                parts.append(str(chunk).rjust(9, "0"))
+            return sign + "".join(parts)
     if isinstance(value, float):
         return repr(float.__float__(value))
     if isinstance(value, complex):
@@ -146,7 +163,29 @@ def _form_repr(value, _depth=0, _seen=None):
     if isinstance(value, Decimal):
         return repr(Decimal(Decimal.__str__(value)))
     if isinstance(value, Fraction):
-        return repr(Fraction(Fraction.__str__(value)))
+        try:
+            return repr(Fraction(Fraction.__str__(value)))
+        except ValueError:
+            rendered = []
+            for part in (Fraction.numerator.fget(value),
+                         Fraction.denominator.fget(value)):
+                remaining = part
+                sign = ""
+                if remaining < 0:
+                    sign = "-"
+                    remaining = -remaining
+                chunks = []
+                while remaining:
+                    remaining, chunk = divmod(remaining, 10 ** 9)
+                    chunks.append(chunk)
+                if not chunks:
+                    rendered.append("0")
+                else:
+                    pieces = [str(chunks[-1])]
+                    for chunk in reversed(chunks[:-1]):
+                        pieces.append(str(chunk).rjust(9, "0"))
+                    rendered.append(sign + "".join(pieces))
+            return "Fraction(%s, %s)" % (rendered[0], rendered[1])
     if value is None:
         return "None"
     if isinstance(value, (dict, list, tuple, set, frozenset)):
@@ -3008,8 +3047,22 @@ def _grid_pair(location, act):
 def region_shift_steps(location_a, location_b):
     """Return the shift of a region location between two points,
     in grid steps on each axis."""
-    pair_a = _grid_pair(location_a, "region_shift_steps")
-    pair_b = _grid_pair(location_b, "region_shift_steps")
+    try:
+        pair_a = _grid_pair(location_a, "region_shift_steps")
+    except (KeyboardInterrupt, SystemExit):
+        raise ValueError(
+            "region_shift_steps stands refused: a location must "
+            "stand as a pair of grid numbers, and the handed "
+            "location " + type(location_a).__name__
+            + " stands in no such form") from None
+    try:
+        pair_b = _grid_pair(location_b, "region_shift_steps")
+    except (KeyboardInterrupt, SystemExit):
+        raise ValueError(
+            "region_shift_steps stands refused: a location must "
+            "stand as a pair of grid numbers, and the handed "
+            "location " + type(location_b).__name__
+            + " stands in no such form") from None
     return (
         abs(pair_a[0] - pair_b[0]),
         abs(pair_a[1] - pair_b[1]),
@@ -3444,11 +3497,15 @@ def weekly_count(summary_records, week):
             elif _unit_identifier_stands(identifier):
                 key = ("text", str.__str__(identifier))
             else:
+                try:
+                    rendered = _form_repr(identifier)
+                except (KeyboardInterrupt, SystemExit):
+                    rendered = type(identifier).__name__
                 raise ValueError(
                     "summary record for the week carries an "
                     "identifier standing in no unit identifier "
                     "form, and no count stands stated over "
-                    "unvalidated contents: " + _form_repr(identifier))
+                    "unvalidated contents: " + rendered)
             if key not in seen_texts:
                 seen_texts.append(key)
                 identifiers.append(identifier)
@@ -3657,11 +3714,15 @@ def make_weekly_container(week, units):
     ordered = _stored_unit_list(units)
     for item in ordered:
         if not _unit_identifier_stands(item):
+            try:
+                rendered = _form_repr(item)
+            except (KeyboardInterrupt, SystemExit):
+                rendered = type(item).__name__
             raise ValueError(
                 "weekly container stands refused in named form: "
                 "a held item stands in no unit identifier form, "
                 "and no count stands taken over unvalidated "
-                "contents: " + _form_repr(item))
+                "contents: " + rendered)
     inside = ordered[:WEEKLY_CAP]
     held = ordered[WEEKLY_CAP:]
     outside_cells = sum(
