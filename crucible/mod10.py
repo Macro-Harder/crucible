@@ -2461,7 +2461,7 @@ class RecorderStore:
                 with open(path, "r", encoding="utf-8") as handle:
                     data = json.load(handle)
                 stored_records = data["records"]
-            except (json.JSONDecodeError, TypeError, KeyError, ValueError) as exc:
+            except (json.JSONDecodeError, TypeError, KeyError, ValueError, RecursionError) as exc:
                 failure = LookupFailure(path)
                 failure.failure = {
                     "name": ONE_LOOKUP_FAILURE_NAME,
@@ -2474,10 +2474,24 @@ class RecorderStore:
                     + ": the store file at " + str(path)
                     + " could not be read as a store",)
                 raise failure from exc
-            for record in stored_records:
-                rid = record.get("run_id") or record.get("run_identifier")
-                self._records[rid] = record
-                self._index.append(rid)
+            try:
+                for record in stored_records:
+                    rid = record.get("run_id") or record.get("run_identifier")
+                    self._records[rid] = record
+                    self._index.append(rid)
+            except (AttributeError, TypeError) as exc:
+                failure = LookupFailure(path)
+                failure.failure = {
+                    "name": ONE_LOOKUP_FAILURE_NAME,
+                    "run_status": "failed",
+                    "complete": False,
+                    "store_path": path,
+                }
+                failure.args = (
+                    ONE_LOOKUP_FAILURE_NAME
+                    + ": the store file at " + str(path)
+                    + " could not be read as a store",)
+                raise failure from exc
 
     def _flush(self, merge_disk=True):
         if not self.path:
@@ -2925,12 +2939,8 @@ def _day_sort_key(item):
     if isinstance(day, str):
         stripped = day_text.strip()
         if stripped.isdecimal():
-            try:
-                return (0, int(stripped), _stored_form(day),
-                        viewer_text, viewer_form)
-            except ValueError:
-                return (1, 0, day_text, _stored_form(day),
-                        viewer_text, viewer_form)
+            return (0, _whole_day(stripped), _stored_form(day),
+                    viewer_text, viewer_form)
     return (1, 0, day_text, _stored_form(day),
             viewer_text, viewer_form)
 
@@ -3472,7 +3482,7 @@ def _timing_day(value):
                         mark in unsigned for mark in (".", "p", "P")):
                     return float.fromhex(text)
                 return int(text, {"0x": 16, "0b": 2, "0o": 8}[prefix])
-            except ValueError:
+            except (ValueError, OverflowError):
                 return value
         if unsigned.count(".") == 1 and "e" not in lowered:
             whole_part, _, fraction_part = unsigned.partition(".")
