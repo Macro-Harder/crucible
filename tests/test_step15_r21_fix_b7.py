@@ -1,5 +1,11 @@
-import unittest
+"""
 
+Union standing (fix wave 21 merge): the fix wave 21 pin file of this same name stands composed below in its own section, its classes and helpers standing beside the landed classes above, losing neither set. The wave file docstring stands here in full:
+
+"""
+
+
+import unittest
 from crucible.mod13 import (
     NamedReplicationFailure,
     extend_history,
@@ -8,6 +14,7 @@ from crucible.mod13 import (
     verdict_record,
     verdict_record_validation_failures,
 )
+from crucible.mod12 import NamedControllerFailure, winning_regime
 
 
 class EqTrueStr(str):
@@ -276,6 +283,211 @@ class TestR20047HistoryFormSentence(unittest.TestCase):
         with self.assertRaises(NamedReplicationFailure) as caught:
             extend_history(PlainObject(), {"rule_set_version": "v1"})
         self.assertIn("stands in no list form", str(caught.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# Fix wave 21 pins of this name, composed in union below this line. No landed pin above stands altered.
+
+
+PAIR_MESSAGE = (
+    "winning regime entry is not an attacker and honest pair: ")
+
+
+NON_NUMERIC_MESSAGE = (
+    "winning regime entry carries a non numeric share: ")
+
+
+def winning_pairs(count=30):
+    return [(0.9, 0.1) for _ in range(count)]
+
+
+def with_entry_at(position, entry, count=30):
+    shares = winning_pairs(count)
+    shares[position] = entry
+    return shares
+
+
+class IterRaises:
+    """An entry standing in no pair form whose iteration raises
+    the exception kind it is handed, once, at the unpacking."""
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    def __iter__(self):
+        raise self._exc
+
+
+class RaisingIterMeta(type):
+    def __iter__(cls):
+        raise RuntimeError("iteration raises")
+
+
+class ClassEntry(metaclass=RaisingIterMeta):
+    """An entry standing as a class whose iteration raises
+    RuntimeError through its metaclass."""
+
+
+class LyingReprEntry:
+    """An entry standing in no pair form whose repr reading
+    answers the pair form it is handed."""
+
+    def __init__(self, text="(0.9, 0.1)"):
+        self._text = text
+
+    def __repr__(self):
+        return self._text
+
+
+class RaisingReprEntry:
+    """An entry standing in no pair form whose repr reading
+    raises RuntimeError."""
+
+    def __repr__(self):
+        raise RuntimeError("repr raises")
+
+
+class TestR21014UnpackEscape(unittest.TestCase):
+    """Row R21-014: the entry unpacking limb of winning_regime
+    stands inside the named failure reach for every raising
+    kind an entry iteration supplies."""
+
+    def test_runtime_error_instance_entry_draws_named_failure(self):
+        shares = with_entry_at(15, IterRaises(RuntimeError("boom")))
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertTrue(
+            str(caught.exception).startswith(PAIR_MESSAGE))
+
+    def test_runtime_error_class_entry_draws_named_failure(self):
+        shares = with_entry_at(15, ClassEntry)
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertTrue(
+            str(caught.exception).startswith(PAIR_MESSAGE))
+
+    def test_key_error_entry_draws_named_failure(self):
+        shares = with_entry_at(15, IterRaises(KeyError("boom")))
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertTrue(
+            str(caught.exception).startswith(PAIR_MESSAGE))
+
+    def test_attribute_error_entry_draws_named_failure(self):
+        shares = with_entry_at(15, IterRaises(AttributeError("boom")))
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertTrue(
+            str(caught.exception).startswith(PAIR_MESSAGE))
+
+    def test_overflow_error_entry_draws_named_failure(self):
+        shares = with_entry_at(15, IterRaises(OverflowError("boom")))
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertTrue(
+            str(caught.exception).startswith(PAIR_MESSAGE))
+
+    def test_os_error_entry_draws_named_failure(self):
+        shares = with_entry_at(15, IterRaises(OSError("boom")))
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertTrue(
+            str(caught.exception).startswith(PAIR_MESSAGE))
+
+    def test_control_winning_pairs_return_true(self):
+        self.assertTrue(winning_regime(winning_pairs()))
+
+    def test_control_three_value_entries_draw_named_failure(self):
+        shares = [(0.9, 0.1, 0.0) for _ in range(30)]
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertTrue(
+            str(caught.exception).startswith(PAIR_MESSAGE))
+
+    def test_control_value_error_entry_draws_named_failure(self):
+        shares = with_entry_at(15, IterRaises(ValueError("boom")))
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertTrue(
+            str(caught.exception).startswith(PAIR_MESSAGE))
+
+    def test_control_plain_int_entry_draws_named_failure(self):
+        shares = with_entry_at(15, 5)
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertTrue(
+            str(caught.exception).startswith(PAIR_MESSAGE))
+
+    def test_control_twenty_nine_pairs_return_false(self):
+        self.assertFalse(winning_regime(winning_pairs(29)))
+
+    def test_control_losing_pair_returns_false(self):
+        shares = with_entry_at(20, (0.1, 0.9))
+        self.assertFalse(winning_regime(shares))
+
+
+class TestR21015PairFormRendering(unittest.TestCase):
+    """Row R21-015: the pair form refusal of winning_regime
+    renders the handed entry through the module stored form
+    rendering, so an entry standing in no pair form stands
+    named by the form it stands in, never by a repr reading
+    it supplies."""
+
+    def test_lying_repr_pair_of_shares_names_kind(self):
+        shares = with_entry_at(29, LyingReprEntry("(0.9, 0.1)"))
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertEqual(
+            str(caught.exception), PAIR_MESSAGE + "LyingReprEntry")
+
+    def test_lying_repr_three_one_names_kind(self):
+        shares = with_entry_at(29, LyingReprEntry("(3, 1)"))
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertEqual(
+            str(caught.exception), PAIR_MESSAGE + "LyingReprEntry")
+
+    def test_raising_repr_entry_names_kind(self):
+        shares = with_entry_at(29, RaisingReprEntry())
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertEqual(
+            str(caught.exception), PAIR_MESSAGE + "RaisingReprEntry")
+
+    def test_three_lying_repr_parts_render_by_kind(self):
+        entry = (
+            LyingReprEntry(), LyingReprEntry(), LyingReprEntry())
+        shares = with_entry_at(29, entry)
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertEqual(
+            str(caught.exception),
+            PAIR_MESSAGE
+            + "(LyingReprEntry, LyingReprEntry, LyingReprEntry)")
+
+    def test_control_plain_int_entry_names_five(self):
+        shares = with_entry_at(29, 5)
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertEqual(str(caught.exception), PAIR_MESSAGE + "5")
+
+    def test_control_non_numeric_share_sentence(self):
+        shares = with_entry_at(29, ("x", 0.1))
+        with self.assertRaises(NamedControllerFailure) as caught:
+            winning_regime(shares)
+        self.assertEqual(
+            str(caught.exception),
+            NON_NUMERIC_MESSAGE + "('x', 0.1)")
+
+    def test_control_winning_pairs_return_true(self):
+        self.assertTrue(winning_regime(winning_pairs()))
+
+    def test_control_losing_pair_returns_false(self):
+        shares = with_entry_at(3, (0.2, 0.8))
+        self.assertFalse(winning_regime(shares))
 
 
 if __name__ == "__main__":

@@ -921,6 +921,13 @@ def _undirected_copy(value, _memo=None):
                         candidate = (
                             "(carried key " + str(counter) + ")")
                     try:
+                        candidate_taken = candidate in copied
+                    except Exception:
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
+                    try:
                         copied[candidate] = copied_item
                         break
                     except Exception:

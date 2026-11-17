@@ -780,10 +780,13 @@ def validate_refusal_coverage(records=None):
             return False
         if not dict.get(record, "contract") or not dict.get(record, "slice"):
             return False
-        enforcing = dict.get(record, "enforcing_test") or ""
-        if "test_" not in enforcing:
+        enforcing_text = _stored_text(dict.get(record, "enforcing_test"))
+        if enforcing_text is None:
             return False
-        if enforcing.strip() == dict.get(record, "refusal"):
+        if "test_" not in enforcing_text:
+            return False
+        if _stored_texts_equal(
+                str.strip(enforcing_text), dict.get(record, "refusal")):
             return False
     return True
 

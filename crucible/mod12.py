@@ -2731,10 +2731,10 @@ def winning_regime(daily_shares):
                 attacker, honest = pair
             else:
                 attacker, honest = entry
-        except (TypeError, ValueError):
+        except Exception:
             raise NamedControllerFailure(
                 "winning regime entry is not an attacker and honest pair: "
-                + _safe_repr(entry))
+                + _sentence_form(entry))
         if not isinstance(attacker, (int, float)) \
                 or not isinstance(honest, (int, float)) \
                 or isinstance(attacker, bool) or isinstance(honest, bool):

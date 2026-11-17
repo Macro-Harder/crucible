@@ -1393,7 +1393,7 @@ def resume_claim_validation_failures(claim):
                             "detection_comparison_points stand in "
                             "an order other than the two named "
                             "points in their stated order: "
-                            + _safe_repr(stored_point)
+                            + _sentence_repr(stored_point)
                             + " stands at a position other than "
                             "its named position")
                     else:
@@ -1508,7 +1508,7 @@ def publishable_on_replication_failures(claim, verdict):
             dict.get(verdict, "outcome"), "rests"):
         failures.append(
             "the verdict outcome does not rest: outcome stands as "
-            + _safe_repr(dict.get(verdict, "outcome"))
+            + _sentence_repr(dict.get(verdict, "outcome"))
             + ", and publication requires the outcome rests")
     return failures
 

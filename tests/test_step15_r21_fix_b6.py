@@ -5,11 +5,24 @@ MOD-16 equality, membership, and sentence family, Builder 6 of
 fix wave 20, under settlement S-16 and ruling (an). Each pin
 states the defect its row charges in the distinguishing case,
 beside the plain controls the source papers ran.
+
+
+Union standing (fix wave 21 merge): the fix wave 21 pin file of this same name stands composed below in its own section, its classes and helpers standing beside the landed classes above, losing neither set. The wave file docstring stands here in full:
+
+Pins for Round 21 row R21-013.
+
+MOD-16, Builder 6 of fix wave 21. The row charges
+crucible/mod16.py validate_refusal_coverage, at its containment
+test, its strip call on the enforcing field, and its closing
+equality against the handed refusal field. Each distinguishing
+pin states the defect the row charges in one handing, beside
+the plain controls the source paper ran.
 """
+
+
 import unittest
 from decimal import Decimal
 from fractions import Fraction
-
 from crucible import mod16
 
 
@@ -429,6 +442,162 @@ class TestR20049ExerciseRunClassSentence(unittest.TestCase):
         result = mod16.exercise_run_class("confirmation")
         self.assertEqual(result["run_class"], "confirmation")
         self.assertFalse(result["exercised_end_to_end"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# Fix wave 21 pins of this name, composed in union below this line. No landed pin above stands altered.
+
+
+def _record(**overrides):
+    record = {
+        "refusal": "no executable run on the unadopted seed form",
+        "contract": "C-13",
+        "slice": "S-02",
+        "enforcing_test": "test_contract_c13.py and test_tg_02_1.py",
+    }
+    record.update(overrides)
+    return record
+
+
+class LyingEqStr(str):
+    """A str subclass whose equality answers True against every
+    value, whatever text it stores."""
+
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    def __hash__(self):
+        return str.__hash__(self)
+
+
+class LyingContainsStr(str):
+    """A str subclass whose containment reading answers as the
+    class flag directs, whatever text it stores."""
+
+    contains_answer = True
+
+    def __contains__(self, item):
+        return LyingContainsStr.contains_answer
+
+
+class RaisingStripStr(str):
+    """A str subclass whose strip reading raises."""
+
+    def strip(self, chars=None):
+        raise RuntimeError("strip reading raises")
+
+
+class LyingStripStr(str):
+    """A str subclass whose strip reading answers a fixed text,
+    whatever text it stores."""
+
+    def strip(self, chars=None):
+        return "no executable run on the unadopted seed form"
+
+
+class AlwaysContains:
+    """A value in no text form whose containment reading answers
+    True against every value."""
+
+    def __contains__(self, item):
+        return True
+
+
+class TestR21013Distinguishing(unittest.TestCase):
+    def tearDown(self):
+        LyingContainsStr.contains_answer = True
+
+    def test_integer_enforcing_returns_false(self):
+        self.assertFalse(mod16.validate_refusal_coverage(
+            [_record(enforcing_test=42)]))
+
+    def test_bytes_enforcing_naming_no_test_returns_false(self):
+        self.assertFalse(mod16.validate_refusal_coverage(
+            [_record(enforcing_test=b"prose naming no test")]))
+
+    def test_bytes_enforcing_storing_test_name_returns_true(self):
+        self.assertTrue(mod16.validate_refusal_coverage(
+            [_record(enforcing_test=b"test_contract_c13.py")]))
+
+    def test_object_enforcing_returns_false(self):
+        self.assertFalse(mod16.validate_refusal_coverage(
+            [_record(enforcing_test=AlwaysContains())]))
+
+    def test_raising_equality_refusal_object_returns_true(self):
+        self.assertTrue(mod16.validate_refusal_coverage(
+            [_record(refusal=RaisingEq())]))
+
+    def test_raising_equality_refusal_storing_enforcing_returns_false(self):
+        record = _record(
+            enforcing_test="test_x.py",
+            refusal=RaisingEqStr("test_x.py"))
+        self.assertFalse(mod16.validate_refusal_coverage([record]))
+
+    def test_lying_equality_refusal_returns_true(self):
+        record = _record(
+            enforcing_test="test_x.py",
+            refusal=LyingEqStr("some other text"))
+        self.assertTrue(mod16.validate_refusal_coverage([record]))
+
+    def test_lying_containment_enforcing_naming_no_test_returns_false(self):
+        LyingContainsStr.contains_answer = True
+        record = _record(
+            enforcing_test=LyingContainsStr("prose naming no test"))
+        self.assertFalse(mod16.validate_refusal_coverage([record]))
+
+    def test_lying_containment_enforcing_storing_test_returns_true(self):
+        LyingContainsStr.contains_answer = False
+        record = _record(
+            enforcing_test=LyingContainsStr("test_x.py"))
+        self.assertTrue(mod16.validate_refusal_coverage([record]))
+
+    def test_raising_strip_enforcing_returns_true(self):
+        record = _record(
+            enforcing_test=RaisingStripStr("test_x.py"))
+        self.assertTrue(mod16.validate_refusal_coverage([record]))
+
+    def test_lying_strip_enforcing_returns_true(self):
+        record = _record(
+            enforcing_test=LyingStripStr("test_x.py"))
+        self.assertTrue(mod16.validate_refusal_coverage([record]))
+
+
+class TestR21013Controls(unittest.TestCase):
+    def test_refusal_set_control(self):
+        self.assertTrue(mod16.validate_refusal_coverage())
+        self.assertTrue(mod16.validate_refusal_coverage(
+            mod16.refusal_set()))
+
+    def test_plain_valid_control(self):
+        self.assertTrue(mod16.validate_refusal_coverage([_record()]))
+
+    def test_plain_no_test_name_control(self):
+        self.assertFalse(mod16.validate_refusal_coverage(
+            [_record(enforcing_test="a restatement in prose")]))
+
+    def test_plain_restatement_control(self):
+        record = _record(
+            enforcing_test="some refusal", refusal="some refusal")
+        self.assertFalse(mod16.validate_refusal_coverage([record]))
+
+    def test_plain_missing_contract_control(self):
+        self.assertFalse(mod16.validate_refusal_coverage(
+            [_record(contract="")]))
+
+    def test_plain_empty_enforcing_control(self):
+        self.assertFalse(mod16.validate_refusal_coverage(
+            [_record(enforcing_test="")]))
+
+    def test_lying_text_enforcing_storing_test_name_control(self):
+        record = _record(
+            enforcing_test=LyingEqStr("test_x.py"))
+        self.assertTrue(mod16.validate_refusal_coverage([record]))
 
 
 if __name__ == "__main__":

@@ -12,10 +12,29 @@ the pristine code, and controls stating standings that hold on
 the pristine code and on the cured code alike, the plain control
 wording standing exact, so a cure that moves a judgement or
 changes a plain sentence fails here.
-"""
-import unittest
 
+
+Union standing (fix wave 21 merge): the fix wave 21 pin file of this same name stands composed below in its own section, its classes and helpers standing beside the landed classes above, losing neither set. The wave file docstring stands here in full:
+
+Pins for fix wave 21, Builder 8, Group 8, rows R21-016 and R21-017.
+
+The MOD-13 sentence family, on ruling (bb). At each charged
+locus the act judges the handed value on its stored text and
+the judgement stands correct; the failure sentence alone then
+renders the handed point or outcome through the repr reading
+the value itself supplies, so the sentence names a value the
+act did not judge. Each distinguishing pin hands the charged
+act a text value storing one text whose repr reading answers
+another, or raises, and states the cured sentence, which
+names the stored text. Each control hands a plain value and
+states a standing that holds on the pristine code and on the
+cured code alike.
+"""
+
+
+import unittest
 from crucible import mod02, mod03, mod12
+from crucible import mod13
 
 
 class LyingStr(str):
@@ -251,6 +270,135 @@ class TestR20040ClaimsFormSentence(unittest.TestCase):
     def test_control_valid_claims_edit_lands(self):
         edited = mod12.apply_family_edit({}, {"claims": ["claim A"]})
         self.assertEqual(edited["claims"], ["claim A"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# Fix wave 21 pins of this name, composed in union below this line. No landed pin above stands altered.
+
+
+class ReprLieStr(str):
+    """A text value storing one text whose repr reading
+    answers a stated different text."""
+
+    def __new__(cls, stored, lie):
+        value = str.__new__(cls, stored)
+        value._lie = lie
+        return value
+
+    def __repr__(self):
+        return self._lie
+
+
+class ReprRaiseStr(str):
+    """A text value storing one text whose repr reading
+    raises."""
+
+    def __repr__(self):
+        raise RuntimeError("repr reading raises")
+
+
+def swapped_claim(first_point):
+    return {
+        "detection_comparison_points": [
+            first_point,
+            "first verdict state after resume",
+        ]
+    }
+
+
+def valid_verdict(outcome):
+    return {
+        "claim_identifier": "C-1",
+        "outcome": outcome,
+        "standard_applied": "exact replay alone",
+        "replication_statement": mod13.REPLICATION_STATEMENT,
+        "replication_statement_sentences": list(
+            mod13.REPLICATION_STATEMENT_SENTENCES),
+    }
+
+
+class TestR21016OrderSentence(unittest.TestCase):
+    def test_order_sentence_lying_repr_names_stored_point(self):
+        failures = mod13.resume_claim_validation_failures(
+            swapped_claim(ReprLieStr("run close", "'LYING-NAME'")))
+        self.assertEqual(len(failures), 1)
+        self.assertIn("'run close'", failures[0])
+        self.assertNotIn("LYING-NAME", failures[0])
+
+    def test_order_sentence_repr_naming_other_point(self):
+        failures = mod13.resume_claim_validation_failures(
+            swapped_claim(ReprLieStr(
+                "run close", "'first verdict state after resume'")))
+        self.assertEqual(len(failures), 1)
+        self.assertIn("'run close'", failures[0])
+        self.assertNotIn(
+            "first verdict state after resume", failures[0])
+
+    def test_order_sentence_raising_repr_names_stored_point(self):
+        failures = mod13.resume_claim_validation_failures(
+            swapped_claim(ReprRaiseStr("run close")))
+        self.assertEqual(len(failures), 1)
+        self.assertIn("'run close'", failures[0])
+
+    def test_control_plain_swapped_points_name_run_close(self):
+        failures = mod13.resume_claim_validation_failures(
+            swapped_claim("run close"))
+        self.assertEqual(len(failures), 1)
+        self.assertIn("'run close'", failures[0])
+
+    def test_control_plain_points_in_named_order_pass(self):
+        claim = {
+            "detection_comparison_points": [
+                "first verdict state after resume",
+                "run close",
+            ]
+        }
+        self.assertEqual(
+            mod13.resume_claim_validation_failures(claim), [])
+
+    def test_control_plain_outside_point_named(self):
+        claim = {
+            "detection_comparison_points": [
+                "zzz",
+                "run close",
+            ]
+        }
+        failures = mod13.resume_claim_validation_failures(claim)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("'zzz'", failures[0])
+
+
+class TestR21017OutcomeSentence(unittest.TestCase):
+    def test_outcome_sentence_lying_repr_names_stored_outcome(self):
+        failures = mod13.publishable_on_replication_failures(
+            {"claim_identifier": "C-1"},
+            valid_verdict(ReprLieStr("does not rest", "'rests'")))
+        self.assertEqual(len(failures), 1)
+        self.assertIn("'does not rest'", failures[0])
+        self.assertNotIn("stands as 'rests',", failures[0])
+
+    def test_outcome_sentence_raising_repr_names_stored_outcome(self):
+        failures = mod13.publishable_on_replication_failures(
+            {"claim_identifier": "C-1"},
+            valid_verdict(ReprRaiseStr("does not rest")))
+        self.assertEqual(len(failures), 1)
+        self.assertIn("'does not rest'", failures[0])
+
+    def test_control_plain_outcome_does_not_rest_named(self):
+        failures = mod13.publishable_on_replication_failures(
+            {"claim_identifier": "C-1"},
+            valid_verdict("does not rest"))
+        self.assertEqual(len(failures), 1)
+        self.assertIn("'does not rest'", failures[0])
+
+    def test_control_plain_outcome_rests_passes(self):
+        failures = mod13.publishable_on_replication_failures(
+            {"claim_identifier": "C-1"},
+            valid_verdict("rests"))
+        self.assertEqual(failures, [])
 
 
 if __name__ == "__main__":

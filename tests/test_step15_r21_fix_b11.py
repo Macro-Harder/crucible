@@ -1,8 +1,24 @@
+"""
+
+Union standing (fix wave 21 merge): the fix wave 21 pin file of this same name stands composed below in its own section, its classes and helpers standing beside the landed classes above, losing neither set. The wave file docstring stands here in full:
+
+Pins for fix wave 21, builder b11, Group 11: MOD-10 stored repr
+and sentences, rows R21-020, R21-040, R21-041, R21-042, R21-043,
+R21-044, R21-045, and R21-046 of the Round 21 register.
+
+Distinguishing pins fail or error on the pristine basis and pass
+on the cured copy. Control pins pass on both trees.
+"""
+
+
 import unittest
 from decimal import Decimal
 from fractions import Fraction
-
 from crucible import mod01, mod03, mod04, mod05, mod07
+import os
+import subprocess
+import sys
+from crucible import mod10
 
 
 class LieStr(str):
@@ -441,6 +457,318 @@ class TestR20076TracerRunRecords(unittest.TestCase):
         records = mod07.tracer_passage_records("run-9")
         self.assertEqual(records[0]["open_semantic_item"], "OS-1")
         self.assertEqual(records[-1]["open_semantic_item"], "OS-14")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# Fix wave 21 pins of this name, composed in union below this line. No landed pin above stands altered.
+
+
+class LyingStr(str):
+    """A text value storing one text whose string reading
+    answers another text."""
+
+    def __new__(cls, stored, lie):
+        obj = str.__new__(cls, stored)
+        obj._lie = lie
+        return obj
+
+    def __str__(self):
+        return self._lie
+
+
+class RaisingStr(str):
+    """A text value storing one text whose string reading
+    raises."""
+
+    def __str__(self):
+        raise RuntimeError("string reading raises")
+
+
+class LyingRepr:
+    """A plain object whose repr reading answers a stated
+    firing number it does not stand as."""
+
+    def __init__(self, lie):
+        self._lie = lie
+
+    def __repr__(self):
+        return self._lie
+
+
+SET_TEXTS = (
+    "alpha", "bravo", "charlie", "delta",
+    "echo", "foxtrot", "golf", "hotel")
+
+
+SORTED_SET_RENDER = (
+    "{'alpha', 'bravo', 'charlie', 'delta', "
+    "'echo', 'foxtrot', 'golf', 'hotel'}")
+
+
+def view_record(run_id, item, seen_day, viewer="viewer-1"):
+    return {
+        "run_identifier": run_id,
+        "viewer_identifier": viewer,
+        "simulated_day": 5,
+        "scheduling_position_identifier": "s",
+        "rule_version_set": "r",
+        "view_contents": {},
+        "reputation_and_band_values": {},
+        "graph_position_as_seen": {},
+        "first_seen_day_per_record": {item: seen_day},
+        "delay_applied_per_record": {},
+        "completeness_state": "complete",
+        "building_component": "c",
+        "delivering_contract": "d",
+        "selection_rule_version": "v",
+    }
+
+
+class TestR21020StoredReprSetLimb(unittest.TestCase):
+
+    def test_distinguishing_set_renders_sorted(self):
+        self.assertEqual(
+            mod10._stored_repr(set(SET_TEXTS)), SORTED_SET_RENDER)
+
+    def test_distinguishing_frozenset_renders_sorted(self):
+        self.assertEqual(
+            mod10._stored_repr(frozenset(SET_TEXTS)),
+            SORTED_SET_RENDER)
+
+    def test_distinguishing_checkpoint_sentence_renders_sorted(self):
+        manifest = {
+            "run_identifier": "run-x",
+            "journal_position": set(SET_TEXTS),
+        }
+        result = mod10.checkpoint_position_check(manifest)
+        self.assertIn(SORTED_SET_RENDER, result["outcome"])
+
+    def test_distinguishing_order_stable_across_processes(self):
+        root = os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))
+        code = (
+            "from crucible import mod10;"
+            "m={'run_identifier':'run-x','journal_position':"
+            "{'alpha','bravo','charlie','delta','echo',"
+            "'foxtrot','golf','hotel'}};"
+            "print(mod10.checkpoint_position_check(m)['outcome'])"
+        )
+        outcomes = []
+        for seed in ("0", "1", "2", "3", "4", "5",
+                    "6", "7", "8", "9", "10", "42"):
+            env = dict(os.environ)
+            env["PYTHONHASHSEED"] = seed
+            proc = subprocess.run(
+                [sys.executable, "-c", code],
+                cwd=root, env=env, capture_output=True, text=True,
+                timeout=120)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            outcomes.append(proc.stdout.strip())
+        self.assertEqual(len(set(outcomes)), 1)
+        self.assertIn(SORTED_SET_RENDER, outcomes[0])
+
+    def test_control_list_renders_in_stored_order(self):
+        self.assertEqual(
+            mod10._stored_repr(["bravo", "alpha"]),
+            "['bravo', 'alpha']")
+
+    def test_control_plain_text_and_number_render(self):
+        self.assertEqual(mod10._stored_repr("alpha"), "'alpha'")
+        self.assertEqual(mod10._stored_repr(5), "5")
+
+
+class TestR21040RetainGc08Record(unittest.TestCase):
+
+    def test_distinguishing_lying_kind_names_stored_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.retain_gc08_record(
+                LyingStr("bogus-kind", "dependency_manifest"),
+                {}, "owner-1")
+        message = str(ctx.exception)
+        self.assertIn("unknown GC-08 record kind: bogus-kind;", message)
+        self.assertNotIn("kind: dependency_manifest", message)
+
+    def test_distinguishing_raising_kind_names_stored_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.retain_gc08_record(
+                RaisingStr("bogus-kind"), {}, "owner-1")
+        self.assertIn(
+            "unknown GC-08 record kind: bogus-kind;",
+            str(ctx.exception))
+
+    def test_control_plain_kind_names_plain_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.retain_gc08_record("bogus", {}, "owner-1")
+        self.assertIn(
+            "unknown GC-08 record kind: bogus;", str(ctx.exception))
+
+
+class TestR21041StoreLookup(unittest.TestCase):
+
+    def test_distinguishing_lying_kind_names_stored_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.store_lookup(
+                key="k", store_kind=LyingStr("bogus-kind", "sweep"))
+        message = str(ctx.exception)
+        self.assertIn("unknown store kind: bogus-kind;", message)
+        self.assertNotIn("kind: sweep", message)
+
+    def test_distinguishing_raising_kind_names_stored_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.store_lookup(
+                key="k", store_kind=RaisingStr("bogus-kind"))
+        self.assertIn(
+            "unknown store kind: bogus-kind;", str(ctx.exception))
+
+    def test_control_plain_kind_names_plain_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.store_lookup(key="k", store_kind="bogus")
+        self.assertIn(
+            "unknown store kind: bogus;", str(ctx.exception))
+
+
+class TestR21042ApplyFlagEvaluation(unittest.TestCase):
+
+    def test_distinguishing_lying_outcome_names_stored_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.apply_flag_evaluation(
+                {}, outcome=LyingStr("bogus-outcome", "promote"))
+        message = str(ctx.exception)
+        self.assertIn(
+            "outside the stated vocabulary: bogus-outcome;", message)
+        self.assertNotIn("vocabulary: promote", message)
+
+    def test_distinguishing_raising_outcome_names_stored_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.apply_flag_evaluation(
+                {}, outcome=RaisingStr("bogus-outcome"))
+        self.assertIn(
+            "outside the stated vocabulary: bogus-outcome;",
+            str(ctx.exception))
+
+    def test_control_plain_outcome_names_plain_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.apply_flag_evaluation({}, outcome="bogus-outcome")
+        self.assertIn(
+            "outside the stated vocabulary: bogus-outcome;",
+            str(ctx.exception))
+
+
+class TestR21043ApplyDeferredEvaluation(unittest.TestCase):
+
+    def test_distinguishing_lying_repr_one_not_named_as_firing(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.apply_deferred_evaluation({}, LyingRepr("1"))
+        message = str(ctx.exception)
+        self.assertIn("stands outside the stated firings 1 and 2", message)
+        self.assertNotIn("the firing 1 stands outside", message)
+
+    def test_distinguishing_lying_repr_two_not_named_as_firing(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.apply_deferred_evaluation({}, LyingRepr("2"))
+        message = str(ctx.exception)
+        self.assertIn("stands outside the stated firings 1 and 2", message)
+        self.assertNotIn("the firing 2 stands outside", message)
+
+    def test_control_plain_firing_five_named(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.apply_deferred_evaluation({}, 5)
+        self.assertIn(
+            "the firing 5 stands outside the stated firings",
+            str(ctx.exception))
+
+
+class TestR21044SummaryRecordForRun(unittest.TestCase):
+
+    def test_distinguishing_lying_identifier_names_stored_text(self):
+        result = mod10.summary_record_for_run(
+            LyingStr("run-x", "run-y"))
+        self.assertIn("for run run-x", result["statement"])
+        self.assertNotIn("run-y", result["statement"])
+
+    def test_distinguishing_raising_identifier_names_stored_text(self):
+        result = mod10.summary_record_for_run(RaisingStr("run-x"))
+        self.assertIn("for run run-x", result["statement"])
+
+    def test_control_plain_identifier_named(self):
+        result = mod10.summary_record_for_run("run-x")
+        self.assertIn("for run run-x", result["statement"])
+
+
+class TestR21045RunViewLeakCheckViewName(unittest.TestCase):
+
+    def test_distinguishing_lying_run_names_stored_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.run_view_leak_check(view_record(
+                LyingStr("run-real", "run-fake"), "rec-1", 9))
+        message = str(ctx.exception)
+        self.assertIn("view run-real/viewer-1", message)
+        self.assertNotIn("run-fake", message)
+
+    def test_distinguishing_lying_viewer_names_stored_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.run_view_leak_check(view_record(
+                "run-1", "rec-1", 9,
+                viewer=LyingStr("viewer-real", "viewer-fake")))
+        message = str(ctx.exception)
+        self.assertIn("view run-1/viewer-real", message)
+        self.assertNotIn("viewer-fake", message)
+
+    def test_distinguishing_raising_run_names_stored_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.run_view_leak_check(view_record(
+                RaisingStr("run-real"), "rec-1", 9))
+        self.assertIn(
+            "view run-real/viewer-1", str(ctx.exception))
+
+    def test_control_plain_view_named_in_failure(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.run_view_leak_check(view_record("run-1", "rec-1", 9))
+        self.assertIn("view run-1/viewer-1", str(ctx.exception))
+
+    def test_control_plain_view_named_on_pass(self):
+        result = mod10.run_view_leak_check(
+            view_record("run-1", "rec-1", 3))
+        self.assertEqual(result["view"], "run-1/viewer-1")
+        self.assertTrue(result["reportable"])
+
+
+class TestR21046RunViewLeakCheckRecordItem(unittest.TestCase):
+
+    def test_distinguishing_lying_item_after_day_names_stored(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.run_view_leak_check(view_record(
+                "run-1", LyingStr("rec-real", "rec-fake"), 9))
+        message = str(ctx.exception)
+        self.assertIn("record rec-real first seen after", message)
+        self.assertNotIn("rec-fake", message)
+
+    def test_distinguishing_lying_item_nonfinite_names_stored(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.run_view_leak_check(view_record(
+                "run-1", LyingStr("rec-real", "rec-fake"),
+                float("inf")))
+        message = str(ctx.exception)
+        self.assertIn(
+            "record rec-real states a day in a non finite form",
+            message)
+        self.assertNotIn("rec-fake", message)
+
+    def test_distinguishing_raising_item_names_stored_text(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.run_view_leak_check(view_record(
+                "run-1", RaisingStr("rec-real"), 9))
+        self.assertIn(
+            "record rec-real first seen after", str(ctx.exception))
+
+    def test_control_plain_item_named(self):
+        with self.assertRaises(ValueError) as ctx:
+            mod10.run_view_leak_check(view_record("run-1", "rec-1", 9))
+        self.assertIn(
+            "record rec-1 first seen after", str(ctx.exception))
 
 
 if __name__ == "__main__":

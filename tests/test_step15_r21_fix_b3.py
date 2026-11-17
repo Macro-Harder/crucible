@@ -2,12 +2,18 @@
 
 Rows R20-001, R20-019, R20-024, R20-077, R20-078, R20-079,
 R20-080, R20-081, R20-082, and R20-083 of the Round 20 register.
+
+
+Union standing (fix wave 21 merge): the fix wave 21 pin file of this same name stands composed below in its own section, its classes and helpers standing beside the landed classes above, losing neither set. The wave file docstring stands here in full:
+
 """
+
+
 import unittest
 from decimal import Decimal
 from fractions import Fraction
-
 from crucible import mod11
+from crucible import mod09
 
 
 class EqLieStr(str):
@@ -444,6 +450,8 @@ class TestR20079HeadlineRefusalSentence(unittest.TestCase):
 CONTROL_CLAIM = (
     "Over assumption set A-1, rows R-1, in the working range "
     "kind, the claim holds.")
+
+
 NONE_CLAIM = (
     "The claim holds over sampled points within the stated "
     "scope and limits alone for this run")
@@ -554,6 +562,91 @@ class TestR20083WeeklyContainerSentence(unittest.TestCase):
     def test_plain_valid_item_control(self):
         container = mod11.make_weekly_container("W1", ["u1"])
         self.assertEqual(container["count"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# Fix wave 21 pins of this name, composed in union below this line. No landed pin above stands altered.
+
+
+def readout_unit(outcome):
+    record = {
+        "run_record": {
+            "ladder_position": 6,
+            "strategies_exercised": ["conditional briber"],
+        },
+        "external_profit_swept_values": [0, 5],
+        "search_record": {
+            "per_point_outcome": {"point one": outcome},
+        },
+    }
+    return mod09.readout(record, found_failure=False)
+
+
+class TestR21004Distinguishing(unittest.TestCase):
+    def test_decimal_zero_carries_no_content(self):
+        self.assertFalse(mod09._outcome_carries_content(Decimal(0)))
+
+    def test_decimal_zero_point_zero_zero_carries_no_content(self):
+        self.assertFalse(mod09._outcome_carries_content(Decimal("0.00")))
+
+    def test_fraction_zero_carries_no_content(self):
+        self.assertFalse(mod09._outcome_carries_content(Fraction(0)))
+
+    def test_fraction_zero_over_five_carries_no_content(self):
+        self.assertFalse(mod09._outcome_carries_content(Fraction(0, 5)))
+
+    def test_readout_decimal_zero_point_mapping_no_sentence(self):
+        unit = readout_unit(Decimal(0))
+        self.assertNotIn("no_failure_sentence", unit)
+
+    def test_readout_fraction_zero_point_mapping_no_sentence(self):
+        unit = readout_unit(Fraction(0))
+        self.assertNotIn("no_failure_sentence", unit)
+
+
+class TestR21004Controls(unittest.TestCase):
+    def test_decimal_nonzero_carries_content(self):
+        self.assertTrue(mod09._outcome_carries_content(Decimal(1)))
+        self.assertTrue(mod09._outcome_carries_content(Decimal("0.5")))
+        self.assertTrue(mod09._outcome_carries_content(Decimal(-2)))
+
+    def test_fraction_nonzero_carries_content(self):
+        self.assertTrue(mod09._outcome_carries_content(Fraction(1, 2)))
+        self.assertTrue(mod09._outcome_carries_content(Fraction(3)))
+
+    def test_int_zero_carries_no_content(self):
+        self.assertFalse(mod09._outcome_carries_content(0))
+
+    def test_float_zero_carries_no_content(self):
+        self.assertFalse(mod09._outcome_carries_content(0.0))
+
+    def test_complex_zero_carries_no_content(self):
+        self.assertFalse(mod09._outcome_carries_content(0j))
+
+    def test_readout_decimal_nonzero_point_mapping_sentence(self):
+        unit = readout_unit(Decimal(2))
+        self.assertEqual(
+            unit.get("no_failure_sentence"), mod09.NO_FAILURE_SENTENCE)
+
+    def test_readout_fraction_nonzero_point_mapping_sentence(self):
+        unit = readout_unit(Fraction(1, 2))
+        self.assertEqual(
+            unit.get("no_failure_sentence"), mod09.NO_FAILURE_SENTENCE)
+
+    def test_readout_int_zero_point_mapping_no_sentence(self):
+        unit = readout_unit(0)
+        self.assertNotIn("no_failure_sentence", unit)
+
+    def test_readout_float_zero_point_mapping_no_sentence(self):
+        unit = readout_unit(0.0)
+        self.assertNotIn("no_failure_sentence", unit)
+
+    def test_readout_complex_zero_point_mapping_no_sentence(self):
+        unit = readout_unit(0j)
+        self.assertNotIn("no_failure_sentence", unit)
 
 
 if __name__ == "__main__":

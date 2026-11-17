@@ -426,7 +426,7 @@ def _folded_readings(key):
                 for part in base_characters))
             if character in letter_map:
                 options.add(letter_map[character])
-        if character == "\u0439":
+        if character == "й":
             options.update(("y", "i"))
         variants = set()
         for option in options:
@@ -1790,6 +1790,15 @@ def _undirected_copy(value, _memo=None, _depth=0):
                         candidate = (
                             "(carried key " + str(counter) + ")")
                     try:
+                        candidate_taken = candidate in copied
+                    except (TypeError, RuntimeError, ValueError,
+                            AttributeError, OverflowError, KeyError,
+                            OSError):
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
+                    try:
                         copied[candidate] = copied_item
                         break
                     except (TypeError, RuntimeError, ValueError,
@@ -1912,6 +1921,62 @@ def _sentence_repr(value):
     return _safe_repr(value)
 
 
+def _stored_form_repr(value, _depth=0):
+    """Render a handed value for a refusal sentence on the
+    form it stands in, in the stored form of this module. A
+    text or buffer value stands rendered as the base class
+    repr of the text it stores, in the form _stored_text
+    states, so a repr or string reading the value itself
+    supplies, lying or raising, never stands as the name the
+    sentence delivers. A plain scalar stands rendered through
+    the base class repr of the scalar it stores, kind first,
+    a boolean apart from every number. A container stands
+    rendered part by part in the same form, an unordered
+    container with its rendered parts sorted, so the sentence
+    names the same form in every process, and past a depth of
+    eight a part stands named by its kind name alone. A value
+    in no stated form stands named by the name of its kind,
+    the form it stands in, and never through a reading it
+    supplies."""
+    if isinstance(value, bool):
+        return bool.__repr__(value)
+    if isinstance(value, str):
+        return str.__repr__(_stored_text(value))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.__repr__(bytes(value))
+    if isinstance(value, int):
+        return int.__repr__(value)
+    if isinstance(value, float):
+        return float.__repr__(value)
+    if isinstance(value, complex):
+        return complex.__repr__(value)
+    if isinstance(value, Decimal):
+        return Decimal.__repr__(value)
+    if _depth >= 8:
+        return type(value).__name__
+    if isinstance(value, (list, tuple)):
+        parts = [
+            _stored_form_repr(part, _depth + 1)
+            for part in _base_iter(value)]
+        if isinstance(value, tuple):
+            if len(parts) == 1:
+                return "(" + parts[0] + ",)"
+            return "(" + ", ".join(parts) + ")"
+        return "[" + ", ".join(parts) + "]"
+    if isinstance(value, dict):
+        parts = sorted(
+            _stored_form_repr(key, _depth + 1) + ": "
+            + _stored_form_repr(item, _depth + 1)
+            for key, item in dict.items(value))
+        return "{" + ", ".join(parts) + "}"
+    if isinstance(value, (set, frozenset)):
+        parts = sorted(
+            _stored_form_repr(part, _depth + 1)
+            for part in _base_iter(value))
+        return "{" + ", ".join(parts) + "}"
+    return type(value).__name__
+
+
 def _stored_name_member(value, names):
     """Whether a handed value stands as one of the named
     values, judged on the text it stores, in the form
@@ -1960,7 +2025,7 @@ def accept_detection_input(record):
     if not isinstance(identifier_raw, str):
         raise NamedDetectionFailure(
             "delivery rejected: the agent identifier stands in no "
-            "identifier form: " + _safe_repr(identifier_raw)
+            "identifier form: " + _stored_form_repr(identifier_raw)
         )
     identifier = str.__str__(identifier_raw)
     if not identifier:
@@ -1973,7 +2038,7 @@ def accept_detection_input(record):
     if isinstance(day_raw, bool) or not isinstance(day_raw, int):
         raise NamedDetectionFailure(
             "delivery rejected: the day stands in no stated simulated "
-            "day form: " + _safe_repr(day_raw)
+            "day form: " + _stored_form_repr(day_raw)
         )
     day = int.__int__(day_raw)
     if int.__lt__(day, 0) or int.__ge__(day, 10 ** 6):
@@ -1997,7 +2062,7 @@ def accept_detection_input(record):
         if not isinstance(feature_name_raw, str):
             raise NamedDetectionFailure(
                 "delivery rejected: a feature name stands in no "
-                "string form: " + _safe_repr(feature_name_raw)
+                "string form: " + _stored_form_repr(feature_name_raw)
             )
         feature_name = str.__str__(feature_name_raw)
         if isinstance(feature_value_raw, bool) or not isinstance(
@@ -2278,7 +2343,20 @@ def _barred_verdict_value(value):
     characters it stores, read through the base class string
     form, and a bytes, bytearray, or memoryview value on the
     bytes it stores or views, so no reading the handed value
-    itself supplies stands as the judgement."""
+    itself supplies stands as the judgement. A value standing
+    in container dress stands judged on its stored contents,
+    in the joined candidate form the container key limb of
+    this walk states: every joined stored text the container
+    can stand in stands judged in the same stripped and
+    lowered form, so a single part container storing a barred
+    value, and a container whose parts join to a barred value,
+    stand barred as the same value in scalar dress stands
+    barred, under settlement S-15 in its dress judgement
+    form."""
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(
+            candidate.strip().lower() in _BARRED_VERDICT_VALUES
+            for candidate in _joined_text_candidates(value))
     return _stored_text(value).strip().lower() in (
         _BARRED_VERDICT_VALUES)
 

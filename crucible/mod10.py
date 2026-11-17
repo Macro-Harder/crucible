@@ -138,9 +138,9 @@ def _stored_repr(value, _depth=0):
             return "(" + parts[0] + ",)"
         return "(" + ", ".join(parts) + ")"
     if isinstance(value, (set, frozenset)):
-        parts = [
+        parts = sorted(
             _stored_repr(item, _depth + 1)
-            for item in _base_iter(value)]
+            for item in _base_iter(value))
         if not parts:
             return (
                 "frozenset()" if isinstance(value, frozenset)
@@ -2032,6 +2032,13 @@ def _safe_copy(value, _memo=None, _depth=0):
                         candidate = (
                             "(carried key " + str(counter) + ")")
                     try:
+                        candidate_taken = candidate in copied
+                    except Exception:
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
+                    try:
                         copied[candidate] = copied_item
                         break
                     except Exception:
@@ -2910,7 +2917,7 @@ def rederive_regime_classification(aggregates):
     ]
     if any(
             isinstance(record, dict)
-            and dict.get(record, "form") == FORM_ONLY
+            and _base_value_eq(dict.get(record, "form"), FORM_ONLY)
             for record in stored_aggregates):
         return {
             "classification": None,
@@ -3002,20 +3009,27 @@ def build_joint_outcome_vector(components=None, divergence_companion=None):
         raise ValueError(
             "joint outcome component in named form: the components "
             "stand as no record of their stored parts")
+
+    def _stored_reading(record_form, field):
+        for key, value in dict.items(record_form):
+            if _base_value_eq(key, field):
+                return value
+        return None
+
     record = {}
     viewers = []
     for field, parts in mod01.JOINT_OUTCOME_COMPONENT_PARTS.items():
-        component = dict.get(components, field)
+        component = _stored_reading(components, field)
         if not isinstance(component, dict):
             raise ValueError(
                 "joint outcome component in named form: component "
                 + field + " stands as no record of its stored parts")
-        missing = [part for part in parts if dict.get(component, part) is None]
+        missing = [part for part in parts if _stored_reading(component, part) is None]
         if missing:
             raise ValueError(
                 "joint outcome component in named form: component "
                 + field + " carries no " + ", ".join(missing))
-        viewer = dict.get(component, "viewer_identifier")
+        viewer = _stored_reading(component, "viewer_identifier")
         if isinstance(viewer, (list, tuple, dict, set, frozenset)):
             raise ValueError(
                 "joint outcome component in named form: the viewer "
@@ -3363,7 +3377,7 @@ def rejected_checkpoint_writes(run_id=None):
     Reading never writes."""
     return _safe_copy([
         item for item in _REJECTED_CHECKPOINT_WRITES
-        if run_id is None or item.get("run_id") == run_id
+        if run_id is None or _base_value_eq(item.get("run_id"), run_id)
     ])
 
 
@@ -3784,7 +3798,7 @@ def retain_gc08_record(kind, record, owner_id):
     kind_text = _stored_text(kind) if isinstance(kind, str) else None
     if kind_text not in ("dependency_manifest", "call_log"):
         raise ValueError(
-            "unknown GC-08 record kind: " + _safe_str(kind)
+            "unknown GC-08 record kind: " + _vocabulary_text(kind)
             + "; a GC-08 record kind stands among "
             "dependency_manifest and call_log, and no record "
             "stands retained")
@@ -4080,7 +4094,7 @@ def summary_record_for_run(run_id="run-under-test"):
             "record_found": False,
             "statement": (
                 "no summary record and no run record was found for "
-                "run " + _safe_str(run_id)),
+                "run " + _vocabulary_text(run_id)),
         }
     groups = record.get("groups") or {}
     outcome = groups.get("outcome_and_retention") or {}
@@ -4851,7 +4865,7 @@ def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inpu
     if outcome is not None and outcome_text not in _FLAG_OUTCOMES:
         raise ValueError(
             "flag evaluation outcome outside the stated vocabulary: "
-            + _safe_str(outcome)
+            + _vocabulary_text(outcome)
             + "; the outcomes the rule names stand as promote and "
             "demote, and no flag evaluation stands performed")
     if outcome_text == "demote":
@@ -5003,7 +5017,7 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
     if firing_number is None:
         raise ValueError(
             "apply_deferred_evaluation stands refused: the firing "
-            + _safe_repr(firing) + " stands outside the stated firings "
+            + _stored_repr(firing) + " stands outside the stated firings "
             "1 and 2, a run receives two firings (firings 1 and 2) "
             "and no other firing, and no evaluation stands written")
     updated = _safe_copy(summary_record)
@@ -5287,9 +5301,9 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
     }
     candidates = []
     for (bucket_kind, bucket_run), bucket in _CHECKPOINTS.items():
-        if bucket_run != run_id:
+        if not _base_value_eq(bucket_run, run_id):
             continue
-        if kind is not None and bucket_kind != kind:
+        if kind is not None and not _base_value_eq(bucket_kind, kind):
             continue
         for retained in bucket:
             if _same_day_form(
@@ -5300,9 +5314,9 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
         handed_day = dict.get(checkpoint, "simulated_day")
         if isinstance(handed_day, (bool, float)):
             for (bucket_kind, bucket_run), bucket in _CHECKPOINTS.items():
-                if bucket_run != run_id:
+                if not _base_value_eq(bucket_run, run_id):
                     continue
-                if kind is not None and bucket_kind != kind:
+                if kind is not None and not _base_value_eq(bucket_kind, kind):
                     continue
                 for retained in bucket:
                     if _whole_day(
@@ -5500,7 +5514,7 @@ def store_lookup(store_kinds=None, key=None, store_kind=None):
     kind = kinds_tuple[0]
     if not _store_kind_stands(kind):
         raise ValueError(
-            "unknown store kind: " + _safe_str(kind) + "; a store kind stands "
+            "unknown store kind: " + _vocabulary_text(kind) + "; a store kind stands "
             "among sweep, pilot, and live, and no record lookup stands "
             "performed on an unknown kind")
     return _STORES[_canonical_store_kind(kind)].read_run_record(key)
@@ -5900,9 +5914,9 @@ def run_view_leak_check(view_record):
             "view leak check failure: form field_validation, the "
             "record stands as no ViewRecord")
     view_name = (
-        _safe_str(dict.get(view_record, "run_identifier")
+        _vocabulary_text(dict.get(view_record, "run_identifier")
             or dict.get(view_record, "run_id"))
-        + "/" + _safe_str(dict.get(view_record, "viewer_identifier")
+        + "/" + _vocabulary_text(dict.get(view_record, "viewer_identifier")
                     or dict.get(view_record, "viewer_id")))
     groups = [
         name for name in (
@@ -5957,7 +5971,7 @@ def run_view_leak_check(view_record):
             raise ValueError(
                 "view leak check failure: form timing, view "
                 + view_name + ", field first_seen_day_per_record: "
-                "record " + _safe_str(item) + " states a day in a non "
+                "record " + _vocabulary_text(item) + " states a day in a non "
                 "finite form the timing comparison cannot order")
         if (isinstance(seen_day, (int, float))
                 and not isinstance(seen_day, bool)
@@ -5967,7 +5981,7 @@ def run_view_leak_check(view_record):
             raise ValueError(
                 "view leak check failure: form timing, view "
                 + view_name + ", field first_seen_day_per_record: "
-                "record " + _safe_str(item) + " first seen after the view day")
+                "record " + _vocabulary_text(item) + " first seen after the view day")
     return {
         "forms_run": list(_VIEW_LEAK_FORMS),
         "reportable": True,

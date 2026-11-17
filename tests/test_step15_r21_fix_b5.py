@@ -3,12 +3,26 @@
 Rows R20-005, R20-008, R20-009, and R20-011 of the Round 20
 register: the copy, freeze, and reading family under
 settlement S-1, with row R20-009 on ruling (aq).
+
+
+Union standing (fix wave 21 merge): the fix wave 21 pin file of this same name stands composed below in its own section, its classes and helpers standing beside the landed classes above, losing neither set. The wave file docstring stands here in full:
+
+Step 15 re-run, fix wave 21, builder b5 pins.
+
+Group 5, the MOD-11 stored text judgements, under settlement
+S-16: rows R21-009, R21-010, R21-011, and R21-012. Each
+distinguishing pin hands the charged act a value whose own
+equality, string, or strip reading must not be trusted, beside
+plain controls whose standing the cure keeps. Distinguishing
+pins fail or error on the pristine tree and pass on the cured
+copy; control pins pass on both trees.
 """
 
-import unittest
 
+import unittest
 from crucible import mod01, mod03, mod04, mod05, mod06, mod07
 from crucible import mod08, mod09, mod10, mod12, mod13, mod14
+from crucible import mod11
 
 
 class ArmedHash:
@@ -407,6 +421,249 @@ class TestControls(_ArmedCase):
     def test_plain_state_field_mod04(self):
         self.assertEqual(
             mod04._state_field({"day": 5}, ["day"]), 5)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# Fix wave 21 pins of this name, composed in union below this line. No landed pin above stands altered.
+
+
+class AlwaysEqStr(str):
+    """A text storing one text whose equality reading answers
+    True against every value."""
+
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    __hash__ = str.__hash__
+
+
+class NeverEqStr(str):
+    """A text storing one text whose equality reading answers
+    False against every value."""
+
+    def __eq__(self, other):
+        return False
+
+    def __ne__(self, other):
+        return True
+
+    __hash__ = str.__hash__
+
+
+class EmptyStripStr(str):
+    """A text whose strip reading returns the empty text,
+    whatever text it stores."""
+
+    def strip(self, *args, **kwargs):
+        return ""
+
+
+class LongStripStr(str):
+    """A text whose strip reading returns a long text,
+    whatever text it stores."""
+
+    def strip(self, *args, **kwargs):
+        return "a long standing text"
+
+
+class RaisingStripStr(str):
+    """A text whose strip reading raises."""
+
+    def strip(self, *args, **kwargs):
+        raise RuntimeError("strip reading armed")
+
+
+class NamedObject:
+    """A plain object carrying no stored text in any form,
+    whose string reading alone returns a stated text."""
+
+    def __init__(self, text):
+        self._text = text
+
+    def __str__(self):
+        return self._text
+
+
+def plain_values():
+    return {field: "value for " + field
+            for field in mod11.HEADLINE_UNIT_FIELDS}
+
+
+GOOD_CLAIM = (
+    "Over assumption set A-1, rows R-1 to R-9, in the working "
+    "range kind, the claim holds. Further sentences follow.")
+
+
+class TestR21009HeadlineMembership(unittest.TestCase):
+    def test_extra_key_always_equal_refused(self):
+        values = plain_values()
+        values[AlwaysEqStr("bogus_field")] = "extra value"
+        with self.assertRaises(ValueError) as caught:
+            mod11.make_headline_unit(values)
+        self.assertIn("fields beyond the closed unit",
+                      str(caught.exception))
+        self.assertIn("bogus_field", str(caught.exception))
+
+    def test_closed_key_never_equal_builds(self):
+        values = plain_values()
+        stored_value = values.pop("claim_sentence")
+        values[NeverEqStr("claim_sentence")] = stored_value
+        unit = mod11.make_headline_unit(values)
+        self.assertEqual(tuple(unit.keys()),
+                         mod11.HEADLINE_UNIT_FIELDS)
+        self.assertEqual(unit["claim_sentence"], stored_value)
+
+    def test_headline_plain_builds_control(self):
+        unit = mod11.make_headline_unit(plain_values())
+        self.assertEqual(tuple(unit.keys()),
+                         mod11.HEADLINE_UNIT_FIELDS)
+        self.assertEqual(len(unit), 14)
+
+    def test_headline_plain_extra_refused_control(self):
+        values = plain_values()
+        values["range_kind"] = "extra value"
+        with self.assertRaises(ValueError):
+            mod11.make_headline_unit(values)
+
+
+class TestR21010WorkingRangeNamedValues(unittest.TestCase):
+    def test_named_objects_carry_no_name(self):
+        self.assertFalse(mod11.validate_working_range_claim(
+            GOOD_CLAIM,
+            NamedObject("assumption set A-1"),
+            NamedObject("rows R-1 to R-9"),
+            NamedObject("working range")))
+
+    def test_one_named_object_among_plain_names(self):
+        self.assertFalse(mod11.validate_working_range_claim(
+            GOOD_CLAIM,
+            "assumption set A-1",
+            "rows R-1 to R-9",
+            NamedObject("working range")))
+
+    def test_working_range_plain_names_stand_control(self):
+        self.assertTrue(mod11.validate_working_range_claim(
+            GOOD_CLAIM, "assumption set A-1", "rows R-1 to R-9",
+            "working range"))
+
+    def test_working_range_plain_partial_refused_control(self):
+        partial = (
+            "Over assumption set A-1 the claim holds. It rests "
+            "on rows R-1 to R-9 in the working range kind.")
+        self.assertFalse(mod11.validate_working_range_claim(
+            partial, "assumption set A-1", "rows R-1 to R-9",
+            "working range"))
+
+    def test_working_range_absent_name_refused_control(self):
+        self.assertFalse(mod11.validate_working_range_claim(
+            GOOD_CLAIM,
+            NamedObject("a name that stands absent"),
+            "rows R-1 to R-9",
+            "working range"))
+
+
+class TestR21011ReadoutStrip(unittest.TestCase):
+    def _readout(self, quantity):
+        return {"quantities": [quantity]}
+
+    def test_readout_name_empty_strip_stands(self):
+        readout = self._readout({
+            "name": EmptyStripStr("valid name"),
+            "presented_by": "extent", "recorded_number": 1})
+        self.assertTrue(mod11.validate_readout(readout))
+
+    def test_readout_rule_empty_strip_stands(self):
+        readout = self._readout({
+            "name": "holding share",
+            "presented_by": "extent", "recorded_number": 0.4,
+            "class_based": True,
+            "class_rule": EmptyStripStr(
+                "point stands in the holding class")})
+        self.assertTrue(mod11.validate_readout(readout))
+
+    def test_readout_name_raising_strip_stands(self):
+        readout = self._readout({
+            "name": RaisingStripStr("valid name"),
+            "presented_by": "extent", "recorded_number": 1})
+        self.assertTrue(mod11.validate_readout(readout))
+
+    def test_readout_rule_raising_strip_stands(self):
+        readout = self._readout({
+            "name": "holding share",
+            "presented_by": "extent", "recorded_number": 0.4,
+            "class_based": True,
+            "class_rule": RaisingStripStr(
+                "point stands in the holding class")})
+        self.assertTrue(mod11.validate_readout(readout))
+
+    def test_readout_plain_stands_control(self):
+        readout = self._readout({
+            "name": "holding share", "presented_by": "extent",
+            "recorded_number": 0.4, "class_based": True,
+            "class_rule": "a point stands in the holding class "
+                          "where its share reaches 0.4"})
+        self.assertTrue(mod11.validate_readout(readout))
+
+    def test_readout_plain_empty_refused_control(self):
+        readout = self._readout({
+            "name": " ", "presented_by": "extent",
+            "recorded_number": 1})
+        self.assertFalse(mod11.validate_readout(readout))
+        readout = self._readout({
+            "name": "holding share", "presented_by": "position",
+            "recorded_number": 3, "class_based": True,
+            "class_rule": ""})
+        self.assertFalse(mod11.validate_readout(readout))
+
+
+class TestR21012DisclosureStrip(unittest.TestCase):
+    def test_disclosure_row_long_strip_refused(self):
+        form = {"entries": [
+            {"row": LongStripStr(" "), "column": "period 1",
+             "quantity": 4}]}
+        self.assertFalse(mod11.validate_disclosure_form(form))
+
+    def test_disclosure_column_long_strip_refused(self):
+        form = {"entries": [
+            {"row": "row A", "column": LongStripStr(" "),
+             "quantity": 4}]}
+        self.assertFalse(mod11.validate_disclosure_form(form))
+
+    def test_disclosure_row_empty_strip_stands(self):
+        form = {"entries": [
+            {"row": EmptyStripStr("row A"), "column": "period 1",
+             "quantity": 4}]}
+        self.assertTrue(mod11.validate_disclosure_form(form))
+
+    def test_disclosure_period_empty_strip_stands(self):
+        form = {"entries": [
+            {"row": "row A", "period": EmptyStripStr("period 2"),
+             "quantity": 2}]}
+        self.assertTrue(mod11.validate_disclosure_form(form))
+
+    def test_disclosure_identifier_raising_strip_stands(self):
+        form = {"entries": [
+            {"row": RaisingStripStr("row A"),
+             "column": "period 1", "quantity": 4}]}
+        self.assertTrue(mod11.validate_disclosure_form(form))
+
+    def test_disclosure_plain_stands_control(self):
+        form = {"entries": [
+            {"row": "row A", "column": "period 1", "quantity": 4},
+            {"row": "row B", "period": "period 2", "quantity": 2},
+        ]}
+        self.assertTrue(mod11.validate_disclosure_form(form))
+
+    def test_disclosure_plain_space_refused_control(self):
+        form = {"entries": [
+            {"row": " ", "column": "period 1", "quantity": 4}]}
+        self.assertFalse(mod11.validate_disclosure_form(form))
 
 
 if __name__ == "__main__":

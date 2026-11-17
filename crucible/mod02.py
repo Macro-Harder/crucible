@@ -316,8 +316,12 @@ def _base_value_eq(left, right):
                 active.add(pair)
                 frame["pair"] = pair
                 frame["mode"] = "dict"
-                frame["left_keys"] = list(dict.__iter__(held))
-                frame["right_keys"] = list(dict.__iter__(other))
+                frame["left_pairs"] = list(dict.items(held))
+                frame["right_pairs"] = list(dict.items(other))
+                frame["left_keys"] = [
+                    pair[0] for pair in frame["left_pairs"]]
+                frame["right_keys"] = [
+                    pair[0] for pair in frame["right_pairs"]]
                 frame["key_index"] = 0
                 frame["candidate"] = 0
                 frame["phase"] = "key"
@@ -490,10 +494,9 @@ def _base_value_eq(left, right):
                     frame["right_keys"][frame["candidate"]]))
                 continue
             frame["awaiting"] = "dict_value"
-            left_key = frame["left_keys"][frame["key_index"]]
             stack.append(_new_eq_frame(
-                dict.__getitem__(frame["left"], left_key),
-                dict.__getitem__(frame["right"], frame["matched"])))
+                frame["left_pairs"][frame["key_index"]][1],
+                frame["right_pairs"][frame["matched_index"]][1]))
             continue
         if mode == "seq":
             if frame["index"] >= len(frame["left_items"]):
@@ -530,13 +533,13 @@ def _base_set_eq(left, right):
 
 def _base_dict_get(mapping, key, default=None):
     """Return the value a handed mapping stores under a key,
-    found by scanning the stored keys through base value
-    equality and read through the base dict getitem, never
-    through a get, keys, or equality reading the mapping or
+    found by scanning the stored pairs through base value
+    equality and read as the stored item of the matched pair,
+    never through a get, keys, or equality reading the mapping or
     the key supplies."""
-    for stored_key in dict.__iter__(mapping):
+    for stored_key, item in dict.items(mapping):
         if _base_value_eq(stored_key, key):
-            return dict.__getitem__(mapping, stored_key)
+            return item
     return default
 
 

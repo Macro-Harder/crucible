@@ -33,10 +33,11 @@ class NamedShellFailure(Exception):
     identifier and its stage, never swallowed."""
 
     def __init__(self, message=""):
-        super().__init__(message)
+        stored_message = _stored_text(message)
+        super().__init__(stored_message)
         self.failure = {
             "name": type(self).__name__,
-            "message": str(message),
+            "message": stored_message,
         }
 
 
@@ -694,6 +695,15 @@ def _plain_stored_copy(record):
                     else:
                         candidate = (
                             "(carried key " + str(counter) + ")")
+                    try:
+                        candidate_taken = candidate in copied
+                    except (TypeError, RuntimeError, ValueError,
+                            AttributeError, OverflowError, KeyError,
+                            OSError):
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
                     try:
                         copied[candidate] = item
                         break

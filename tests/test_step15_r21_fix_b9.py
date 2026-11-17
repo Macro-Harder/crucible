@@ -1,5 +1,11 @@
-import unittest
+"""
 
+Union standing (fix wave 21 merge): the fix wave 21 pin file of this same name stands composed below in its own section, its classes and helpers standing beside the landed classes above, losing neither set. The wave file docstring stands here in full:
+
+"""
+
+
+import unittest
 from crucible import mod08
 
 
@@ -324,6 +330,227 @@ class TestR20057StreamsSentence(unittest.TestCase):
     def test_plain_bogus_streams_sentence_control(self):
         sentence = profiles_sentence("bogus")
         self.assertIn("stands in no number form: 'bogus'", sentence)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# Fix wave 21 pins of this name, composed in union below this line. No landed pin above stands altered.
+
+
+class LyingIdentifier:
+    def __repr__(self):
+        return "'agent-9'"
+
+    def __str__(self):
+        return "agent-9"
+
+
+class LyingDay:
+    def __repr__(self):
+        return "3"
+
+    def __str__(self):
+        return "3"
+
+
+class LyingFeatureName:
+    def __repr__(self):
+        return "'feature_x'"
+
+    def __str__(self):
+        return "feature_x"
+
+
+class RaisingRepr:
+    def __repr__(self):
+        raise RuntimeError("repr raises")
+
+    def __str__(self):
+        raise RuntimeError("str raises")
+
+
+def figure(extra):
+    output = {
+        "profile_bound_label": mod08.PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
+    }
+    output.update(extra)
+    return output
+
+
+def record(**overrides):
+    handed = {
+        "agent_identifier": "agent-1",
+        "day": 3,
+        "feature_values": {"feature_x": 1},
+        "records_for_agent_and_day": [],
+    }
+    handed.update(overrides)
+    return handed
+
+
+class TestR21018BarredVerdictContainerDress(unittest.TestCase):
+    def test_tuple_pass_barred(self):
+        self.assertFalse(mod08.validate_output(
+            figure({"score_verdict": ("pass",)})))
+
+    def test_list_pass_barred(self):
+        self.assertFalse(mod08.validate_output(
+            figure({"score_verdict": ["pass"]})))
+
+    def test_set_pass_barred(self):
+        self.assertFalse(mod08.validate_output(
+            figure({"score_verdict": {"pass"}})))
+
+    def test_frozenset_pass_barred(self):
+        self.assertFalse(mod08.validate_output(
+            figure({"score_verdict": frozenset({"pass"})})))
+
+    def test_bytes_tuple_pass_barred(self):
+        self.assertFalse(mod08.validate_output(
+            figure({"score_verdict": (b"pass",)})))
+
+    def test_split_pair_pass_barred(self):
+        self.assertFalse(mod08.validate_output(
+            figure({"score_verdict": ("pa", "ss")})))
+
+    def test_outcome_key_tuple_pass_barred(self):
+        self.assertFalse(mod08.validate_output(
+            figure({"outcome": ("pass",)})))
+
+    def test_verdict_key_list_failed_barred(self):
+        self.assertFalse(mod08.validate_output(
+            figure({"verdict": ["failed"]})))
+
+    def test_uppercase_tuple_pass_barred(self):
+        self.assertFalse(mod08.validate_output(
+            figure({"score_verdict": ("PASS",)})))
+
+
+class TestR21022IdentifierSentence(unittest.TestCase):
+    def test_lying_identifier_named_by_stored_form(self):
+        sentence = detection_sentence(
+            record(agent_identifier=LyingIdentifier()))
+        self.assertIn(
+            "the agent identifier stands in no identifier form: "
+            "LyingIdentifier", sentence)
+        self.assertNotIn("agent-9", sentence)
+
+    def test_raising_identifier_named_by_stored_form(self):
+        sentence = detection_sentence(
+            record(agent_identifier=RaisingRepr()))
+        self.assertIn(
+            "the agent identifier stands in no identifier form: "
+            "RaisingRepr", sentence)
+
+    def test_set_identifier_named_in_sorted_stored_form(self):
+        sentence = detection_sentence(record(
+            agent_identifier={
+                "t5", "t1", "t3", "t2", "t7", "t4", "t6",
+                LyingIdentifier()}))
+        self.assertIn(
+            "the agent identifier stands in no identifier form: "
+            "{'t1', 't2', 't3', 't4', 't5', 't6', 't7', "
+            "LyingIdentifier}",
+            sentence)
+        self.assertNotIn("agent-9", sentence)
+
+
+class TestR21023DaySentence(unittest.TestCase):
+    def test_lying_day_named_by_stored_form(self):
+        sentence = detection_sentence(record(day=LyingDay()))
+        self.assertIn(
+            "the day stands in no stated simulated day form: "
+            "LyingDay", sentence)
+        self.assertFalse(sentence.endswith(": 3"))
+
+    def test_raising_day_named_by_stored_form(self):
+        sentence = detection_sentence(record(day=RaisingRepr()))
+        self.assertIn(
+            "the day stands in no stated simulated day form: "
+            "RaisingRepr", sentence)
+
+    def test_set_day_named_in_sorted_stored_form(self):
+        sentence = detection_sentence(
+            record(day={"d", "b", "a", LyingDay()}))
+        self.assertIn(
+            "the day stands in no stated simulated day form: "
+            "{'a', 'b', 'd', LyingDay}", sentence)
+
+
+class TestR21024FeatureNameSentence(unittest.TestCase):
+    def test_lying_feature_name_named_by_stored_form(self):
+        sentence = detection_sentence(
+            record(feature_values={LyingFeatureName(): 1}))
+        self.assertIn(
+            "a feature name stands in no string form: "
+            "LyingFeatureName", sentence)
+        self.assertNotIn("feature_x", sentence)
+
+    def test_raising_feature_name_named_by_stored_form(self):
+        sentence = detection_sentence(
+            record(feature_values={RaisingRepr(): 1}))
+        self.assertIn(
+            "a feature name stands in no string form: RaisingRepr",
+            sentence)
+
+
+class TestControls(unittest.TestCase):
+    def test_control_plain_scalar_pass_barred(self):
+        self.assertFalse(mod08.validate_output(
+            figure({"score_verdict": "pass"})))
+
+    def test_control_buffer_pass_barred(self):
+        self.assertFalse(mod08.validate_output(
+            figure({"score_verdict": b"pass"})))
+        self.assertFalse(mod08.validate_output(
+            figure({"score_verdict": bytearray(b"pass")})))
+        self.assertFalse(mod08.validate_output(
+            figure({"score_verdict": memoryview(b"pass")})))
+
+    def test_control_plain_outcome_failed_barred(self):
+        self.assertFalse(mod08.validate_output(
+            figure({"outcome": "failed"})))
+
+    def test_control_innocent_output_valid(self):
+        self.assertTrue(mod08.validate_output(figure({})))
+
+    def test_control_unbarred_text_value_valid(self):
+        self.assertTrue(mod08.validate_output(
+            figure({"score_verdict": "WATCH"})))
+
+    def test_control_unbarred_container_value_valid(self):
+        self.assertTrue(mod08.validate_output(
+            figure({"score_verdict": ("watch",)})))
+
+    def test_control_joined_container_not_barred_valid(self):
+        self.assertTrue(mod08.validate_output(
+            figure({"score_verdict": ["pass", "extra"]})))
+
+    def test_control_plain_record_accepted(self):
+        accepted = mod08.accept_detection_input(record())
+        self.assertEqual(accepted["agent_identifier"], "agent-1")
+        self.assertEqual(accepted["day"], 3)
+        self.assertEqual(accepted["feature_values"], {"feature_x": 1})
+
+    def test_control_plain_identifier_form_sentence(self):
+        sentence = detection_sentence(record(agent_identifier=5))
+        self.assertIn(
+            "the agent identifier stands in no identifier form: 5",
+            sentence)
+
+    def test_control_plain_day_form_sentence(self):
+        sentence = detection_sentence(record(day="3"))
+        self.assertIn(
+            "the day stands in no stated simulated day form: '3'",
+            sentence)
+
+    def test_control_plain_feature_name_sentence(self):
+        sentence = detection_sentence(record(feature_values={5: 1}))
+        self.assertIn(
+            "a feature name stands in no string form: 5", sentence)
 
 
 if __name__ == "__main__":

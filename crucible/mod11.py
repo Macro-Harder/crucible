@@ -683,10 +683,23 @@ def make_headline_unit(values):
             "make_headline_unit stands refused: the headline unit "
             "stands in no record form, a headline unit stands as a "
             "field mapping, and no unit stands built")
-    stored = {}
-    for stored_key, stored_value in dict.items(values):
-        stored[stored_key] = stored_value
-    extra = [key for key in stored if key not in HEADLINE_UNIT_FIELDS]
+    stored_pairs = list(dict.items(values))
+
+    def _field_value(field):
+        for stored_key, stored_value in stored_pairs:
+            if any(key_text is not None
+                   and str.__eq__(key_text, field)
+                   for key_text in _registry_key_texts(stored_key)):
+                return True, stored_value
+        return False, None
+
+    extra = [
+        key for key, _stored_value in stored_pairs
+        if not any(
+            any(key_text is not None
+                and str.__eq__(key_text, field)
+                for key_text in _registry_key_texts(key))
+            for field in HEADLINE_UNIT_FIELDS)]
     if extra:
         raise ValueError(
             "make_headline_unit stands refused: fields beyond the "
@@ -695,12 +708,13 @@ def make_headline_unit(values):
             + ", and no unit stands built")
     unit = {}
     for field in HEADLINE_UNIT_FIELDS:
-        if field not in stored or stored[field] is None:
+        present, field_value = _field_value(field)
+        if not present or field_value is None:
             raise ValueError(
                 "make_headline_unit stands refused: headline unit "
                 "field absent: " + field
                 + ", and no unit stands built")
-        unit[field] = _quoted_copy(stored[field])
+        unit[field] = _quoted_copy(field_value)
     return unit
 
 
@@ -2403,6 +2417,13 @@ def _quoted_copy(value, _memo=None, _depth=0):
                         candidate = (
                             "(carried key " + str(counter) + ")")
                     try:
+                        candidate_taken = candidate in copied
+                    except Exception:
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
+                    try:
                         copied[candidate] = frozen_item
                         break
                     except Exception:
@@ -2589,7 +2610,7 @@ def validate_working_range_claim(text, assumption_set, rows, range_kind):
         if stored is not None:
             rendered = stored
         else:
-            rendered = _safe_str(named)
+            rendered = ""
         if not rendered:
             return False
         if rendered not in sentence:
@@ -3665,7 +3686,8 @@ def validate_readout(readout):
         if not isinstance(quantity, dict):
             return False
         name = dict.get(quantity, "name")
-        if not isinstance(name, str) or len(name.strip()) < 2 \
+        if not isinstance(name, str) \
+                or len(str.strip(str.__str__(name))) < 2 \
                 or _plain_word_count(name) < 1:
             return False
         number = dict.get(quantity, "recorded_number")
@@ -3673,7 +3695,8 @@ def validate_readout(readout):
             return False
         if dict.get(quantity, "class_based"):
             rule = dict.get(quantity, "class_rule")
-            if not isinstance(rule, str) or not rule.strip():
+            if not isinstance(rule, str) \
+                    or not str.strip(str.__str__(rule)):
                 return False
             if _plain_word_count(rule) < 3:
                 return False
@@ -3704,7 +3727,8 @@ def validate_disclosure_form(form):
             return False
         for identifier in (dict.__getitem__(entry, "row"), dict.__getitem__(entry, keys[1])):
             if identifier is None or (isinstance(identifier, str)
-                                      and not identifier.strip()):
+                                      and not str.strip(
+                                          str.__str__(identifier))):
                 return False
         quantity = dict.__getitem__(entry, "quantity")
         if isinstance(quantity, bool) or not isinstance(

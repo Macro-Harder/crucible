@@ -29,6 +29,8 @@ in this module in the forms the plan states for them.
 
 import copy
 import math
+from decimal import Decimal
+from fractions import Fraction
 
 from crucible import mod03 as _mod03
 
@@ -459,6 +461,15 @@ def _stored_copy(value, _memo=None):
                         candidate = (
                             "(carried key " + str(counter) + ")")
                     try:
+                        candidate_taken = candidate in copied
+                    except (TypeError, RuntimeError, ValueError,
+                            AttributeError, OverflowError, KeyError,
+                            OSError):
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
+                    try:
                         copied[candidate] = copied_item
                         break
                     except (TypeError, RuntimeError, ValueError,
@@ -883,6 +894,15 @@ def _render_safe_copy(value, _depth=0, _seen=None):
                         candidate = (
                             "(carried key " + str(counter) + ")")
                     try:
+                        candidate_taken = candidate in copied
+                    except (TypeError, RuntimeError, ValueError,
+                            AttributeError, OverflowError, KeyError,
+                            OSError):
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
+                    try:
                         copied[candidate] = copied_item
                         break
                     except (TypeError, RuntimeError, ValueError,
@@ -960,13 +980,13 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
     else:
         raise NamedAttackerFailure(
             "external profit sweep rejected: the stated range "
-            "stands in no range form: " + _safe_repr(stated_range)
+            "stands in no range form: " + _stored_form_repr(stated_range)
         )
     for value in values:
         if not _stands_numeric(value):
             raise NamedAttackerFailure(
                 "external profit sweep rejected: a stated range "
-                "value stands in no numeric form: " + _safe_repr(value)
+                "value stands in no numeric form: " + _stored_form_repr(value)
             )
     if not any(
             _stored_match(value, 0) and _stored_eq(value, 0)
@@ -982,7 +1002,7 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
         raise NamedAttackerFailure(
             "external profit sweep rejected: the largest in "
             "protocol payoff stands in no numeric form: "
-            + _safe_repr(largest)
+            + _stored_form_repr(largest)
         )
     if not any(
             _plain_number(value) > _plain_number(largest)
@@ -1022,7 +1042,7 @@ def run_record_carriage(strategy_class, ladder_position,
     if not isinstance(strategy_class, (list, tuple)):
         raise NamedAttackerFailure(
             "run record rejected: the fixed strategy class stands "
-            "in no class list form: " + _safe_repr(strategy_class)
+            "in no class list form: " + _stored_form_repr(strategy_class)
         )
     if _base_length(strategy_class) == 0:
         raise NamedAttackerFailure(
@@ -1033,7 +1053,7 @@ def run_record_carriage(strategy_class, ladder_position,
             strategies, (list, tuple)):
         raise NamedAttackerFailure(
             "run record rejected: the strategies exercised stand "
-            "in no list form: " + _safe_repr(strategies)
+            "in no list form: " + _stored_form_repr(strategies)
         )
     if ladder_position is None:
         raise NamedAttackerFailure(
@@ -1046,7 +1066,7 @@ def run_record_carriage(strategy_class, ladder_position,
         raise NamedAttackerFailure(
             "run record rejected: the ladder position stands outside "
             "the whole rungs 0 to 6 of the search ladder: "
-            + _safe_repr(ladder_position)
+            + _stored_form_repr(ladder_position)
         )
     if catalogue_version_or_hash is None or (
             isinstance(
@@ -1079,7 +1099,7 @@ def run_record_carriage(strategy_class, ladder_position,
         if not _base_contains(strategy_class, name):
             raise NamedAttackerFailure(
                 "strategy outside the fixed class stands rejected: "
-                + _safe_str(name)
+                + _stored_form_repr(name)
             )
         exercised.append(_carry_text(name))
     return {
@@ -1375,7 +1395,7 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
                 raise NamedAttackerFailure(
                     "bond parameter search rejected: a candidate "
                     "carries a harm or a cost in no numeric form: "
-                    + _safe_repr(candidate)
+                    + _stored_form_repr(candidate)
                 )
             if cost is None or _plain_number(cost) == 0 or (
                     harm is None):
@@ -1385,7 +1405,7 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
             raise NamedAttackerFailure(
                 "bond parameter search rejected: a griefing factor "
                 "stands in no finite numeric form: "
-                + _safe_repr(factor)
+                + _stored_form_repr(factor)
             )
         scored.append({
             "parameter_set": _stored_copy(params),
@@ -1433,7 +1453,7 @@ def build_search_record(run_carriage, points_tried,
         if not isinstance(entry, dict):
             raise NamedAttackerFailure(
                 "search record rejected: a case use stands in "
-                "no record form: " + _safe_repr(entry)
+                "no record form: " + _stored_form_repr(entry)
             )
         fixture = _base_dict_get(entry, "fixture")
         if _stored_match(fixture, "F-26") and _stored_eq(
@@ -1606,13 +1626,22 @@ def _outcome_carries_content(value):
     boolean standing at False, a number standing at zero, an
     empty text or buffer, and an empty list, tuple, set,
     frozenset, or dict each carry no outcome content, and
-    every other stored value carries the content it stores."""
+    every other stored value carries the content it stores. A
+    Decimal and a Fraction each stand judged in their own
+    kind at the number limb, a zero in either kind carrying
+    no outcome content."""
     if value is None:
         return False
     if isinstance(value, bool):
         return value is True
     if isinstance(value, (int, float, complex)):
         return _plain_number(value) != 0
+    if isinstance(value, Decimal):
+        return not (Decimal.__eq__(
+            Decimal.__new__(Decimal, value), Decimal(0)) is True)
+    if isinstance(value, Fraction):
+        return not (Fraction.__eq__(
+            Fraction.__new__(Fraction, value), Fraction(0)) is True)
     if isinstance(value, (str, bytes, bytearray, memoryview,
                           list, tuple, set, frozenset, dict)):
         return _base_length(value) > 0
@@ -1794,7 +1823,7 @@ def readout(search_record, found_failure=True, wording="",
     if not isinstance(carriage, dict):
         raise NamedAttackerFailure(
             "readout rejected: the run record carriage stands in "
-            "no record form: " + _safe_repr(carriage)
+            "no record form: " + _stored_form_repr(carriage)
         )
     position = _base_dict_get(carriage, "ladder_position")
     if established:
@@ -1820,7 +1849,7 @@ def readout(search_record, found_failure=True, wording="",
     if not isinstance(exercised, (list, tuple)):
         raise NamedAttackerFailure(
             "readout rejected: the strategies exercised stand in "
-            "no list form: " + _safe_repr(exercised)
+            "no list form: " + _stored_form_repr(exercised)
         )
     swept = _base_dict_get(
         search_record, "external_profit_swept_values", [])
@@ -1829,7 +1858,7 @@ def readout(search_record, found_failure=True, wording="",
     if not isinstance(swept, (list, tuple)):
         raise NamedAttackerFailure(
             "readout rejected: the external profit swept values "
-            "stand in no list form: " + _safe_repr(swept)
+            "stand in no list form: " + _stored_form_repr(swept)
         )
     in_protocol_only = (
         not _base_contains(exercised, "conditional briber")
@@ -1890,7 +1919,7 @@ def attacker_cost_summary(witness_run):
     if not isinstance(witness_run, dict):
         raise NamedAttackerFailure(
             "attacker cost summary rejected: the witness run "
-            "stands in no record form: " + _safe_repr(witness_run)
+            "stands in no record form: " + _stored_form_repr(witness_run)
         )
     identifier = _base_dict_get(witness_run, "run_identifier")
     cost = _stored_copy(_base_dict_get(witness_run, "attacker_cost"))
@@ -1937,7 +1966,7 @@ def witness_carriage(witness_run, envelope_claim_names_witness=True):
     if not isinstance(witness_run, dict):
         raise NamedAttackerFailure(
             "witness carriage rejected: the witness run stands in "
-            "no record form: " + _safe_repr(witness_run)
+            "no record form: " + _stored_form_repr(witness_run)
         )
     carriage = {
         "witness_run": _render_safe_copy(

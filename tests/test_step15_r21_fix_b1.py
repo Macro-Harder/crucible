@@ -6,11 +6,26 @@ pin hands the charged act the handing its row charges, beside
 the plain controls the source papers ran. Row R20-027 charges
 the bound statement alone, so its pins stand as the proving
 acts of the corrected statement and pass before and after.
+
+
+Union standing (fix wave 21 merge): the fix wave 21 pin file of this same name stands composed below in its own section, its classes and helpers standing beside the landed classes above, losing neither set. The wave file docstring stands here in full:
+
+Pins for fix wave 21, Builder 1, Group 1.
+
+Rows R21-001 and R21-002 of the Round 21 register: the copy
+family candidate taken test, under settlement S-1, on ruling
+(ba). The cured pole form is the R20-009 cured form: the
+numbered candidate stands tested against the copied dict
+before insertion.
 """
+
+
 import unittest
 from decimal import Decimal
-
 from crucible import mod09
+from crucible import mod01, mod03, mod04, mod05, mod06, mod07
+from crucible import mod08, mod09, mod10, mod11, mod12, mod13
+from crucible import mod14
 
 
 def _carriage(strategies=("conditional briber",), position=6):
@@ -514,6 +529,298 @@ class TestR20061BondSearchCandidateSentence(unittest.TestCase):
             "parameter_set": {"lien multiplier": 2},
             "harm": 10, "attacker_cost": 4}])
         self.assertEqual(result["worst_griefing_factor"], 2.5)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# Fix wave 21 pins of this name, composed in union below this line. No landed pin above stands altered.
+
+
+class RaisingHashKey:
+    """A non text dict key whose hash reading raises once armed."""
+
+    armed = False
+
+    def __hash__(self):
+        if RaisingHashKey.armed:
+            raise RuntimeError("armed hash")
+        return 13
+
+    def __eq__(self, other):
+        return self is other
+
+    def __ne__(self, other):
+        return self is not other
+
+
+class ArmedTextKey(str):
+    """A text key storing one text, whose hash reading raises
+    once armed and whose equality reading answers False, so two
+    keys storing the same text stand as two entries."""
+
+    armed = False
+
+    def __hash__(self):
+        if ArmedTextKey.armed:
+            raise RuntimeError("armed hash")
+        return 7
+
+    def __eq__(self, other):
+        return False
+
+    def __ne__(self, other):
+        return True
+
+
+def _raising_keys(values):
+    RaisingHashKey.armed = False
+    handed = {}
+    for value in values:
+        handed[RaisingHashKey()] = value
+    RaisingHashKey.armed = True
+    return handed
+
+
+def _two_raising_keys():
+    return _raising_keys(["first", "second"])
+
+
+def _three_raising_keys():
+    return _raising_keys(["first", "second", "third"])
+
+
+def _one_raising_key():
+    return _raising_keys(["only"])
+
+
+def _plain_candidate_collision():
+    RaisingHashKey.armed = False
+    handed = {"(carried key 3)": "plain"}
+    handed[RaisingHashKey()] = "armed"
+    RaisingHashKey.armed = True
+    return handed
+
+
+def _same_text_keys():
+    ArmedTextKey.armed = False
+    handed = {}
+    handed[ArmedTextKey("same")] = "first"
+    handed[ArmedTextKey("same")] = "second"
+    ArmedTextKey.armed = True
+    return handed
+
+
+TARGET_HELPERS = [
+    ("mod03_guarded", mod03._guarded_copy),
+    ("mod04_guarded", mod04._guarded_copy),
+    ("mod06_undirected", mod06._undirected_copy),
+    ("mod07_stored", mod07._stored_copy),
+    ("mod08_undirected", mod08._undirected_copy),
+    ("mod09_stored", mod09._stored_copy),
+    ("mod09_render_safe", mod09._render_safe_copy),
+    ("mod10_safe", mod10._safe_copy),
+    ("mod11_quoted", mod11._quoted_copy),
+    ("mod14_plain_stored", mod14._plain_stored_copy),
+]
+
+
+SISTER_HELPERS = [
+    ("mod03_guarded", mod03._guarded_copy),
+    ("mod04_guarded", mod04._guarded_copy),
+    ("mod06_undirected", mod06._undirected_copy),
+    ("mod07_stored", mod07._stored_copy),
+    ("mod08_undirected", mod08._undirected_copy),
+    ("mod09_stored", mod09._stored_copy),
+    ("mod10_safe", mod10._safe_copy),
+    ("mod11_quoted", mod11._quoted_copy),
+    ("mod14_plain_stored", mod14._plain_stored_copy),
+]
+
+
+CURED_POLES = [
+    ("mod01_guarded", mod01._guarded_copy),
+    ("mod05_freeze", mod05._freeze),
+    ("mod12_freeze", mod12._freeze),
+    ("mod13_freeze", mod13._freeze),
+    ("mod14_freeze", mod14._freeze),
+]
+
+
+class _ArmedCase(unittest.TestCase):
+    def tearDown(self):
+        RaisingHashKey.armed = False
+        ArmedTextKey.armed = False
+
+
+class TestR21001RenderSafeCopy(_ArmedCase):
+    """Row R21-001: MOD-09 _render_safe_copy, two and three keys."""
+
+    def test_two_keys_delivered_whole(self):
+        result = mod09._render_safe_copy(_two_raising_keys())
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(sorted(result.values()), ["first", "second"])
+
+    def test_three_keys_delivered_whole(self):
+        result = mod09._render_safe_copy(_three_raising_keys())
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), 3)
+        self.assertEqual(
+            sorted(result.values()), ["first", "second", "third"])
+
+
+class TestR21002SisterHelpers(_ArmedCase):
+    """Row R21-002: the two key handing at each sister helper."""
+
+    def _check_two(self, helper):
+        result = helper(_two_raising_keys())
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(sorted(result.values()), ["first", "second"])
+
+    def test_mod03_two_keys(self):
+        self._check_two(mod03._guarded_copy)
+
+    def test_mod04_two_keys(self):
+        self._check_two(mod04._guarded_copy)
+
+    def test_mod06_two_keys(self):
+        self._check_two(mod06._undirected_copy)
+
+    def test_mod07_two_keys(self):
+        self._check_two(mod07._stored_copy)
+
+    def test_mod08_two_keys(self):
+        self._check_two(mod08._undirected_copy)
+
+    def test_mod09_stored_two_keys(self):
+        self._check_two(mod09._stored_copy)
+
+    def test_mod10_two_keys(self):
+        self._check_two(mod10._safe_copy)
+
+    def test_mod11_two_keys(self):
+        self._check_two(mod11._quoted_copy)
+
+    def test_mod14_two_keys(self):
+        self._check_two(mod14._plain_stored_copy)
+
+    def test_mod14_plain_candidate_collision(self):
+        result = mod14._plain_stored_copy(_plain_candidate_collision())
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(sorted(result.values()), ["armed", "plain"])
+
+    def test_mod14_same_text_keys(self):
+        result = mod14._plain_stored_copy(_same_text_keys())
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(sorted(result.values()), ["first", "second"])
+
+
+class TestCuredPoleControls(_ArmedCase):
+    """Controls: the five cured poles deliver two keys whole."""
+
+    def _check_two(self, helper):
+        result = helper(_two_raising_keys())
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(sorted(result.values()), ["first", "second"])
+
+    def test_mod01_pole_two_keys(self):
+        self._check_two(mod01._guarded_copy)
+
+    def test_mod05_pole_two_keys(self):
+        self._check_two(mod05._freeze)
+
+    def test_mod12_pole_two_keys(self):
+        self._check_two(mod12._freeze)
+
+    def test_mod13_pole_two_keys(self):
+        self._check_two(mod13._freeze)
+
+    def test_mod14_pole_two_keys(self):
+        self._check_two(mod14._freeze)
+
+
+class TestSingleKeyControls(_ArmedCase):
+    """Controls: a single armed key handing at each target helper."""
+
+    def _check_one(self, helper):
+        result = helper(_one_raising_key())
+        self.assertIsInstance(result, dict)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(list(result.values()), ["only"])
+
+    def test_mod03_one_key(self):
+        self._check_one(mod03._guarded_copy)
+
+    def test_mod04_one_key(self):
+        self._check_one(mod04._guarded_copy)
+
+    def test_mod06_one_key(self):
+        self._check_one(mod06._undirected_copy)
+
+    def test_mod07_one_key(self):
+        self._check_one(mod07._stored_copy)
+
+    def test_mod08_one_key(self):
+        self._check_one(mod08._undirected_copy)
+
+    def test_mod09_stored_one_key(self):
+        self._check_one(mod09._stored_copy)
+
+    def test_mod09_render_safe_one_key(self):
+        self._check_one(mod09._render_safe_copy)
+
+    def test_mod10_one_key(self):
+        self._check_one(mod10._safe_copy)
+
+    def test_mod11_one_key(self):
+        self._check_one(mod11._quoted_copy)
+
+    def test_mod14_one_key(self):
+        self._check_one(mod14._plain_stored_copy)
+
+
+class TestPlainControls(_ArmedCase):
+    """Controls: plain handings at each target helper."""
+
+    def _check_plain(self, helper):
+        result = helper({"a": 1, "b": 2})
+        self.assertEqual(result, {"a": 1, "b": 2})
+
+    def test_mod03_plain(self):
+        self._check_plain(mod03._guarded_copy)
+
+    def test_mod04_plain(self):
+        self._check_plain(mod04._guarded_copy)
+
+    def test_mod06_plain(self):
+        self._check_plain(mod06._undirected_copy)
+
+    def test_mod07_plain(self):
+        self._check_plain(mod07._stored_copy)
+
+    def test_mod08_plain(self):
+        self._check_plain(mod08._undirected_copy)
+
+    def test_mod09_stored_plain(self):
+        self._check_plain(mod09._stored_copy)
+
+    def test_mod09_render_safe_plain(self):
+        self._check_plain(mod09._render_safe_copy)
+
+    def test_mod10_plain(self):
+        self._check_plain(mod10._safe_copy)
+
+    def test_mod11_plain(self):
+        self._check_plain(mod11._quoted_copy)
+
+    def test_mod14_plain(self):
+        self._check_plain(mod14._plain_stored_copy)
 
 
 if __name__ == "__main__":

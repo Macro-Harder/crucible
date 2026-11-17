@@ -3486,9 +3486,7 @@ def validate_provenance_block(block):
         if not _stored_pairs_present(entry, "applicability"):
             return False
         field_value = _stored_pairs_value(entry, "field")
-        field_text = (
-            str.__str__(field_value) if isinstance(field_value, str)
-            else _safe_str(field_value))
+        field_text = _stored_text_dress(field_value) or ""
         field_reading = " ".join(
             field_text.lower().replace(
                 "_", " ").replace("-", " ").replace("\t", " ").split())

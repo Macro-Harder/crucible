@@ -7,11 +7,36 @@ R20-067, and R20-068. Each distinguishing pin hands the
 charged act a value whose own string, repr, or hash reading
 must not be trusted, or mutates a handed outcome after the
 act, beside plain controls whose standing the cure keeps.
+
+
+Union standing (fix wave 21 merge): the fix wave 21 pin file of this same name stands composed below in its own section, its classes and helpers standing beside the landed classes above, losing neither set. The wave file docstring stands here in full:
+
+Step 15, second run, fix wave 21, Builder 2 pins.
+
+Group 2, row R21-003: crucible/mod02.py _base_dict_get and
+_base_value_eq at their dict phase, consumed at
+derivation_input_record. The matched entry stands read
+through the stored key form, with no dict getitem re-read,
+so a colliding key whose equality reading raises once
+armed never escapes bare at the re-read.
+
+Pins whose names carry control stand as the controls,
+passing on the pristine tree and on the cured tree alike.
+Every other pin stands distinguishing, failing or erroring
+on the pristine tree and passing on the cured tree.
+
+Standing note on the file name: the landed tree carries a
+file of this same name holding the fix wave 20 Builder 2
+pins. Inside this builder copy alone, this file stands in
+its place with the pins of this wave; the landed tree
+stands untouched.
 """
+
+
 import math
 import unittest
-
 import crucible.mod10 as mod10
+from crucible import mod02
 
 
 class LieStr(str):
@@ -519,6 +544,228 @@ class TestR20012HashRaisingReadings(unittest.TestCase):
         })
         state = mod10.checkpoint_state_at("run-present", 2)
         self.assertEqual(state, {"marker": "state-1"})
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# Fix wave 21 pins of this name, composed in union below this line. No landed pin above stands altered.
+
+
+class CollidingKey(str):
+    """A text key storing one text, hashing as another stated
+    text, whose equality and inequality readings raise
+    RuntimeError once the class flag stands up."""
+
+    armed = False
+    collide_with = "agent_identifier"
+
+    def __hash__(self):
+        return str.__hash__(CollidingKey.collide_with)
+
+    def __eq__(self, other):
+        if CollidingKey.armed:
+            raise RuntimeError("armed equality raises")
+        return str.__eq__(self, other)
+
+    def __ne__(self, other):
+        if CollidingKey.armed:
+            raise RuntimeError("armed inequality raises")
+        return str.__ne__(self, other)
+
+
+def colliding_mapping(collide_with, plain_key, plain_value,
+                      other_value="zzz-value"):
+    """Build a mapping carrying the colliding key first, storing
+    zzz-other, beside the plain key carrying its plain value.
+    The class flags stand disarmed on return."""
+    CollidingKey.collide_with = collide_with
+    CollidingKey.armed = False
+    mapping = {}
+    mapping[CollidingKey("zzz-other")] = other_value
+    mapping[plain_key] = plain_value
+    return mapping
+
+
+def plain_record():
+    return {
+        "derivation_version": "v1",
+        "domain": "screening",
+        "root_seed_reference": "seed-1",
+        "scenario_identifier": "scen-1",
+        "run_identifier": "run-1",
+        "stream_class_identifier": "class-1",
+        "parameter_values": {"alpha": "1"},
+    }
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        CollidingKey.armed = False
+        CollidingKey.collide_with = "agent_identifier"
+
+    def tearDown(self):
+        CollidingKey.armed = False
+        CollidingKey.collide_with = "agent_identifier"
+
+
+class TestR21003BaseDictGet(Base):
+    def test_get_plain_beside_colliding_armed(self):
+        mapping = colliding_mapping(
+            "agent_identifier", "agent_identifier", "agent-1")
+        CollidingKey.armed = True
+        try:
+            result = mod02._base_dict_get(mapping, "agent_identifier")
+        finally:
+            CollidingKey.armed = False
+        self.assertEqual(result, "agent-1")
+
+    def test_get_plain_beside_colliding_armed_default_untouched(self):
+        mapping = colliding_mapping(
+            "agent_identifier", "agent_identifier", "agent-1")
+        sentinel = object()
+        CollidingKey.armed = True
+        try:
+            result = mod02._base_dict_get(
+                mapping, "agent_identifier", sentinel)
+        finally:
+            CollidingKey.armed = False
+        self.assertEqual(result, "agent-1")
+        self.assertIsNot(result, sentinel)
+
+    def test_get_control_plain_mapping(self):
+        mapping = {"agent_identifier": "agent-1", "other": "x"}
+        self.assertEqual(
+            mod02._base_dict_get(mapping, "agent_identifier"),
+            "agent-1")
+
+    def test_get_control_missing_returns_default(self):
+        mapping = {"agent_identifier": "agent-1"}
+        self.assertIsNone(mod02._base_dict_get(mapping, "absent"))
+        sentinel = object()
+        self.assertIs(
+            mod02._base_dict_get(mapping, "absent", sentinel),
+            sentinel)
+
+    def test_get_control_colliding_unarmed(self):
+        mapping = colliding_mapping(
+            "agent_identifier", "agent_identifier", "agent-1")
+        self.assertEqual(
+            mod02._base_dict_get(mapping, "agent_identifier"),
+            "agent-1")
+
+    def test_get_control_colliding_stored_text_match(self):
+        mapping = colliding_mapping(
+            "agent_identifier", "agent_identifier", "agent-1")
+        CollidingKey.armed = True
+        try:
+            result = mod02._base_dict_get(mapping, "zzz-other")
+        finally:
+            CollidingKey.armed = False
+        self.assertEqual(result, "zzz-value")
+
+
+class TestR21003BaseValueEq(Base):
+    def test_eq_two_dicts_colliding_armed_equal(self):
+        left = colliding_mapping(
+            "agent_identifier", "agent_identifier", "agent-1")
+        right = colliding_mapping(
+            "agent_identifier", "agent_identifier", "agent-1")
+        CollidingKey.armed = True
+        try:
+            result = mod02._base_value_eq(left, right)
+        finally:
+            CollidingKey.armed = False
+        self.assertTrue(result)
+
+    def test_eq_two_dicts_colliding_armed_plain_value_differs(self):
+        left = colliding_mapping(
+            "agent_identifier", "agent_identifier", "agent-1")
+        right = colliding_mapping(
+            "agent_identifier", "agent_identifier", "agent-2")
+        CollidingKey.armed = True
+        try:
+            result = mod02._base_value_eq(left, right)
+        finally:
+            CollidingKey.armed = False
+        self.assertFalse(result)
+
+    def test_eq_nested_dicts_colliding_armed_equal(self):
+        left = {"outer": colliding_mapping(
+            "agent_identifier", "agent_identifier", "agent-1")}
+        right = {"outer": colliding_mapping(
+            "agent_identifier", "agent_identifier", "agent-1")}
+        CollidingKey.armed = True
+        try:
+            result = mod02._base_value_eq(left, right)
+        finally:
+            CollidingKey.armed = False
+        self.assertTrue(result)
+
+    def test_eq_control_plain_dicts_equal(self):
+        self.assertTrue(mod02._base_value_eq(
+            {"a": 1, "b": "x"}, {"a": 1, "b": "x"}))
+
+    def test_eq_control_plain_dicts_unequal(self):
+        self.assertFalse(mod02._base_value_eq(
+            {"a": 1, "b": "x"}, {"a": 1, "b": "y"}))
+        self.assertFalse(mod02._base_value_eq(
+            {"a": 1}, {"a": 1, "b": "x"}))
+
+    def test_eq_control_colliding_unarmed_equal(self):
+        left = colliding_mapping(
+            "agent_identifier", "agent_identifier", "agent-1")
+        right = colliding_mapping(
+            "agent_identifier", "agent_identifier", "agent-1")
+        self.assertTrue(mod02._base_value_eq(left, right))
+
+
+class TestR21003DerivationInputRecord(Base):
+    def test_record_colliding_beside_domain_armed(self):
+        CollidingKey.collide_with = "domain"
+        CollidingKey.armed = False
+        record = {}
+        record[CollidingKey("zzz-other")] = "zzz-value"
+        record.update(plain_record())
+        CollidingKey.armed = True
+        try:
+            result = mod02.derivation_input_record(record)
+        finally:
+            CollidingKey.armed = False
+        self.assertEqual(result["domain"], "screening")
+        self.assertEqual(result["derivation_version_string"], "v1")
+        self.assertEqual(result["recorded_root_seed"], "seed-1")
+        self.assertEqual(result["scenario_identifier"], "scen-1")
+        self.assertEqual(result["run_identifier"], "run-1")
+        self.assertEqual(
+            result["stream_class_identifier"], "class-1")
+        self.assertEqual(result["parameter_values"], ("alpha=1",))
+
+    def test_record_colliding_beside_parameter_values_armed(self):
+        CollidingKey.collide_with = "parameter_values"
+        CollidingKey.armed = False
+        record = {}
+        record[CollidingKey("zzz-other")] = "zzz-value"
+        record.update(plain_record())
+        CollidingKey.armed = True
+        try:
+            result = mod02.derivation_input_record(record)
+        finally:
+            CollidingKey.armed = False
+        self.assertEqual(result["parameter_values"], ("alpha=1",))
+        self.assertEqual(result["domain"], "screening")
+        self.assertEqual(result["derivation_version_string"], "v1")
+
+    def test_record_control_plain_record(self):
+        result = mod02.derivation_input_record(plain_record())
+        self.assertEqual(result["domain"], "screening")
+        self.assertEqual(result["derivation_version_string"], "v1")
+        self.assertEqual(result["recorded_root_seed"], "seed-1")
+        self.assertEqual(result["parameter_values"], ("alpha=1",))
+
+    def test_record_control_non_dict(self):
+        self.assertEqual(mod02.derivation_input_record("nope"), {})
 
 
 if __name__ == "__main__":

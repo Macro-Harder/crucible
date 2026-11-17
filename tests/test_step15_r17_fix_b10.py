@@ -139,9 +139,9 @@ class TestR16062ErrorCarriageTextBranch(unittest.TestCase):
     def test_text_subclass_bad_carriage_renders(self):
         bad = StrSubBad("hello")
         carriage = mod14.error_carriage(bad)
-        self.assertEqual(carriage["failure"], object.__repr__(bad))
+        self.assertEqual(carriage["failure"], "hello")
         self.assertIs(type(carriage["failure_value"]["message"]), str)
-        self.assertIn(object.__repr__(bad), repr(carriage))
+        self.assertIn("hello", repr(carriage))
 
     def test_control_plain_text(self):
         carriage = mod14.error_carriage("hello")
