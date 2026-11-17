@@ -137,8 +137,10 @@ def _get(record, *names, default=None):
     under any name and reads as the default."""
     if isinstance(record, dict):
         for name in names:
-            if dict.__contains__(record, name) and dict.__getitem__(record, name) is not None:
-                return dict.__getitem__(record, name)
+            for stored_key, item in dict.items(record):
+                if isinstance(stored_key, str) and str.__eq__(
+                        str.__str__(stored_key), name) and item is not None:
+                    return item
         return default
     return default
 
@@ -190,6 +192,13 @@ def _freeze(value, _memo=None):
                     else:
                         candidate = (
                             "(carried key " + str(counter) + ")")
+                    try:
+                        candidate_taken = candidate in copied
+                    except Exception:
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
                     try:
                         copied[candidate] = copied_item
                         break
@@ -751,7 +760,11 @@ def decay_result(half_life_days="stated", reported_as=None):
     face that neither decay arm tests Candidate 1 as written and
     that the aggregation comparison is unspecified for Candidate 1
     as written, per AC-8."""
-    extension = half_life_days in (1, 3)
+    extension = (
+        not isinstance(half_life_days, bool)
+        and isinstance(half_life_days, (int, float))
+        and _base_number(half_life_days) in (1, 3)
+    )
     result = {
         "half_life_days": half_life_days,
         "face_statements": list(AC8_FACE_STATEMENTS),
@@ -2484,6 +2497,20 @@ def _safe_str(value):
         return object.__repr__(value)
 
 
+def _stored_key_render(key):
+    """Render a handed dict key on the form it stores: a
+    container key through _joined_stored_text, a text or buffer
+    form key through _stored_text, and any other form through
+    _safe_str, so no key stands rendered through a string
+    reading the key itself supplies and no walk escapes bare
+    on that reading."""
+    if isinstance(key, (dict, list, tuple, set, frozenset)):
+        return _joined_stored_text(key)
+    if isinstance(key, (str, bytes, bytearray, memoryview)):
+        return _stored_text(key)
+    return _safe_str(key)
+
+
 def _panel_clean(value, _depth=0, _seen=None, _path="", _walked=None):
     if isinstance(value, (dict, list, tuple, set, frozenset)):
         walked = _walked if _walked is not None else {}
@@ -2507,9 +2534,38 @@ def _panel_clean(value, _depth=0, _seen=None, _path="", _walked=None):
                     cleaned_key = _panel_clean(
                         key, _depth + 1, seen,
                         _path + "/" + _safe_str(key), walked)
-                    cleaned[cleaned_key] = _panel_clean(
+                    cleaned_item = _panel_clean(
                         item, _depth + 1, seen,
                         _path + "/" + _safe_str(key), walked)
+                    try:
+                        cleaned[cleaned_key] = cleaned_item
+                    except Exception:
+                        counter = 2
+                        while True:
+                            if isinstance(cleaned_key, str):
+                                candidate = (
+                                    str.__str__(cleaned_key)
+                                    + " (carried key "
+                                    + str(counter) + ")")
+                            elif counter == 2:
+                                candidate = (cleaned_key, counter)
+                            else:
+                                candidate = (
+                                    "(carried key "
+                                    + str(counter) + ")")
+                            try:
+                                candidate_taken = (
+                                    candidate in cleaned)
+                            except Exception:
+                                candidate_taken = False
+                            if candidate_taken:
+                                counter += 1
+                                continue
+                            try:
+                                cleaned[candidate] = cleaned_item
+                                break
+                            except Exception:
+                                counter += 1
                 walked[walked_key] = cleaned
                 return cleaned
             if isinstance(value, list):
@@ -2530,21 +2586,23 @@ def _panel_clean(value, _depth=0, _seen=None, _path="", _walked=None):
                 )
                 walked[walked_key] = cleaned
                 return cleaned
-            if isinstance(value, frozenset):
-                cleaned = frozenset(
-                    _panel_clean(
-                        item, _depth + 1, seen,
-                        _path + "[" + str(index) + "]", walked)
-                    for index, item in enumerate(_base_iter(value))
-                )
-                walked[walked_key] = cleaned
-                return cleaned
-            cleaned = {
+            cleaned_items = [
                 _panel_clean(
                     item, _depth + 1, seen,
                     _path + "[" + str(index) + "]", walked)
                 for index, item in enumerate(_base_iter(value))
-            }
+            ]
+            if isinstance(value, frozenset):
+                try:
+                    cleaned = frozenset(cleaned_items)
+                except Exception:
+                    cleaned = cleaned_items
+                walked[walked_key] = cleaned
+                return cleaned
+            try:
+                cleaned = set(cleaned_items)
+            except Exception:
+                cleaned = cleaned_items
             walked[walked_key] = cleaned
             return cleaned
         finally:
@@ -2571,10 +2629,10 @@ def _panel_carries_barred(value, _depth=0, _seen=None, _path="",
                 ) or any(
                     _panel_key_barred(key)
                     or _panel_carries_barred(
-                        key, _depth + 1, seen, _path + "/" + str(key),
+                        key, _depth + 1, seen, _path + "/" + _stored_key_render(key),
                         walked)
                     or _panel_carries_barred(
-                        item, _depth + 1, seen, _path + "/" + str(key),
+                        item, _depth + 1, seen, _path + "/" + _stored_key_render(key),
                         walked)
                     for key, item in dict.items(value)
                 )
@@ -2669,7 +2727,7 @@ def _panel_barred_keys(value, _depth=0, _seen=None):
                 found.append(_joined_stored_text(value))
         for key, item in dict.items(value):
             if _panel_key_barred(key):
-                found.append(str(key))
+                found.append(_stored_key_render(key))
             found.extend(_panel_barred_keys(item, _depth + 1, seen))
     elif isinstance(value, (list, tuple, set, frozenset)):
         seen = _seen if _seen is not None else set()
@@ -2693,6 +2751,17 @@ def _safe_repr(value):
         return object.__repr__(value)
 
 
+def _sentence_repr(value):
+    """Render a handed value for a refusal sentence in repr form
+    on the form it stands in: a text or buffer form as the repr
+    of the text it stores through _stored_text, never through a
+    repr reading the value itself supplies, and a value in any
+    other form through _safe_repr as before."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return repr(_stored_text(value))
+    return _safe_repr(value)
+
+
 def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
                error_direction=None, outcome=None, derived_from=None):
     """A behavioural adjudication outcome at decision record level.
@@ -2704,7 +2773,8 @@ def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
         error = ValueError(message)
         error.failure_class = adjudication_input_failure_class()
         raise error
-    if derived_from in ("panel size", "band gates", "fee size"):
+    if isinstance(derived_from, str) and str.__str__(derived_from) in (
+            "panel size", "band gates", "fee size"):
         fail("the accuracy value may not be derived from panel size, band gates, or fee size")
     if accuracy_value is None or assumption_set is None or row is None or error_direction is None:
         missing = []
@@ -2725,7 +2795,7 @@ def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
     if isinstance(accuracy_value, bool) or not isinstance(accuracy_value, (int, float)):
         fail(
             "adjudicate stands refused: the accuracy value stands "
-            "in no numeric form: " + _safe_repr(accuracy_value)
+            "in no numeric form: " + _sentence_repr(accuracy_value)
             + ", an accuracy value stands as a number, and no "
             "adjudication stands returned")
     if not 0 <= accuracy_value <= 1:
@@ -2737,7 +2807,7 @@ def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
             or str.__eq__(outcome, "not slashable"))):
         fail(
             "the adjudication outcome stands outside the stated "
-            "vocabulary: " + _safe_repr(outcome)
+            "vocabulary: " + _sentence_repr(outcome)
             + "; an outcome stands among slashable and not slashable")
     try:
         formed = panel_inputs(case)

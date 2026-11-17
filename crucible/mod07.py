@@ -132,7 +132,10 @@ def _bget(mapping, key, default=None):
     through the base dict get, never through a get reading the
     mapping itself supplies."""
     if isinstance(mapping, dict):
-        return dict.get(mapping, key, default)
+        for stored_key, item in dict.items(mapping):
+            if isinstance(stored_key, str) and str.__eq__(
+                    str.__str__(stored_key), key):
+                return item
     return default
 
 
@@ -201,8 +204,11 @@ def _stored_copy(value, _memo=None):
             _stored_copy(item, _memo) for item in (
                 set.__iter__(value) if isinstance(value, set)
                 else frozenset.__iter__(value))]
-        return set(parts) if isinstance(value, set) else frozenset(
-            parts)
+        try:
+            return set(parts) if isinstance(value, set) else frozenset(
+                parts)
+        except Exception:
+            return parts
     if isinstance(value, str):
         return str.__str__(value)
     if isinstance(value, bytes):
@@ -686,6 +692,17 @@ def _safe_str(value):
         return object.__repr__(value)
 
 
+def _sentence_text(value):
+    """Render a handed value for a sentence or a delivered record
+    field on the text it stores: a text or buffer form through
+    _stored_text, never through a reading the value itself
+    supplies, and a value in any other form through _safe_str
+    as before."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return _stored_text(value)
+    return _safe_str(value)
+
+
 def make_tracer_passage_record(item, point_in_run, what_in_fact_passed,
                                result):
     """Build one TracerPassageRecord in the Form 29 field order
@@ -693,7 +710,7 @@ def make_tracer_passage_record(item, point_in_run, what_in_fact_passed,
     if not any(_stored_text_eq(result, stated)
                for stated in TRACER_RESULTS):
         raise ValueError(
-            "tracer result outside the stated set: " + _safe_str(result)
+            "tracer result outside the stated set: " + _sentence_text(result)
             + "; a tracer result stands among "
             + ", ".join(TRACER_RESULTS))
     return {
@@ -717,8 +734,8 @@ def tracer_passage_records(run_id, results=None):
         outcome = stated.get(item, "not attempted")
         records.append(make_tracer_passage_record(
             item,
-            "seam point of " + _safe_str(item) + " in run " + _safe_str(run_id),
-            "recorded value for " + _safe_str(item),
+            "seam point of " + _sentence_text(item) + " in run " + _sentence_text(run_id),
+            "recorded value for " + _sentence_text(item),
             outcome,
         ))
     return records

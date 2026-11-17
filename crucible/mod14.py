@@ -163,6 +163,13 @@ def _freeze(value, _depth=0, _memo=None):
                         candidate = (
                             "(carried key " + str(counter) + ")")
                     try:
+                        candidate_taken = candidate in copied
+                    except Exception:
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
+                    try:
                         copied[candidate] = frozen_item
                         break
                     except Exception:
@@ -331,10 +338,17 @@ def command_computes(command):
 
 def _safe_text(value):
     """Render a handed value for a refusal or carriage sentence
-    through its string reading where that reading stands, and
-    through the base object repr where the string reading the
-    value itself supplies raises, so a sentence naming the
-    handed value never escapes bare on that reading."""
+    on the text it stores, where the value stands in a text or
+    buffer form, read through _stored_text, so a string reading
+    the value itself supplies, lying or raising, never stands
+    as the name the sentence delivers. A value in any other
+    form stands rendered through its string reading where that
+    reading stands, and through the base object repr where the
+    string reading the value itself supplies raises, so a
+    sentence naming the handed value never escapes bare on
+    that reading."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return _stored_text(value)
     try:
         return str(value)
     except Exception:
@@ -649,9 +663,45 @@ def _plain_stored_copy(record):
     record, built through the base dict items reading, so an act
     this act delegates to judges the stored contents and not a
     reading the handed record supplies. A value in no mapping
-    form stands as itself."""
+    form stands as itself. A dict assignment whose key hash or
+    equality reading raises at the assignment itself, in one of
+    the seven named kinds (TypeError, RuntimeError, ValueError,
+    AttributeError, OverflowError, KeyError, OSError), stands
+    carried under a distinct numbered form in the MOD-14 cured
+    form under settlement S-1: a text key in its numbered text
+    form first, a form carrying the key itself in numbered
+    tuple form next, and a plain text numbered form where a
+    form carrying the key itself cannot stand inserted, the
+    counter rising until a form stands inserted, so no carried
+    entry is silently dropped on that reading and no bare error
+    in one of those kinds escapes the copy."""
     if isinstance(record, dict):
-        return {key: item for key, item in dict.items(record)}
+        copied = {}
+        for key, item in dict.items(record):
+            try:
+                copied[key] = item
+            except (TypeError, RuntimeError, ValueError,
+                    AttributeError, OverflowError, KeyError,
+                    OSError):
+                counter = 2
+                while True:
+                    if isinstance(key, str):
+                        candidate = (
+                            str.__str__(key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = item
+                        break
+                    except (TypeError, RuntimeError, ValueError,
+                            AttributeError, OverflowError, KeyError,
+                            OSError):
+                        counter += 1
+        return copied
     return record
 
 
@@ -987,13 +1037,19 @@ def dual_rule_retention_simulation(families):
     the base iteration reading of its form, never through an
     iteration reading the argument itself supplies, so a stored
     family the supplied reading does not yield still reaches
-    the synthetic test."""
+    the synthetic test. The synthetic mark and the two retained
+    marks stand judged through the stored truth form of this
+    module at _stored_truth_stands, never through a truth
+    reading a handed mark itself supplies, so a mark stands as
+    the standing its stored form carries and a raising truth
+    reading escapes nowhere bare."""
     if isinstance(families, (list, tuple, set, frozenset)):
         families = _container_parts(families)
     else:
         families = list(families or ())
     for family in families:
-        if not isinstance(family, dict) or not dict.get(family, "synthetic"):
+        if not isinstance(family, dict) or not _stored_truth_stands(
+                dict.get(family, "synthetic")):
             raise NamedShellFailure(
                 "dual rule simulation stands on synthetic families only")
     return {
@@ -1002,10 +1058,12 @@ def dual_rule_retention_simulation(families):
         "paired_field": {
             "first_rule_retained": sum(
                 1 for family in families
-                if dict.get(family, "retained_under_first_rule")),
+                if _stored_truth_stands(
+                    dict.get(family, "retained_under_first_rule"))),
             "second_rule_retained": sum(
                 1 for family in families
-                if dict.get(family, "retained_under_second_rule")),
+                if _stored_truth_stands(
+                    dict.get(family, "retained_under_second_rule"))),
         },
     }
 
@@ -1563,6 +1621,33 @@ def _stored_identifier_form(value, _depth=0, _seen=None):
     return ("kind", type(value).__name__)
 
 
+def _identifier_refusal_text(value):
+    """Name a handed identifier standing in no unit identifier
+    form on the form it stands in, never through a repr or
+    string reading the value itself supplies: a text or buffer
+    form by the repr of the text it stores, a boolean by its
+    base text form, a plain number by the number it stores
+    through its base class reading, a Decimal or a Fraction by
+    its base class repr, no value as None, and a part in any
+    other form by its kind name alone, in the posture of
+    _stored_identifier_form for a part in no stated form."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return repr(_stored_text(value))
+    if isinstance(value, bool):
+        return bool.__str__(value)
+    if isinstance(value, int):
+        return int.__str__(value)
+    if isinstance(value, float):
+        return repr(float.__float__(value))
+    if isinstance(value, Decimal):
+        return Decimal.__repr__(value)
+    if isinstance(value, Fraction):
+        return Fraction.__repr__(value)
+    if value is None:
+        return "None"
+    return type(value).__name__
+
+
 def weekly_headline_count(summary_records, week):
     """The weekly headline count program check, counted from the
     stored summary records alone as distinct headline unit
@@ -1587,7 +1672,10 @@ def weekly_headline_count(summary_records, week):
     so two distinct container identifiers sharing one
     supplied repr stand counted as the two units they are,
     and two container identifiers storing the same contents
-    stand counted as one."""
+    stand counted as one. An identifier standing in no unit
+    identifier form stands named in its refusal on the form
+    it stands in, through _identifier_refusal_text, never
+    through a repr reading the identifier itself supplies."""
     if summary_records is None:
         raise NamedShellFailure(
             "weekly_headline_count stands refused: no "
@@ -1650,7 +1738,8 @@ def weekly_headline_count(summary_records, week):
                     "summary record for the week carries an "
                     "identifier standing in no unit identifier "
                     "form, and no count stands stated over "
-                    "unvalidated contents: " + _safe_repr(unit_id))
+                    "unvalidated contents: "
+                    + _identifier_refusal_text(unit_id))
             if key not in seen:
                 seen.append(key)
     return len(seen)

@@ -180,6 +180,71 @@ def _stored_texts_equal(first, second):
     return result if result is not NotImplemented else False
 
 
+def _sentence_text(value):
+    """Render a handed value for a refusal sentence on the
+    text it stores, where the value stands in a text or
+    buffer form, so a string reading the value itself
+    supplies, lying or raising, never stands as the name
+    the sentence delivers. A value in any other form
+    stands rendered through _safe_str, as before."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return _stored_text(value)
+    return _safe_str(value)
+
+
+def _plain_number_value(value):
+    """The plain number a handed value stands as, where the
+    value stands in the plain number limb, an int or a float
+    with a boolean standing apart from every number, read
+    through its base class reading, so a number subclass
+    stands judged on the number it stores and never through
+    an equality or conversion reading it supplies. A value
+    in any other form, a Decimal or a Fraction included,
+    reads as None, outside the plain number limb."""
+    if isinstance(value, bool) \
+            or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, int):
+        return int.__int__(value)
+    return float.__float__(value)
+
+
+def _points_equal(first, second):
+    """Whether two handed points stand equal, judged kind
+    first under settlement S-16: a boolean only against a
+    boolean, a text form point on the text it stores, a
+    plain number point on the plain number it stores, and
+    a point in any other form as itself alone, by identity,
+    so no equality reading a point itself supplies is ever
+    consulted and no such reading can raise out of the
+    judgement."""
+    if isinstance(first, bool) or isinstance(second, bool):
+        return first is second
+    if isinstance(first, (str, bytes, bytearray, memoryview)) \
+            or isinstance(second, (str, bytes, bytearray, memoryview)):
+        return _stored_texts_equal(first, second)
+    first_number = _plain_number_value(first)
+    second_number = _plain_number_value(second)
+    if first_number is not None or second_number is not None:
+        if first_number is None or second_number is None:
+            return False
+        result = first_number == second_number
+        return result is True
+    return first is second
+
+
+def _whole_number_value(value):
+    """The whole number a handed value stands as, where the
+    value stands in whole number form, an int with a boolean
+    standing apart from every number, read through its base
+    class reading, so an int subclass stands judged on the
+    number it stores and never through a conversion reading
+    it supplies. A value in any other form reads as None."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return int.__int__(value)
+
+
 class FixtureLookupFailure(KeyError):
     """A named failure for a fixture that does not resolve in the
     inventory. The failure value stands on the exception in the
@@ -200,7 +265,7 @@ class FixtureLookupFailure(KeyError):
             "complete": False,
         }
         super().__init__(
-            "fixture lookup failure: " + _safe_str(fixture_id))
+            "fixture lookup failure: " + _sentence_text(fixture_id))
 
 
 def fixture_record(fixture_id):
@@ -310,7 +375,8 @@ def validate_fixture_record(record):
         if not dict.__contains__(record, key):
             return False
     if dict.get(record, "ran"):
-        if dict.get(record, "value_source") not in ("brief", "brief or evidence register", "evidence register"):
+        stored_source = _stored_text(dict.get(record, "value_source"))
+        if stored_source not in ("brief", "brief or evidence register", "evidence register"):
             return False
     return True
 
@@ -390,7 +456,7 @@ def exercise_run_class(run_class, material="validation"):
     in the companion exercise below."""
     stored_class = _stored_text(run_class)
     if stored_class is None or stored_class not in RUN_CLASSES:
-        raise ValueError("unknown run class: " + _safe_str(run_class))
+        raise ValueError("unknown run class: " + _sentence_text(run_class))
     if stored_class in ("confirmation", "headline"):
         return {
             "run_class": run_class,
@@ -541,11 +607,11 @@ def validate_confirmation_result(run_record):
         return False
     if not dict.__contains__(run_record, "run_class"):
         return False
-    if dict.get(run_record, "run_class") != "confirmation":
+    if not _stored_texts_equal(dict.get(run_record, "run_class"), "confirmation"):
         return True
-    if dict.get(run_record, "seed_domain") == "screening":
+    if _stored_texts_equal(dict.get(run_record, "seed_domain"), "screening"):
         return False
-    if dict.get(run_record, "domain") == "screening":
+    if _stored_texts_equal(dict.get(run_record, "domain"), "screening"):
         return False
     return True
 
@@ -561,7 +627,7 @@ def validate_headline_claim(result):
     if not dict.__contains__(result, "headline_claim"):
         return False
     if dict.get(result, "headline_claim"):
-        if dict.get(result, "material") == "validation":
+        if _stored_texts_equal(dict.get(result, "material"), "validation"):
             return False
         if dict.get(result, "validation_material"):
             return False
@@ -595,7 +661,11 @@ def validate_folding_discharge(record):
     cases = dict.get(record, "seam_cases_per_ruling") or {}
     if not isinstance(cases, dict):
         return False
-    return all(int(count) >= 1 for count in dict.values(cases)) and dict.__len__(cases) > 0
+    for count in dict.values(cases):
+        whole_count = _whole_number_value(count)
+        if whole_count is None or whole_count < 1:
+            return False
+    return dict.__len__(cases) > 0
 
 
 def sham_control_standing():
@@ -623,7 +693,10 @@ def horizon_application(point, selected_points):
     """Return True only where a longer horizon pick applies at a
     selected witness or decay point. No horizon value stands
     settled for any other point by a pick."""
-    return point in (selected_points or ())
+    for selected in (selected_points or ()):
+        if _points_equal(point, selected):
+            return True
+    return False
 
 
 def horizon_run_cost(days, base_days):

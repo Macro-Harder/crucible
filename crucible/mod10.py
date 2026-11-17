@@ -97,6 +97,62 @@ def _vocabulary_text(value):
         return _stored_text(value)
     return _safe_str(value)
 
+
+def _stored_repr(value, _depth=0):
+    """Render a handed value for a refusal sentence on the form
+    it stands in, built from base readings only, never through
+    a repr or string reading the value itself supplies: a text
+    value stands in repr dress on the text it stores, a buffer
+    value stands in repr dress on the bytes it stores, a number
+    stands on the plain number it stores, a container stands on
+    the stored reprs of its parts, and any other value stands
+    as its base object repr. A container standing past a depth
+    of 100 stands as its base object repr, in the posture the
+    render safe copy of the sister modules states."""
+    if _depth > 100:
+        return object.__repr__(value)
+    if value is None:
+        return "None"
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    if isinstance(value, str):
+        return repr(str.__str__(value))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return repr(bytes(value))
+    if isinstance(value, int):
+        return repr(int.__int__(value))
+    if isinstance(value, float):
+        return repr(float.__float__(value))
+    plain = _plain_number(value)
+    if plain is not None:
+        return repr(plain)
+    if isinstance(value, list):
+        return "[" + ", ".join(
+            _stored_repr(item, _depth + 1)
+            for item in list.__iter__(value)) + "]"
+    if isinstance(value, tuple):
+        parts = [
+            _stored_repr(item, _depth + 1)
+            for item in tuple.__iter__(value)]
+        if len(parts) == 1:
+            return "(" + parts[0] + ",)"
+        return "(" + ", ".join(parts) + ")"
+    if isinstance(value, (set, frozenset)):
+        parts = [
+            _stored_repr(item, _depth + 1)
+            for item in _base_iter(value)]
+        if not parts:
+            return (
+                "frozenset()" if isinstance(value, frozenset)
+                else "set()")
+        return "{" + ", ".join(parts) + "}"
+    if isinstance(value, dict):
+        return "{" + ", ".join(
+            _stored_repr(key, _depth + 1) + ": " + _stored_repr(
+                dict.__getitem__(value, key), _depth + 1)
+            for key in dict.__iter__(value)) + "}"
+    return object.__repr__(value)
+
 FORM_ONLY = "form_only"
 
 
@@ -116,11 +172,11 @@ class LookupFailure(KeyError):
         }
         if record_kind is not None:
             self.failure["record_kind"] = record_kind
-        text = ONE_LOOKUP_FAILURE_NAME + ": " + _safe_str(run_id)
+        text = ONE_LOOKUP_FAILURE_NAME + ": " + _vocabulary_text(run_id)
         if record_kind is not None:
             text = (
-                ONE_LOOKUP_FAILURE_NAME + ": " + _safe_str(run_id)
-                + " for record kind " + _safe_str(record_kind))
+                ONE_LOOKUP_FAILURE_NAME + ": " + _vocabulary_text(run_id)
+                + " for record kind " + _vocabulary_text(record_kind))
         super().__init__(text)
 
 
@@ -2007,15 +2063,23 @@ def _safe_copy(value, _memo=None, _depth=0):
     if isinstance(value, (set, frozenset)):
         if id(value) in _memo:
             return _memo[id(value)]
+        copied_items = [
+            _safe_copy(item, _memo, _depth + 1)
+            for item in _base_iter(value)]
         if isinstance(value, set):
             copied = set()
             _memo[id(value)] = copied
-            for item in _base_iter(value):
-                copied.add(_safe_copy(item, _memo, _depth + 1))
+            try:
+                for copied_item in copied_items:
+                    copied.add(copied_item)
+            except Exception:
+                _memo[id(value)] = copied_items
+                return copied_items
             return copied
-        copied = frozenset(
-            _safe_copy(item, _memo, _depth + 1)
-            for item in _base_iter(value))
+        try:
+            copied = frozenset(copied_items)
+        except Exception:
+            copied = copied_items
         if id(value) in _memo:
             return _memo[id(value)]
         _memo[id(value)] = copied
@@ -2221,7 +2285,7 @@ class RecorderStore:
         if not (isinstance(store_kind, str) and any(
                 str.__eq__(store_kind, kind) for kind in STORE_KINDS)):
             raise ValueError(
-                "unknown store kind: " + _safe_str(store_kind)
+                "unknown store kind: " + _vocabulary_text(store_kind)
                 + "; a store kind stands among sweep, pilot, and "
                 "live, and no store stands created")
         self.store_kind = store_kind
@@ -2430,13 +2494,13 @@ def _canonical_store_kind(store_kind):
     supplies."""
     if not _store_kind_stands(store_kind):
         raise ValueError(
-            "unknown store kind: " + _safe_str(store_kind)
+            "unknown store kind: " + _vocabulary_text(store_kind)
             + "; a store kind stands among sweep, pilot, and live")
     for kind in STORE_KINDS:
         if str.__eq__(store_kind, kind):
             return kind
     raise ValueError(
-        "unknown store kind: " + _safe_str(store_kind)
+        "unknown store kind: " + _vocabulary_text(store_kind)
         + "; a store kind stands among sweep, pilot, and live")
 
 
@@ -2570,7 +2634,7 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
                     if _numeric_component(component):
                         continue
                     where = (
-                        " for viewer " + _safe_str(dict.get(delivery, "viewer_id"))
+                        " for viewer " + _vocabulary_text(dict.get(delivery, "viewer_id"))
                         + " at day " + _safe_str(dict.get(delivery, "simulated_day")))
                     if isinstance(component, (int, float)) and not isinstance(
                             component, bool):
@@ -2578,13 +2642,13 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
                             "daily aggregate delivery in named form: "
                             "the " + field + " of the delivery" + where
                             + " stand in a non finite numeric form "
-                            "(component " + _safe_repr(component)
+                            "(component " + _stored_repr(component)
                             + "), and that delivery stands not retained")
                     raise ValueError(
                         "daily aggregate delivery in named form: the "
                         + field + " of the delivery" + where
                         + " stand in a non numeric form (component "
-                        + _safe_repr(component)
+                        + _stored_repr(component)
                         + "), and that delivery stands not retained")
     stored = _AGGREGATE_DELIVERIES.setdefault(run_id, {})
     for delivery in stored_deliveries:
@@ -2685,7 +2749,10 @@ def _day_sort_key(item):
 
 
 def _aggregates_from_deliveries(run_id):
-    stored = _AGGREGATE_DELIVERIES.get(run_id)
+    try:
+        stored = _AGGREGATE_DELIVERIES.get(run_id)
+    except Exception:
+        stored = None
     if not stored:
         return None
     records = []
@@ -2994,9 +3061,13 @@ def _gate_epoch_key(epoch):
 
 
 def _gate_shares_copy(run_id):
+    try:
+        stored = _GATE_SHARES.get(run_id, {})
+    except Exception:
+        stored = {}
     return {
         _safe_copy(key): _safe_copy(value)
-        for key, value in _GATE_SHARES.get(run_id, {}).items()}
+        for key, value in stored.items()}
 
 
 def record_gate_passing_share(run_id, epoch, share, simulated_day=None):
@@ -3264,7 +3335,7 @@ def retain_checkpoint(manifest, store_kind="sweep"):
         named_day = judged_form[1] if judged_form[0] == "int" else judged_day
         raise ValueError(
             "second checkpoint for the same run and day is rejected: "
-            + _safe_str(run_id) + " day " + _safe_str(named_day))
+            + _vocabulary_text(run_id) + " day " + _safe_str(named_day))
     if len(bucket) >= 10000:
         raise ValueError("checkpoint cap in named form: a run stands at the ruled cap of 10,000 checkpoints per run under ruling Entry 18, and no further checkpoint stands retained")
     stored = _safe_copy(manifest)
@@ -3305,8 +3376,11 @@ def checkpoint_state_at(run_id, simulated_day, store_kind="sweep"):
     integer day it happens to equal in number."""
     if _store_kind_stands(store_kind):
         store_kind = _canonical_store_kind(store_kind)
-    state = _CHECKPOINT_STATES.get(
-        (store_kind, run_id, _day_match_form(simulated_day)))
+    try:
+        state = _CHECKPOINT_STATES.get(
+            (store_kind, run_id, _day_match_form(simulated_day)))
+    except Exception:
+        state = None
     if state is None:
         return None
     return _safe_copy(state)
@@ -3443,7 +3517,7 @@ def checkpoint_position_check(manifest, store_kind="sweep"):
         else:
             wording = (
                 "the journal position stands in no integer form: "
-                + _safe_repr(position))
+                + _stored_repr(position))
         return {
             "check": "checkpoint position check",
             "outcome": (
@@ -4993,7 +5067,7 @@ def apply_deferred_evaluation(summary_record, firing, inputs=None,
     evaluations.append({
         "firing": firing_number,
         "inputs": _safe_copy(inputs),
-        "outcome": outcome,
+        "outcome": _safe_copy(outcome),
         "conditions": [1, 2] if firing_number == 1 else [1, 2, 3],
         "written_into": "summary record",
     })

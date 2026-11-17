@@ -226,6 +226,30 @@ def _safe_str(value):
         return object.__repr__(value)
 
 
+def _sentence_text(value):
+    """Render a handed value for a refusal sentence on the
+    text it stores, where the value stands in a text or
+    buffer form, through the module stored text reading at
+    _stored_text, so a string reading the value itself
+    supplies, lying or raising, never stands as the name
+    the sentence delivers. A value in any other form
+    stands rendered through _safe_str, as before."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return _stored_text(value)
+    return _safe_str(value)
+
+
+def _path_key_text(key):
+    """The text a walk path names a dict key by: the stored text
+    of a text or buffer form key, read through _stored_text, and
+    any other form through _safe_str, so a key whose string
+    reading raises or lies never directs the path building and
+    no walk escapes bare on that reading."""
+    if isinstance(key, (str, bytes, bytearray, memoryview)):
+        return _stored_text(key)
+    return _safe_str(key)
+
+
 def _canonical_text(key, letter_map=None):
     mapping = _HOMOGLYPH_MAP if letter_map is None else letter_map
     chars = []
@@ -1619,9 +1643,13 @@ def _guarded_copy(value, _memo=None):
     if isinstance(value, frozenset):
         if id(value) in _memo:
             return _memo[id(value)]
-        copied = frozenset(
+        copied_items = [
             _guarded_copy(item, _memo)
-            for item in frozenset.__iter__(value))
+            for item in frozenset.__iter__(value)]
+        try:
+            copied = frozenset(copied_items)
+        except Exception:
+            copied = copied_items
         if id(value) in _memo:
             return _memo[id(value)]
         _memo[id(value)] = copied
@@ -1631,8 +1659,15 @@ def _guarded_copy(value, _memo=None):
             return _memo[id(value)]
         copied = set()
         _memo[id(value)] = copied
-        for item in set.__iter__(value):
-            copied.add(_guarded_copy(item, _memo))
+        copied_items = [
+            _guarded_copy(item, _memo)
+            for item in set.__iter__(value)]
+        try:
+            for copied_item in copied_items:
+                copied.add(copied_item)
+        except Exception:
+            _memo[id(value)] = copied_items
+            return copied_items
         return copied
     if isinstance(value, bytearray):
         if id(value) in _memo:
@@ -1962,7 +1997,7 @@ def build_cast(point, archetype_records, stream_state=None,
                 mix_count, int) or mix_count < 0:
             raise NamedGeneratorFailure(
                 "cast rejected: the mix count for "
-                + _safe_str(mix_identifier) + " is not a non negative "
+                + _sentence_text(mix_identifier) + " is not a non negative "
                 "whole count: " + _refusal_repr(mix_count))
     if sum(count for _identifier, count in mix_items) != population:
         raise NamedGeneratorFailure(
@@ -1976,7 +2011,7 @@ def build_cast(point, archetype_records, stream_state=None,
         if identifier not in by_id:
             raise NamedGeneratorFailure(
                 "cast rejected: archetype in the mix stands outside "
-                "the records supplied: " + _safe_str(identifier))
+                "the records supplied: " + _sentence_text(identifier))
     agent_ids = ["agent-%04d" % index for index in range(population)]
     order = list(agent_ids)
     cast_values = _stream_values(stream_state, "cast")
@@ -2476,7 +2511,7 @@ def _value_carries_rule_state(value, _depth=0, _seen=None, _path=""):
                         break
                     if _value_carries_rule_state(
                             item, _depth + 1, state,
-                            _path + "/" + str(key)):
+                            _path + "/" + _path_key_text(key)):
                         result = True
                         break
             else:
@@ -2568,7 +2603,7 @@ def _value_carries_ground_truth(value, _depth=0, _seen=None, _path=""):
                         break
                     if _value_carries_ground_truth(
                             item, _depth + 1, state,
-                            _path + "/" + str(key)):
+                            _path + "/" + _path_key_text(key)):
                         result = True
                         break
             else:
@@ -2642,7 +2677,7 @@ def _strip_ground_truth_value(value, _depth=0, _seen=None, _path=""):
                         new_key = key
                     stripped[new_key] = _strip_ground_truth_value(
                         item, _depth + 1, state,
-                        _path + "/" + str(key))
+                        _path + "/" + _path_key_text(key))
                 result = stripped
             elif isinstance(value, list):
                 result = [

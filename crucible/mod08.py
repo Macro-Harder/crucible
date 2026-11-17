@@ -1821,15 +1821,27 @@ def _undirected_copy(value, _memo=None, _depth=0):
             return _memo[id(value)]
         base_iter = set.__iter__ if isinstance(value, set) \
             else frozenset.__iter__
+        copied_items = [
+            _undirected_copy(item, _memo, _depth + 1)
+            for item in base_iter(value)]
         if isinstance(value, set):
             copied = set()
             _memo[id(value)] = copied
-            for item in base_iter(value):
-                copied.add(_undirected_copy(item, _memo, _depth + 1))
+            try:
+                for copied_item in copied_items:
+                    copied.add(copied_item)
+            except (TypeError, RuntimeError, ValueError,
+                    AttributeError, OverflowError, KeyError,
+                    OSError):
+                _memo[id(value)] = copied_items
+                return copied_items
             return copied
-        copied = frozenset(
-            _undirected_copy(item, _memo, _depth + 1)
-            for item in base_iter(value))
+        try:
+            copied = frozenset(copied_items)
+        except (TypeError, RuntimeError, ValueError,
+                AttributeError, OverflowError, KeyError,
+                OSError):
+            copied = copied_items
         if id(value) in _memo:
             return _memo[id(value)]
         _memo[id(value)] = copied
@@ -1888,6 +1900,32 @@ def _sentence_text(value):
     return _safe_str(value)
 
 
+def _sentence_repr(value):
+    """Render a handed value for a refusal sentence in repr
+    form on the text it stores, where the value stands in a
+    text or buffer form, so a repr reading the value itself
+    supplies, lying or raising, never stands as the name the
+    sentence delivers. A value in any other form stands
+    rendered through _safe_repr, as before."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return repr(_stored_text(value))
+    return _safe_repr(value)
+
+
+def _stored_name_member(value, names):
+    """Whether a handed value stands as one of the named
+    values, judged on the text it stores, in the form
+    _stored_text states, under settlement S-16, never through
+    an equality or hash reading the handed value itself
+    supplies, so a lying dress stands judged on its stored
+    text, a raising reading escapes nowhere, and a value in
+    bytes or buffer dress stands judged on the text it
+    stores."""
+    text = _stored_text(value)
+    return any(
+        str.__eq__(text, name) is True for name in names)
+
+
 def accept_detection_input(record):
     """Accept one DetectionInput record and return a normalised copy.
 
@@ -1928,7 +1966,8 @@ def accept_detection_input(record):
     if not identifier:
         raise NamedDetectionFailure(
             "delivery rejected: the agent identifier stands empty, "
-            "no identifier stands stated in it: " + _safe_repr(identifier_raw)
+            "no identifier stands stated in it: "
+            + _sentence_repr(identifier_raw)
         )
     day_raw = dict.get(values, "day")
     if isinstance(day_raw, bool) or not isinstance(day_raw, int):
@@ -2090,7 +2129,7 @@ def score_day(records, society_state=None, mode="conformance",
             "delivery rejected: the records for one day stand in "
             "no record list form"
         )
-    if mode not in USES:
+    if not _stored_name_member(mode, USES):
         raise NamedDetectionFailure(
             "scoring mode stands unnamed: " + _sentence_text(mode)
         )
@@ -2101,9 +2140,9 @@ def score_day(records, society_state=None, mode="conformance",
     else:
         named_uses = []
     for use in named_uses:
-        if use not in USES:
+        if not _stored_name_member(use, USES):
             raise NamedDetectionFailure(
-                "scoring use stands unnamed: " + _safe_str(use)
+                "scoring use stands unnamed: " + _sentence_text(use)
             )
     before = _undirected_copy(society_state)
     accepted = [accept_detection_input(record)
@@ -2498,7 +2537,8 @@ def score_profiles(profile_set=None):
                 streams, (int, float)):
             raise NamedDetectionFailure(
                 "profile set rejected: the streams per profile "
-                "value stands in no number form: " + _safe_repr(streams)
+                "value stands in no number form: "
+                + _sentence_repr(streams)
             )
         if isinstance(streams, int):
             streams = int.__int__(streams)
@@ -2541,18 +2581,19 @@ def conformance_statement(table_identifier="LR-1",
     carries one, per AC-12. Formula and table stand as conformance
     material only in this surface.
     """
-    if table_identifier not in LR_TABLES and table_identifier != (
-            "threshold formula table"):
+    if not _stored_name_member(
+            table_identifier,
+            LR_TABLES + ("threshold formula table",)):
         raise NamedDetectionFailure(
             "conformance statement names no recorded table: "
             + _sentence_text(table_identifier)
         )
-    if threshold_set not in THRESHOLD_SETS:
+    if not _stored_name_member(threshold_set, tuple(THRESHOLD_SETS)):
         raise NamedDetectionFailure(
             "conformance statement names no recorded threshold set: "
-            + _safe_str(threshold_set)
+            + _sentence_text(threshold_set)
         )
-    entry = THRESHOLD_SETS[threshold_set]
+    entry = THRESHOLD_SETS[_stored_text(threshold_set)]
     value = table_value
     if value is None:
         value = entry["values"][0]
@@ -2595,7 +2636,7 @@ def validate_use_naming(artefact, run_record_uses=None):
     else:
         named = []
     for use in named:
-        if use not in USES:
+        if not _stored_name_member(use, USES):
             raise SilentUseMovement(
                 "use naming check: a use stands unnamed: " + _sentence_text(use)
             )
@@ -2606,7 +2647,8 @@ def validate_use_naming(artefact, run_record_uses=None):
         )
     if run_record_uses is not None:
         recorded = list(_base_iter(run_record_uses))
-        if sorted(recorded) != sorted(named):
+        if sorted(_stored_text(use) for use in recorded) != sorted(
+                _stored_text(use) for use in named):
             raise SilentUseMovement(
                 "use naming check: the artefact names "
                 + (", ".join(_sentence_text(use) for use in named)
@@ -2949,7 +2991,7 @@ def author_sealed_class(sealed_set, kind, identifier,
                 "sleeper class", "honest challenge variant"))):
         raise NamedDetectionFailure(
             "sealed set rejected: authored kind stands unnamed: "
-            + _safe_str(kind)
+            + _sentence_text(kind)
         )
     if isinstance(separations, (list, tuple, set, frozenset)):
         named = tuple(_base_iter(separations))

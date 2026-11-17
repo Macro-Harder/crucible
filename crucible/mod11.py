@@ -96,6 +96,107 @@ def _safe_str(value):
         return object.__repr__(value)
 
 
+def _stored_str(value):
+    """Render a handed value for a sentence on the text it
+    stores, where the value carries a stored text under the
+    module stored text form, and through the module safe
+    string form where it carries none, so the sentence names
+    the value the act judged and never a reading the value
+    itself supplies."""
+    stored = _registry_stored_text(value)
+    if stored is not None:
+        return stored
+    return _safe_str(value)
+
+
+def _form_repr(value, _depth=0, _seen=None):
+    """Return a content derived representation of a handed
+    value, built from the form it stands in through the base
+    readings of its kind, never through a repr reading the
+    value itself supplies, in the posture of the MOD-09
+    catalogue representation: a text part by the plain repr
+    of the text it stores, a buffer part by the plain repr
+    of the bytes it stores, a plain scalar part by the plain
+    repr of the scalar it stores, and a container part by
+    the representations of its stored parts, sets and
+    frozensets by the sorted representations of their parts
+    under their kind name, so the representation stands the
+    same at every hash seed. A part in any other form stands
+    represented by its kind name and the stored contents of
+    its own stored mapping where it carries one, and by its
+    kind name alone where it does not. The walk stands
+    bounded at a depth of 100 and guarded against cycles: a
+    part standing past that depth, or standing again on its
+    own walk path, stands represented by its kind name
+    alone."""
+    if _depth > 100:
+        return type(value).__name__
+    if isinstance(value, str):
+        return repr(str.__str__(value))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return repr(bytes(value))
+    if isinstance(value, bool):
+        return repr(value)
+    if isinstance(value, int):
+        return repr(int.__int__(value))
+    if isinstance(value, float):
+        return repr(float.__float__(value))
+    if isinstance(value, complex):
+        return repr(complex.__complex__(value))
+    if isinstance(value, Decimal):
+        return repr(Decimal(Decimal.__str__(value)))
+    if isinstance(value, Fraction):
+        return repr(Fraction(Fraction.__str__(value)))
+    if value is None:
+        return "None"
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        if _seen is not None and id(value) in _seen:
+            return type(value).__name__
+        seen = (_seen or frozenset()) | {id(value)}
+        if isinstance(value, dict):
+            parts = [
+                _form_repr(key, _depth + 1, seen) + ": "
+                + _form_repr(item, _depth + 1, seen)
+                for key, item in dict.items(value)]
+            return "{%s}" % ", ".join(parts)
+        if isinstance(value, list):
+            return "[%s]" % ", ".join(
+                _form_repr(part, _depth + 1, seen)
+                for part in list.__iter__(value))
+        if isinstance(value, tuple):
+            parts = [
+                _form_repr(part, _depth + 1, seen)
+                for part in tuple.__iter__(value)]
+            return "(%s%s)" % (
+                ", ".join(parts), "," if len(parts) == 1 else "")
+        base_iter = set.__iter__ if isinstance(
+            value, set) else frozenset.__iter__
+        parts = sorted(
+            _form_repr(part, _depth + 1, seen)
+            for part in base_iter(value))
+        return "%s({%s})" % (type(value).__name__,
+                             ", ".join(parts))
+    try:
+        stored = vars(value)
+    except TypeError:
+        stored = None
+    if isinstance(stored, dict):
+        if _seen is not None and id(value) in _seen:
+            return type(value).__name__
+        seen = (_seen or frozenset()) | {id(value)}
+        rendered = [
+            (str.__str__(key) if isinstance(key, str)
+             else _form_repr(key, _depth + 1, seen),
+             _form_repr(item, _depth + 1, seen))
+            for key, item in dict.items(stored)]
+        parts = [
+            "%s=%s" % pair
+            for pair in sorted(rendered, key=lambda pair: pair[0])]
+        return "%s(%s)" % (type(value).__name__,
+                           ", ".join(parts))
+    return type(value).__name__
+
+
 def retirement_verdicts(fixture):
     """Return the per check verdicts of the retirement test for a
     fixture, over all fifteen checks T-01 to T-15 in the version of
@@ -106,7 +207,7 @@ def retirement_verdicts(fixture):
             or _verdict_text_stands(fixture, "EX-01"):
         return dict(_EX01_VERDICTS)
     raise ValueError(
-        "no retirement verdict stands recorded for: " + _safe_str(fixture)
+        "no retirement verdict stands recorded for: " + _stored_str(fixture)
         + "; a fixture stands among F-01, F-02, and EX-01, and no "
         "verdicts and no tally stand returned")
 
@@ -590,7 +691,7 @@ def make_headline_unit(values):
         raise ValueError(
             "make_headline_unit stands refused: fields beyond the "
             "closed unit: "
-            + ", ".join(_safe_str(key) for key in extra)
+            + ", ".join(_stored_str(key) for key in extra)
             + ", and no unit stands built")
     unit = {}
     for field in HEADLINE_UNIT_FIELDS:
@@ -2378,7 +2479,7 @@ def _headline_unit_refusal(unit):
     if extra:
         return (
             "quote_headline_unit stands refused: fields beyond the closed "
-            "unit: " + ", ".join(_safe_str(key) for key in extra)
+            "unit: " + ", ".join(_stored_str(key) for key in extra)
             + ", and no unit stands quoted")
     for field in HEADLINE_UNIT_FIELDS:
         if field not in keys or dict.get(unit, field) is None:
@@ -2467,8 +2568,12 @@ def quote_headline_unit(unit):
 
 
 def first_sentence(text):
-    """Return the first sentence of a claim text."""
-    return _safe_str(text).split(".", 1)[0]
+    """Return the first sentence of a claim text, read on the
+    text the claim stores where it carries a stored text, and
+    through the module safe string form where it carries
+    none, never through a string reading the claim itself
+    supplies."""
+    return _stored_str(text).split(".", 1)[0]
 
 
 def validate_working_range_claim(text, assumption_set, rows, range_kind):
@@ -2540,7 +2645,9 @@ def validate_bounding_headline(headline, family_record, run_record):
     for trace in traces:
         if not isinstance(trace, dict) or not dict.__contains__(trace, "moved"):
             return False
-    needs_witness = dict.get(headline, "rests_on_axis") == "external work issuance"
+    needs_witness = _registry_text_equals(
+        dict.get(headline, "rests_on_axis"),
+        "external work issuance")
     edge_count = dict.get(run_record, "farm_internal_edge_count") if isinstance(run_record, dict) else None
     bound = dict.get(family_record, "near_zero_bound") if isinstance(family_record, dict) else None
     if edge_count is not None and bound is not None:
@@ -2569,7 +2676,9 @@ def validate_envelope_claim(claim):
                 dict.get(claim, "witness_block")):
             return False
         return True
-    if dict.get(claim, "scope") != "sampled points and stated ranges only":
+    if not _registry_text_equals(
+            dict.get(claim, "scope"),
+            "sampled points and stated ranges only"):
         return False
     if dict.get(claim, "claims_between_points"):
         return False
@@ -2822,7 +2931,7 @@ def _grid_pair(location, act):
         raise ValueError(
             act + " stands refused: a location must stand as a pair of "
             "grid numbers, and the handed location "
-            + _safe_repr(location) + " stands in no such form") from None
+            + _form_repr(location) + " stands in no such form") from None
 
 
 def region_shift_steps(location_a, location_b):
@@ -2888,8 +2997,16 @@ def validate_transition_report(report):
             return False
         if counts_len != 3:
             return False
+        if isinstance(counts, dict):
+            count_entries = list(dict.values(counts))
+        else:
+            count_entries = list(_base_iter(counts))
+        for count_entry in count_entries:
+            if _whole_number_count(count_entry) is None:
+                return False
         rate = dict.get(report, "honest_loss_rate") or {}
-        if not isinstance(rate, dict) or dict.get(rate, "form") != "H1":
+        if not isinstance(rate, dict) or not _registry_text_equals(
+                dict.get(rate, "form"), "H1"):
             return False
         points = dict.get(report, "points") or []
         if isinstance(points, (list, tuple, set, frozenset)):
@@ -2927,7 +3044,9 @@ def validate_transition_unit(unit):
         return False
     if not dict.__contains__(figure, "right_censored"):
         return False
-    if dict.get(unit, "incidence_label") != "derived from the replicate counts in this unit":
+    if not _registry_text_equals(
+            dict.get(unit, "incidence_label"),
+            "derived from the replicate counts in this unit"):
         return False
     horizon = dict.get(unit, "horizon")
     if horizon is None:
@@ -3099,6 +3218,69 @@ def _stored_pair_present(record, field):
     return False
 
 
+def _stored_identifier_form(value, _depth=0, _seen=None):
+    """The stored form of one headline unit identifier, built
+    from the contents it stores through the base readings of
+    its form, never through a repr, equality, or hash reading
+    the value itself supplies, in the form the MOD-14 sister
+    act weekly_headline_count states for its keying: text by
+    its stored characters, a boolean apart from every number,
+    a plain number by the number it stores, a Decimal or a
+    Fraction by its base string form, a buffer by its stored
+    bytes, and a container part by part under this same
+    reading, dicts by their stored pairs in order, lists and
+    tuples in order, and sets and frozensets apart from each
+    other and order insensitively. A part in no stated form
+    stands keyed by its kind name alone, and a part standing
+    deeper than the depth bound of 100, or standing again on
+    its own walk path, stands keyed by a stated marker in
+    that posture."""
+    if isinstance(value, bool):
+        return ("bool", value is True)
+    if isinstance(value, str):
+        return ("text", str.__str__(value))
+    if isinstance(value, int):
+        return ("int", int.__int__(value))
+    if isinstance(value, float):
+        return ("float", float.__float__(value))
+    if isinstance(value, Decimal):
+        return ("decimal", Decimal.__str__(value))
+    if isinstance(value, Fraction):
+        return ("fraction", Fraction.__str__(value))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return ("bytes", bytes(value))
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        if _depth > 100:
+            return ("too deep",)
+        seen = _seen if _seen is not None else set()
+        if id(value) in seen:
+            return ("cycle",)
+        seen = seen | {id(value)}
+        if isinstance(value, dict):
+            return ("dict", tuple(
+                (_stored_identifier_form(key, _depth + 1, seen),
+                 _stored_identifier_form(item, _depth + 1, seen))
+                for key, item in dict.items(value)))
+        if isinstance(value, list):
+            return ("list", tuple(
+                _stored_identifier_form(item, _depth + 1, seen)
+                for item in list.__iter__(value)))
+        if isinstance(value, tuple):
+            return ("tuple", tuple(
+                _stored_identifier_form(item, _depth + 1, seen)
+                for item in tuple.__iter__(value)))
+        if isinstance(value, frozenset):
+            return ("frozenset", frozenset(
+                _stored_identifier_form(item, _depth + 1, seen)
+                for item in frozenset.__iter__(value)))
+        return ("set", frozenset(
+            _stored_identifier_form(item, _depth + 1, seen)
+            for item in set.__iter__(value)))
+    if value is None:
+        return ("none",)
+    return ("kind", type(value).__name__)
+
+
 def weekly_count(summary_records, week):
     """Compute the weekly headline reading load from the stored
     summary records alone: distinct headline unit identifiers
@@ -3122,7 +3304,14 @@ def weekly_count(summary_records, week):
     read through the base iteration of its form, with
     distinctness judged on the stored text of each identifier,
     never through an iteration or equality reading a handed
-    value supplies. An identifier standing in no headline unit
+    value supplies. A container identifier stands keyed on
+    the stored form it carries, built through the base
+    readings of its form, never on a repr reading the
+    identifier itself supplies, so two distinct container
+    identifiers sharing one supplied repr stand counted as
+    the two units they are, and two container identifiers
+    storing the same contents stand counted as one. An
+    identifier standing in no headline unit
     identifier form stands refused in named form, as the weekly
     container of this module refuses it, so no count stands
     stated over unvalidated contents."""
@@ -3180,7 +3369,7 @@ def weekly_count(summary_records, week):
         for identifier in _base_iter(field):
             if isinstance(identifier, (list, tuple, set, frozenset,
                                        dict)):
-                key = ("container", _safe_repr(identifier))
+                key = ("container", _stored_identifier_form(identifier))
             elif _unit_identifier_stands(identifier):
                 key = ("text", str.__str__(identifier))
             else:
@@ -3188,7 +3377,7 @@ def weekly_count(summary_records, week):
                     "summary record for the week carries an "
                     "identifier standing in no unit identifier "
                     "form, and no count stands stated over "
-                    "unvalidated contents: " + _safe_repr(identifier))
+                    "unvalidated contents: " + _form_repr(identifier))
             if key not in seen_texts:
                 seen_texts.append(key)
                 identifiers.append(identifier)
@@ -3401,7 +3590,7 @@ def make_weekly_container(week, units):
                 "weekly container stands refused in named form: "
                 "a held item stands in no unit identifier form, "
                 "and no count stands taken over unvalidated "
-                "contents: " + _safe_repr(item))
+                "contents: " + _form_repr(item))
     inside = ordered[:WEEKLY_CAP]
     held = ordered[WEEKLY_CAP:]
     outside_cells = sum(

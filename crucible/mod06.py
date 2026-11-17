@@ -951,15 +951,23 @@ def _undirected_copy(value, _memo=None):
         base_iter = (
             set.__iter__ if isinstance(value, set)
             else frozenset.__iter__)
+        copied_items = [
+            _undirected_copy(item, _memo)
+            for item in base_iter(value)]
         if isinstance(value, set):
             copied = set()
             _memo[id(value)] = copied
-            for item in base_iter(value):
-                copied.add(_undirected_copy(item, _memo))
+            try:
+                for copied_item in copied_items:
+                    copied.add(copied_item)
+            except Exception:
+                _memo[id(value)] = copied_items
+                return copied_items
             return copied
-        copied = frozenset(
-            _undirected_copy(item, _memo)
-            for item in base_iter(value))
+        try:
+            copied = frozenset(copied_items)
+        except Exception:
+            copied = copied_items
         if id(value) in _memo:
             return _memo[id(value)]
         _memo[id(value)] = copied
@@ -2872,12 +2880,12 @@ def escrow_contract_state(contract_identifier, variant="B-4", lien_state="no lie
     if not _base_member(variant, ("B-3", "B-4")):
         raise ValueError(
             "escrow_contract_state stands refused: the escrow variant "
-            "stands outside the B-3 and B-4 set: " + _refusal_text(variant)
+            "stands outside the B-3 and B-4 set: " + _sentence_text(variant)
             + ", and no escrow contract state stands returned")
     if not _base_member(lien_state, mod01.LIEN_STATES):
         raise ValueError(
             "escrow_contract_state stands refused: the lien state "
-            "stands outside the closed four value set: " + _refusal_text(lien_state)
+            "stands outside the closed four value set: " + _sentence_text(lien_state)
             + ", and no escrow contract state stands returned")
     state = {
         "contract_identifier": _undirected_copy(contract_identifier),
@@ -3071,7 +3079,7 @@ def pause_cap(variant="B-4", stated_value=None):
     ambiguity, total or extension, stands unresolved: no reading
     is chosen for B-3 here or by any test."""
     if variant not in ("B-3", "B-4"):
-        raise ValueError("the pause cap stands refused in named form for an unknown variant: " + _refusal_text(variant))
+        raise ValueError("the pause cap stands refused in named form for an unknown variant: " + _sentence_text(variant))
     if variant == "B-4":
         return {
             "variant": "B-4",

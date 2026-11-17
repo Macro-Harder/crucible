@@ -78,6 +78,13 @@ def _freeze(value, _memo=None):
                         candidate = (
                             "(carried key " + str(counter) + ")")
                     try:
+                        candidate_taken = candidate in copied
+                    except Exception:
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
+                    try:
                         copied[candidate] = copied_item
                         break
                     except Exception:
@@ -437,7 +444,7 @@ def apply_family_edit(record, change=None):
             raise NamedControllerFailure(
                 "family edit refused: a claims value handed in "
                 "does not stand in list or tuple form: "
-                + _safe_repr(raw))
+                + _sentence_form(raw))
         standing = [
             _freeze(item) for item in (
                 list.__iter__(raw) if isinstance(raw, list)
@@ -2229,6 +2236,82 @@ def _safe_repr(value):
         return object.__repr__(value)
 
 
+def _sentence_form(value, _depth=0):
+    """Render a handed value for a refusal or failure sentence
+    on the form it stands in, for a sentence whose act judges
+    form alone. A value standing in a stated scalar form
+    stands rendered through the base class repr of the value
+    it stores, so a repr reading the value itself supplies
+    never stands as the name the sentence delivers, and a
+    plain value in a stated form renders exactly as its
+    plain repr renders. A container stands rendered part by
+    part in the same form, in its handed order, past a
+    stated depth bound by its kind name alone. A value in
+    no stated form stands named by the name of its kind,
+    the form it stands in, and never through a reading it
+    supplies."""
+    if isinstance(value, bool):
+        return bool.__repr__(value)
+    if isinstance(value, str):
+        return str.__repr__(str.__str__(value))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.__repr__(bytes(value))
+    if isinstance(value, int):
+        return int.__repr__(value)
+    if isinstance(value, float):
+        return float.__repr__(value)
+    if isinstance(value, complex):
+        return complex.__repr__(value)
+    if isinstance(value, Decimal):
+        return Decimal.__repr__(value)
+    if isinstance(value, Fraction):
+        return Fraction.__repr__(value)
+    if _depth >= 8:
+        return type(value).__name__
+    if isinstance(value, (list, tuple)):
+        parts = [_sentence_form(part, _depth + 1)
+                 for part in _base_iter(value)]
+        if isinstance(value, tuple):
+            if len(parts) == 1:
+                return "(" + parts[0] + ",)"
+            return "(" + ", ".join(parts) + ")"
+        return "[" + ", ".join(parts) + "]"
+    if isinstance(value, dict):
+        parts = sorted(
+            _sentence_form(key, _depth + 1) + ": "
+            + _sentence_form(item, _depth + 1)
+            for key, item in dict.items(value))
+        return "{" + ", ".join(parts) + "}"
+    if isinstance(value, (set, frozenset)):
+        parts = sorted(
+            _sentence_form(part, _depth + 1)
+            for part in _base_iter(value))
+        return "{" + ", ".join(parts) + "}"
+    return type(value).__name__
+
+
+def _sentence_stored_repr(value):
+    """Render a handed value for a failure sentence on the
+    text it stores, for a sentence whose act judges the
+    value on its stored text in scalar or container dress
+    through _dress_eq. A value carrying a stored text
+    stands rendered as the base repr of that stored text,
+    and a value in container dress stands rendered as the
+    base repr of the dress text its parts compose, so a
+    repr reading the value itself supplies never stands
+    as the name the sentence delivers, and a plain text
+    value renders exactly as its plain repr renders. A
+    value carrying no stored text and standing in no
+    container dress stands rendered on the form it stands
+    in, through _sentence_form."""
+    stored = _stored_text(value)
+    if stored is not None:
+        return str.__repr__(stored)
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return str.__repr__(_dress_text(value))
+    return _sentence_form(value)
+
+
 def run_record_validation_failures(run):
     if not isinstance(run, dict) or dict.__len__(run) == 0:
         return [
@@ -2240,7 +2323,7 @@ def run_record_validation_failures(run):
         return [
             "run_class stands outside the stated run classes "
             "(screening, confirmation, headline, validation): "
-            + _safe_repr(run_class)]
+            + _sentence_stored_repr(run_class)]
     if not _stored_value_present(seed_domain):
         return ["seed_domain stands missing on the run record"]
     if _dress_eq(
@@ -2657,7 +2740,7 @@ def winning_regime(daily_shares):
                 or isinstance(attacker, bool) or isinstance(honest, bool):
             raise NamedControllerFailure(
                 "winning regime entry carries a non numeric share: "
-                + _safe_repr(entry))
+                + _sentence_form(entry))
         if not _plain_number_value(attacker) > _plain_number_value(honest):
             return False
     return True
@@ -2687,7 +2770,8 @@ def top_up_applies(winning_probability, replicates_after_top_up):
     if plain_probability is None or plain_replicates is None:
         raise NamedControllerFailure(
             "top up rule inputs are not numbers: "
-            + _safe_repr((winning_probability, replicates_after_top_up)))
+            + _sentence_form(
+                (winning_probability, replicates_after_top_up)))
     return bool(
         0.1 < plain_probability < 0.9
         and plain_replicates >= 30

@@ -854,6 +854,78 @@ def _safe_str(value):
         return object.__repr__(value)
 
 
+def _sentence_text(value):
+    """Render a handed value for a refusal sentence on the
+    text it stores, where the value stands in a text or
+    buffer form: a text value through the base string form
+    of its stored characters, and a bytes, bytearray, or
+    memoryview value through its stored bytes decoded as
+    UTF-8 with undecodable bytes dropped, so a string
+    reading the value itself supplies, lying or raising,
+    never stands as the name the sentence delivers. A value
+    in any other form stands rendered through _safe_str,
+    as before."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
+    return _safe_str(value)
+
+
+def _sentence_form(value, _depth=0):
+    """Render a handed value for a refusal sentence on the
+    form it stands in, for a sentence whose act judges form
+    alone. A value standing in a stated scalar form stands
+    rendered through the base class repr of the value it
+    stores, so a repr reading the value itself supplies
+    never stands as the name the sentence delivers, and a
+    plain value in a stated form renders exactly as its
+    plain repr renders. A container stands rendered part
+    by part in the same form, in its handed order, past a
+    stated depth bound by its kind name alone. A value in
+    no stated form stands named by the name of its kind,
+    the form it stands in, and never through a reading it
+    supplies."""
+    if isinstance(value, bool):
+        return bool.__repr__(value)
+    if isinstance(value, str):
+        return str.__repr__(str.__str__(value))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.__repr__(bytes(value))
+    if isinstance(value, int):
+        return int.__repr__(value)
+    if isinstance(value, float):
+        return float.__repr__(value)
+    if isinstance(value, complex):
+        return complex.__repr__(value)
+    if isinstance(value, Decimal):
+        return Decimal.__repr__(value)
+    if isinstance(value, Fraction):
+        return Fraction.__repr__(value)
+    if _depth >= 8:
+        return type(value).__name__
+    if isinstance(value, (list, tuple)):
+        parts = [_sentence_form(part, _depth + 1)
+                 for part in _base_iter(value)]
+        if isinstance(value, tuple):
+            if len(parts) == 1:
+                return "(" + parts[0] + ",)"
+            return "(" + ", ".join(parts) + ")"
+        return "[" + ", ".join(parts) + "]"
+    if isinstance(value, dict):
+        parts = sorted(
+            _sentence_form(key, _depth + 1) + ": "
+            + _sentence_form(item, _depth + 1)
+            for key, item in dict.items(value))
+        return "{" + ", ".join(parts) + "}"
+    if isinstance(value, (set, frozenset)):
+        parts = sorted(
+            _sentence_form(part, _depth + 1)
+            for part in _base_iter(value))
+        return "{" + ", ".join(parts) + "}"
+    return type(value).__name__
+
+
 def make_derivation_input(derivation_version=None, domain=None,
                           root_seed_reference=None,
                           scenario_identifier=None, run_identifier=None,
@@ -867,7 +939,8 @@ def make_derivation_input(derivation_version=None, domain=None,
     """
     if not validate_domain(domain):
         raise ValueError(
-            "domain outside the two value vocabulary: " + _safe_str(domain)
+            "domain outside the two value vocabulary: "
+            + _sentence_text(domain)
             + "; a domain stands among screening and held out "
             "confirmation")
     if parameter_values is None:
@@ -1127,7 +1200,7 @@ def draw_from_stream(stream_class=None, position=None,
     except (ValueError, TypeError):
         raise ValueError(
             "draw_from_stream stands refused: the position argument "
-            "stands in no numeric form: " + _safe_repr(position)
+            "stands in no numeric form: " + _sentence_form(position)
             + "; a position stands as a number, and no draw "
             "stands made") from None
     try:
@@ -1136,7 +1209,7 @@ def draw_from_stream(stream_class=None, position=None,
         raise ValueError(
             "draw_from_stream stands refused: the carried positions "
             "argument stands in no numeric form: "
-            + _safe_repr(carried_positions)
+            + _sentence_form(carried_positions)
             + "; carried positions stand as a number, and no draw "
             "stands made") from None
     if position_value >= carried_value:

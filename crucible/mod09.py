@@ -156,20 +156,34 @@ def _stands_numeric(value):
 
 def _base_dict_get(mapping, key, default=None):
     """Return the value a handed mapping stores under a key,
-    read through the base dict get, never through a get reading
-    the mapping itself supplies. A handed value in no mapping
-    form stores nothing under any key."""
+    read through its stored pairs, never through a get reading
+    the mapping itself supplies and never through a hash or
+    equality reading a stored key supplies, so a stored key
+    stands matched on the form it stores through the stored
+    match and stored equality readings of this module. A
+    handed value in no mapping form stores nothing under any
+    key."""
     if isinstance(mapping, dict):
-        return dict.get(mapping, key, default)
+        for stored_key, item in dict.items(mapping):
+            if _stored_match(stored_key, key) and _stored_eq(
+                    stored_key, key):
+                return item
     return default
 
 
 def _base_dict_contains(mapping, key):
     """Return whether a handed mapping stores a key, read
-    through the base dict contains, never through a contains
-    reading the mapping itself supplies."""
-    return isinstance(mapping, dict) and dict.__contains__(
-        mapping, key)
+    through its stored pairs, never through a contains reading
+    the mapping itself supplies and never through a hash or
+    equality reading a stored key supplies, a stored key
+    standing matched on the form it stores through the stored
+    match and stored equality readings of this module."""
+    if isinstance(mapping, dict):
+        return any(
+            _stored_match(stored_key, key) and _stored_eq(
+                stored_key, key)
+            for stored_key in dict.keys(mapping))
+    return False
 
 
 def _base_length(value):
@@ -381,7 +395,7 @@ def _stored_truthy(value):
     if isinstance(value, (str, list, tuple, dict, set, frozenset,
                           bytes, bytearray, memoryview)):
         return _base_length(value) > 0
-    if isinstance(value, (int, float)):
+    if isinstance(value, (int, float, complex)):
         return _plain_number(value) != 0
     return True
 
@@ -474,8 +488,13 @@ def _stored_copy(value, _memo=None):
             _stored_copy(item, _memo) for item in (
                 set.__iter__(value) if isinstance(value, set)
                 else frozenset.__iter__(value))]
-        return set(parts) if isinstance(value, set) else frozenset(
-            parts)
+        try:
+            return set(parts) if isinstance(value, set) else frozenset(
+                parts)
+        except (TypeError, RuntimeError, ValueError,
+                AttributeError, OverflowError, KeyError,
+                OSError):
+            return parts
     if isinstance(value, str):
         return str.__str__(value)
     if isinstance(value, bytes):
@@ -515,7 +534,12 @@ def _catalogue_repr(name, _depth=0, _seen=None):
     of the set itself prints its parts in iteration order. A
     tuple or list part stands represented by the representations
     of its stored parts in stored order, so a frozenset carried
-    inside a tuple carries its seed stable form with it. A text
+    inside a tuple carries its seed stable form with it. A dict
+    part stands represented by the representations of its stored
+    pairs, sorted on the rendered pair forms, so the
+    representation stands the same at every hash seed and two
+    dict parts whose stored pairs differ stand represented
+    apart. A text
     part stands represented by the plain text it stores, a
     bytes form part by the plain bytes it stores, and a plain
     scalar part by the plain scalar it stores, each read through
@@ -558,6 +582,18 @@ def _catalogue_repr(name, _depth=0, _seen=None):
         return "[%s]" % ", ".join(
             _catalogue_repr(part, _depth + 1, seen)
             for part in list.__iter__(name))
+    if isinstance(name, dict):
+        if _seen is not None and id(name) in _seen:
+            return type(name).__name__
+        seen = (_seen or frozenset()) | {id(name)}
+        rendered = [
+            (_catalogue_repr(key, _depth + 1, seen),
+             _catalogue_repr(item, _depth + 1, seen))
+            for key, item in list(dict.items(name))]
+        parts = [
+            "%s=%s" % pair for pair in sorted(rendered)]
+        return "%s({%s})" % (
+            type(name).__name__, ", ".join(parts))
     if isinstance(name, str):
         return repr(str.__str__(name))
     if isinstance(name, (bytes, bytearray, memoryview)):
@@ -739,25 +775,37 @@ def attacker_payoff(strategy, external_profit_value):
             in_protocol, (int, float)):
         raise NamedAttackerFailure(
             "attacker payoff rejected: the in protocol payoff "
-            "stands in no numeric form: " + _safe_repr(in_protocol)
+            "stands in no numeric form: "
+            + _stored_form_repr(in_protocol)
         )
     if isinstance(external_profit_value, bool) or not isinstance(
             external_profit_value, (int, float)):
         raise NamedAttackerFailure(
             "attacker payoff rejected: the external profit value "
             "stands in no numeric form: "
-            + _safe_repr(external_profit_value)
+            + _stored_form_repr(external_profit_value)
         )
     if not math.isfinite(in_protocol) or not math.isfinite(
             external_profit_value):
         raise NamedAttackerFailure(
             "attacker payoff rejected: a payoff part stands in no "
             "finite numeric form: in protocol "
-            + _safe_repr(in_protocol) + ", external "
-            + _safe_repr(external_profit_value)
+            + _stored_form_repr(in_protocol) + ", external "
+            + _stored_form_repr(external_profit_value)
         )
     return _plain_number(in_protocol) + _plain_number(
         external_profit_value)
+
+
+def _stored_form_repr(value):
+    """Render a handed value for a refusal sentence on the form
+    it stands in, through the content derived representation of
+    this module, which reads every part on the stored form it
+    carries, never through a repr or string reading the value
+    itself supplies, so the sentence names the handed value on
+    its stored form and no reading it supplies can misname it
+    or raise out of the sentence."""
+    return _catalogue_repr(value)
 
 
 def _safe_repr(value):
@@ -798,18 +846,50 @@ def _render_safe_copy(value, _depth=0, _seen=None):
     other part as itself where its repr reading stands, or
     as its base object repr text where that reading raises
     TypeError, RuntimeError, ValueError, AttributeError,
-    OverflowError, KeyError, or OSError. A part standing past
-    a depth of 100, or standing again on its own copy path,
-    stands as its base object repr text."""
+    OverflowError, KeyError, or OSError. A dict entry whose
+    rendered key hash or equality reading raises one of those
+    seven kinds at the construction itself stands carried
+    under a distinct numbered form, in the form the stored
+    copy of this module states, so no carried entry is
+    silently dropped on that reading, and a set or frozenset
+    whose rendered part raises one of those kinds at the
+    construction stands carried whole in list form, in the
+    cured pole list form of this module family. A part
+    standing past a depth of 100, or standing again on its own
+    copy path, stands as its base object repr text."""
     if isinstance(value, dict):
         if _depth > 100 or (
                 _seen is not None and id(value) in _seen):
             return object.__repr__(value)
         seen = (_seen or frozenset()) | {id(value)}
-        return {
-            _render_safe_copy(key, _depth + 1, seen):
-                _render_safe_copy(item, _depth + 1, seen)
-            for key, item in list(dict.items(value))}
+        copied = {}
+        for key, item in list(dict.items(value)):
+            copied_key = _render_safe_copy(key, _depth + 1, seen)
+            copied_item = _render_safe_copy(item, _depth + 1, seen)
+            try:
+                copied[copied_key] = copied_item
+            except (TypeError, RuntimeError, ValueError,
+                    AttributeError, OverflowError, KeyError,
+                    OSError):
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except (TypeError, RuntimeError, ValueError,
+                            AttributeError, OverflowError, KeyError,
+                            OSError):
+                        counter += 1
+        return copied
     if isinstance(value, list):
         if _depth > 100 or (
                 _seen is not None and id(value) in _seen):
@@ -836,8 +916,12 @@ def _render_safe_copy(value, _depth=0, _seen=None):
             for item in (
                 set.__iter__(value) if isinstance(value, set)
                 else frozenset.__iter__(value))]
-        return set(parts) if isinstance(value, set) else frozenset(
-            parts)
+        try:
+            return set(parts) if isinstance(value, set) else (
+                frozenset(parts))
+        except (TypeError, RuntimeError, ValueError,
+                AttributeError, OverflowError, KeyError, OSError):
+            return parts
     if isinstance(value, str):
         return str.__str__(value)
     if isinstance(value, bytes):
@@ -865,7 +949,7 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
     if not isinstance(strategy, dict):
         raise NamedAttackerFailure(
             "external profit sweep rejected: the strategy stands "
-            "in no record form: " + _safe_repr(strategy)
+            "in no record form: " + _stored_form_repr(strategy)
         )
     stated_range = _base_dict_get(
         strategy, "external_profit_range", [])
@@ -1277,7 +1361,7 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
         if not isinstance(candidate, dict):
             raise NamedAttackerFailure(
                 "bond parameter search rejected: a candidate stands "
-                "in no record form: " + _safe_repr(candidate)
+                "in no record form: " + _stored_form_repr(candidate)
             )
         params = _base_dict_get(
             candidate, "parameter_set", candidate)
@@ -1351,7 +1435,9 @@ def build_search_record(run_carriage, points_tried,
                 "search record rejected: a case use stands in "
                 "no record form: " + _safe_repr(entry)
             )
-        if entry.get("fixture") == "F-26":
+        fixture = _base_dict_get(entry, "fixture")
+        if _stored_match(fixture, "F-26") and _stored_eq(
+                fixture, "F-26"):
             entry["use"] = "strategy search point only"
             entry["standings_carried"] = list(
                 SELFISH_MINING_STANDINGS)

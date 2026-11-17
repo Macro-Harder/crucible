@@ -464,8 +464,23 @@ def _safe_str(value):
         return object.__repr__(value)
 
 
+def _sentence_text(value):
+    """Render a handed value for a sentence or a lookup on the
+    text it stores: a text form through its base class string
+    form, and a bytes, bytearray, or memoryview form through
+    its stored bytes decoded as UTF-8 with undecodable bytes
+    dropped, never through a reading the value itself supplies.
+    A value in any other form stands rendered through _safe_str
+    as before."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
+    return _safe_str(value)
+
+
 def _fid(form_id):
-    return _safe_str(form_id)
+    return _sentence_text(form_id)
 
 
 def form_name(form_id):
@@ -560,7 +575,7 @@ def minimal_valid_instance(form_id, entry_kind=None, condition_holds=None):
         if entry_kind is not None and stored_kind not in (
                 "ordinary", "agent", "supersession"):
             raise ValueError(
-                "unknown entry kind: " + _safe_str(entry_kind)
+                "unknown entry kind: " + _sentence_text(entry_kind)
                 + "; the stated kinds are ordinary, agent and supersession")
         return _minimal_eventlog(stored_kind or "ordinary")
     if fid == "15":
@@ -3189,6 +3204,13 @@ def _guarded_copy(value, _memo=None):
                         candidate = (
                             "(carried key " + str(counter) + ")")
                     try:
+                        candidate_taken = candidate in copied
+                    except Exception:
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
+                    try:
                         copied[candidate] = copied_item
                         break
                     except Exception:
@@ -3219,14 +3241,22 @@ def _guarded_copy(value, _memo=None):
         base_iter = (
             set.__iter__ if isinstance(value, set)
             else frozenset.__iter__)
+        copied_items = [
+            _guarded_copy(item, _memo) for item in base_iter(value)]
         if isinstance(value, set):
             copied = set()
             _memo[id(value)] = copied
-            for item in base_iter(value):
-                copied.add(_guarded_copy(item, _memo))
+            try:
+                for copied_item in copied_items:
+                    copied.add(copied_item)
+            except Exception:
+                _memo[id(value)] = copied_items
+                return copied_items
             return copied
-        copied = frozenset(
-            _guarded_copy(item, _memo) for item in base_iter(value))
+        try:
+            copied = frozenset(copied_items)
+        except Exception:
+            copied = copied_items
         if id(value) in _memo:
             return _memo[id(value)]
         _memo[id(value)] = copied

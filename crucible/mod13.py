@@ -84,6 +84,13 @@ def _freeze(value, _memo=None):
                         candidate = (
                             "(carried key " + str(counter) + ")")
                     try:
+                        candidate_taken = candidate in copied
+                    except Exception:
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
+                    try:
                         copied[candidate] = copied_item
                         break
                     except Exception:
@@ -297,6 +304,26 @@ def _vocabulary_text(value):
         if stored is not None:
             return stored
     return _safe_str(value)
+
+
+def _sentence_repr(value):
+    """Render a handed value for a refusal or failure sentence
+    on the text it stores, where the value carries a stored
+    text, through the base repr of that stored text, so a repr
+    reading the value itself supplies, lying or raising, never
+    stands as the name the sentence delivers. A value carrying
+    no stored text and standing in a plain builtin form stands
+    rendered through _safe_repr, as before. A value in any
+    other form stands rendered through the base object repr,
+    which names no form the value does not stand in."""
+    stored = _stored_text(value)
+    if stored is not None:
+        return str.__repr__(stored)
+    if type(value) in (
+            bool, int, float, complex, Decimal, Fraction, list,
+            tuple, dict, set, frozenset, type(None)):
+        return _safe_repr(value)
+    return object.__repr__(value)
 
 
 COMPARISON_DEPTH_BOUND = 100
@@ -1253,7 +1280,7 @@ def verdict_record(claim_id, standard="exact replay alone", outcome="rests"):
         )
     if not _base_str_member(standard, STANDARDS):
         raise NamedReplicationFailure(
-            "unknown replication standard: " + _safe_str(standard)
+            "unknown replication standard: " + _vocabulary_text(standard)
             + "; the stated standard stands as exact replay alone, "
             "and no verdict record stands made")
     if not _base_str_member(outcome, ("rests", "does not rest")):
@@ -1290,7 +1317,7 @@ def verdict_record_validation_failures(record):
             dict.get(record, "outcome"), ("rests", "does not rest")):
         failures.append(
             "outcome stands outside the stated outcomes "
-            "(rests, does not rest): " + _safe_repr(dict.get(record, "outcome")))
+            "(rests, does not rest): " + _sentence_repr(dict.get(record, "outcome")))
     if _base_str_eq(
             dict.get(record, "standard_applied"),
             "distributional equivalence"):
@@ -1303,7 +1330,7 @@ def verdict_record_validation_failures(record):
         failures.append(
             "standard_applied stands outside the stated standard "
             "(exact replay alone): "
-            + _safe_repr(dict.get(record, "standard_applied")))
+            + _sentence_repr(dict.get(record, "standard_applied")))
     if not _base_str_eq(
             dict.get(record, "replication_statement"),
             REPLICATION_STATEMENT):
@@ -1343,7 +1370,7 @@ def resume_claim_validation_failures(claim):
             scope, "verdict level only"):
         failures.append(
             "detection_scope stands wider than verdict level only: "
-            + _safe_repr(scope) + " (scope form)")
+            + _sentence_repr(scope) + " (scope form)")
     points = _base_get(claim, "detection_comparison_points")
     if points is not None:
         if not isinstance(points, (list, tuple)):
@@ -1373,7 +1400,7 @@ def resume_claim_validation_failures(claim):
                         failures.append(
                             "detection_comparison_points name a point "
                             "outside the two named points: "
-                            + _safe_repr(stored_point))
+                            + _sentence_repr(stored_point))
                     break
     return failures
 
@@ -1747,7 +1774,7 @@ def rerun_reading_validation_failures(reading):
         failures.append(
             "read_as stands outside the stated reading "
             "(difference between two rule sets only): "
-            + _safe_repr(read_as))
+            + _sentence_repr(read_as))
     if _stored_present(_base_get(reading, "overwrites_original")):
         failures.append(
             "overwrites_original stands asserted: a rerun "
@@ -1848,6 +1875,34 @@ def _history_base_items(history):
     return list(list.__iter__(history))
 
 
+def _segment_field_agrees(stated, expected):
+    """Whether an appended segment field stands as the field
+    it extends, judged kind first on the text each value
+    stores under settlement S-16: where either value carries
+    a stored text, the two stand as agreeing only where both
+    carry one and the stored texts stand equal through the
+    base string reading, so a text, bytes, bytearray,
+    memoryview, or single part container dress stands judged
+    on the text it stores and never through an equality
+    reading the handed value itself supplies. Where neither
+    value carries a stored text, the judgement stands on the
+    strict base reading of this module at _strict_eq, a
+    boolean standing apart from every number and Decimal and
+    Fraction standing outside the plain number limb that
+    reading states, and a shape past its stated depth bound
+    stands as not agreeing in place of escaping bare."""
+    stated_text = _stored_text(stated)
+    expected_text = _stored_text(expected)
+    if stated_text is not None or expected_text is not None:
+        return (
+            stated_text is not None and expected_text is not None
+            and str.__eq__(stated_text, expected_text))
+    try:
+        return _strict_eq(stated, expected)
+    except NamedReplicationFailure:
+        return False
+
+
 def extend_history(history, segment):
     """Extend a history past its first horizon: the extension
     appends a new linked segment, linked by run identifier and
@@ -1872,7 +1927,7 @@ def extend_history(history, segment):
     if not isinstance(history, (list, tuple)):
         raise NamedReplicationFailure(
             "a history extension stands refused: the handed history "
-            "stands in no list form: " + _safe_repr(history)
+            "stands in no list form: " + _sentence_repr(history)
             + "; a history stands as a non empty list of segments, "
             "and no extension stands made")
     if not _history_base_items(history):
@@ -1919,13 +1974,15 @@ def extend_history(history, segment):
         )
     appended = _freeze(segment, memo)
     stated_version = appended.get("rule_set_version")
-    if stated_version is not None and stated_version != first.get("rule_set_version"):
+    if stated_version is not None and not _segment_field_agrees(
+            stated_version, first.get("rule_set_version")):
         raise NamedReplicationFailure(
             "a history extension stands under the same rule set version as the segment it extends: the appended segment states another version"
             ", and no extension stands made"
         )
     stated_link = appended.get("linked_run")
-    if stated_link is not None and stated_link != first.get("run_id"):
+    if stated_link is not None and not _segment_field_agrees(
+            stated_link, first.get("run_id")):
         raise NamedReplicationFailure(
             "a history extension links to the segment it extends: the appended segment states another linked run"
             ", and no extension stands made"

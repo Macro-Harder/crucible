@@ -203,8 +203,12 @@ def _guarded_copy(value, _memo=None):
     if isinstance(value, frozenset):
         if id(value) in _memo:
             return _memo[id(value)]
-        copied = frozenset(
-            _guarded_copy(item, _memo) for item in frozenset.__iter__(value))
+        copied_items = [
+            _guarded_copy(item, _memo) for item in frozenset.__iter__(value)]
+        try:
+            copied = frozenset(copied_items)
+        except Exception:
+            copied = copied_items
         if id(value) in _memo:
             return _memo[id(value)]
         _memo[id(value)] = copied
@@ -214,8 +218,14 @@ def _guarded_copy(value, _memo=None):
             return _memo[id(value)]
         copied = set()
         _memo[id(value)] = copied
-        for item in set.__iter__(value):
-            copied.add(_guarded_copy(item, _memo))
+        copied_items = [
+            _guarded_copy(item, _memo) for item in set.__iter__(value)]
+        try:
+            for copied_item in copied_items:
+                copied.add(copied_item)
+        except Exception:
+            _memo[id(value)] = copied_items
+            return copied_items
         return copied
     if isinstance(value, bytearray):
         return bytearray(bytes(value))
@@ -467,8 +477,10 @@ class DetectionLayerDeliveryPoint(DeliveryPoint):
 def _state_field(state, names, default=None):
     if isinstance(state, dict):
         for name in names:
-            if dict.__contains__(state, name):
-                return dict.__getitem__(state, name)
+            for stored_key, item in dict.items(state):
+                if isinstance(stored_key, str) and str.__eq__(
+                        str.__str__(stored_key), name):
+                    return item
         return default
     for name in names:
         if hasattr(state, name):
@@ -2027,13 +2039,45 @@ def _clean_value(value, _depth=0, _seen=None, _path=""):
                         for key in dict.keys(value)):
                     result = {}
                 else:
-                    result = {
-                        _clean_value(
-                            key, _depth + 1, state, _path + "/" + _safe_str(key)):
-                        _clean_value(item, _depth + 1, state, _path + "/" + _safe_str(key))
-                        for key, item in dict.items(value)
-                        if not _is_barred_key(key)
-                    }
+                    result = {}
+                    for key, item in dict.items(value):
+                        if _is_barred_key(key):
+                            continue
+                        cleaned_key = _clean_value(
+                            key, _depth + 1, state,
+                            _path + "/" + _safe_str(key))
+                        cleaned_item = _clean_value(
+                            item, _depth + 1, state,
+                            _path + "/" + _safe_str(key))
+                        try:
+                            result[cleaned_key] = cleaned_item
+                        except Exception:
+                            counter = 2
+                            while True:
+                                if isinstance(cleaned_key, str):
+                                    candidate = (
+                                        str.__str__(cleaned_key)
+                                        + " (carried key "
+                                        + str(counter) + ")")
+                                elif counter == 2:
+                                    candidate = (cleaned_key, counter)
+                                else:
+                                    candidate = (
+                                        "(carried key "
+                                        + str(counter) + ")")
+                                try:
+                                    candidate_taken = (
+                                        candidate in result)
+                                except Exception:
+                                    candidate_taken = False
+                                if candidate_taken:
+                                    counter += 1
+                                    continue
+                                try:
+                                    result[candidate] = cleaned_item
+                                    break
+                                except Exception:
+                                    counter += 1
             elif isinstance(value, list):
                 result = [
                     _clean_value(item, _depth + 1, state, _path + "[" + str(index) + "]")
@@ -2045,15 +2089,23 @@ def _clean_value(value, _depth=0, _seen=None, _path=""):
                     for index, item in _base_entries(value)
                 )
             elif isinstance(value, set):
-                result = set(
+                cleaned_items = [
                     _clean_value(item, _depth + 1, state, _path + "[" + str(index) + "]")
                     for index, item in _base_entries(value)
-                )
+                ]
+                try:
+                    result = set(cleaned_items)
+                except Exception:
+                    result = cleaned_items
             else:
-                result = frozenset(
+                cleaned_items = [
                     _clean_value(item, _depth + 1, state, _path + "[" + str(index) + "]")
                     for index, item in _base_entries(value)
-                )
+                ]
+                try:
+                    result = frozenset(cleaned_items)
+                except Exception:
+                    result = cleaned_items
             state["done"][marker] = result
             return result
         finally:
@@ -2570,6 +2622,16 @@ def _safe_repr(value):
         return object.__repr__(value)
 
 
+def _sentence_text(value):
+    """Render a handed value for a refusal sentence on the text
+    it stores: a text or buffer form through _stored_text, never
+    through a reading the value itself supplies, and a value in
+    any other form through _safe_str as before."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return _stored_text(value)
+    return _safe_str(value)
+
+
 def _view_copy_guard(value, _depth=0, _seen=None, _path="", _walked=None,
                      _act=None, _argument=None):
     """Walk a value the view select and build acts are about to
@@ -2874,7 +2936,7 @@ def build_view_record(run_id="run-under-test", viewer_id="viewer-1",
     the named failure form of the depth guard before any copy
     stands taken."""
     if completeness not in COMPLETENESS_STATES:
-        raise NamedFailure("completeness state outside the closed vocabulary: " + _safe_str(completeness))
+        raise NamedFailure("completeness state outside the closed vocabulary: " + _sentence_text(completeness))
     if contents is None:
         contents = []
     elif isinstance(contents, (list, tuple)):
