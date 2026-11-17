@@ -630,8 +630,7 @@ def _catalogue_repr(name, _depth=0, _seen=None):
         return repr(complex.__complex__(name))
     try:
         stored = vars(name)
-    except (TypeError, RuntimeError, ValueError, AttributeError,
-            OverflowError, KeyError, OSError):
+    except BaseException:
         stored = None
     if isinstance(stored, dict):
         if _seen is not None and id(name) in _seen:

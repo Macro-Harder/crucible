@@ -94,7 +94,11 @@ def _vocabulary_text(value):
     value it stores and never a volatile memory address. A plain
     number stands rendered as its own text, on the plain
     number _plain_number builds from base operations, never
-    through a reading the value itself supplies. Any
+    through a reading the value itself supplies. A plain
+    integer beyond the interpreter integer string conversion
+    limit stands rendered in its plain form at that rendering,
+    built in digit chunks from the plain integer itself, so
+    the sentence stands delivered whole on that handing. Any
     other form stands rendered through _stored_text as well, on
     the text it stores, which stands as the empty text for a
     value carrying no text form, so no name stands rendered
@@ -103,7 +107,26 @@ def _vocabulary_text(value):
         return _stored_text(value)
     plain = _plain_number(value)
     if plain is not None:
-        return str(plain)
+        try:
+            return str(plain)
+        except ValueError:
+            if not isinstance(plain, int):
+                raise
+            remaining = int.__int__(plain)
+            sign = ""
+            if remaining < 0:
+                sign = "-"
+                remaining = -remaining
+            chunks = []
+            while remaining:
+                remaining, chunk = divmod(remaining, 10 ** 9)
+                chunks.append(chunk)
+            if not chunks:
+                return "0"
+            parts = [str(chunks[-1])]
+            for chunk in reversed(chunks[:-1]):
+                parts.append(str(chunk).rjust(9, "0"))
+            return sign + "".join(parts)
     return _stored_text(value)
 
 
@@ -1412,9 +1435,9 @@ def _plain_number(value):
     if isinstance(value, Decimal):
         return Decimal.__new__(Decimal, value)
     if isinstance(value, Fraction):
-        return Fraction.__new__(Fraction, value)
+        return Fraction.__new__(Fraction, Fraction.numerator.__get__(value), Fraction.denominator.__get__(value))
     if isinstance(value, complex):
-        return complex.__new__(complex, value)
+        return complex.__new__(complex, complex.real.__get__(value), complex.imag.__get__(value))
     return None
 
 
@@ -1501,13 +1524,18 @@ def _day_match_form(value):
             return ("int", whole)
         return ("str", str.__str__(value))
     if isinstance(value, Decimal):
-        if value.is_finite() and value == value.to_integral_value():
-            return ("int", int(value))
+        plain = Decimal.__new__(Decimal, value)
+        if Decimal.is_finite(plain) and Decimal.__eq__(
+                plain, Decimal.to_integral_value(plain)):
+            return ("int", int(plain))
         return ("other", _stored_form(value))
     if isinstance(value, Fraction):
-        if value.denominator == 1:
-            return ("int", value.numerator)
-        return ("other", _stored_form(value))
+        numerator = Fraction.numerator.__get__(value)
+        denominator = Fraction.denominator.__get__(value)
+        if denominator == 1:
+            return ("int", numerator)
+        plain = Fraction.__new__(Fraction, numerator, denominator)
+        return ("other", type(value).__name__ + ":" + repr(plain))
     return ("other", _stored_form(value))
 
 
@@ -2398,7 +2426,7 @@ class RecorderStore:
                 "a real money value stands refused at retention, by "
                 "field name and by amount and currency shape")
         if _stored_key_match(self._records, rid) is not None:
-            raise ValueError("second record for the same run is rejected: " + _safe_str(rid))
+            raise ValueError("second record for the same run is rejected: " + _vocabulary_text(rid))
         try:
             stored = _safe_copy(record)
         except RecursionError as exc:
@@ -3123,10 +3151,11 @@ def _store_kind_stands(store_kind):
     as a str subclass whose own equality reading answers
     True against every kind stands judged by the stored text
     alone, never by that reading."""
-    return (
-        isinstance(store_kind, str)
-        and any(
-            str.__eq__(store_kind, kind) for kind in STORE_KINDS))
+    if isinstance(store_kind, (str, bytes, bytearray, memoryview)):
+        return any(
+            str.__eq__(_stored_text(store_kind), kind)
+            for kind in STORE_KINDS)
+    return False
 
 
 def retain_event_log_entry(entry, store_kind="sweep"):
@@ -3804,7 +3833,8 @@ def retain_gc08_record(kind, record, owner_id):
     """Retain one GC-08 record, the dependency manifest of a build
     or the process and network call log of a run, with its outside
     call check outcome carried in the record itself."""
-    kind_text = _stored_text(kind) if isinstance(kind, str) else None
+    kind_text = _stored_text(kind) if isinstance(
+        kind, (str, bytes, bytearray, memoryview)) else None
     if kind_text not in ("dependency_manifest", "call_log"):
         raise ValueError(
             "unknown GC-08 record kind: " + _vocabulary_text(kind)
@@ -5485,7 +5515,7 @@ def validate_sample_record(sample):
 def validate_retention_record(record):
     if not isinstance(record, dict):
         return False
-    governing = _safe_str(dict.get(record, "governing_rule") or "")
+    governing = _stored_text(dict.get(record, "governing_rule") or "")
     if governing.startswith("DQ7-08") and _base_value_eq(dict.get(record, "reliance"), "governing"):
         return False
     return True
@@ -5526,6 +5556,8 @@ def store_lookup(store_kinds=None, key=None, store_kind=None):
             "unknown store kind: " + _vocabulary_text(kind) + "; a store kind stands "
             "among sweep, pilot, and live, and no record lookup stands "
             "performed on an unknown kind")
+    if isinstance(kind, (str, bytes, bytearray, memoryview)):
+        kind = _stored_text(kind)
     return _STORES[_canonical_store_kind(kind)].read_run_record(key)
 
 
@@ -5948,7 +5980,7 @@ def run_view_leak_check(view_record):
                 dict.get(view_record, field)):
             raise ValueError(
                 "view leak check failure: form canary, view "
-                + view_name + ", field " + _safe_str(field)
+                + view_name + ", field " + _vocabulary_text(field)
                 + " carries a barred key")
     for field in mod01.ViewRecord.FIELDS:
         if field in ("scheduling_position_identifier",

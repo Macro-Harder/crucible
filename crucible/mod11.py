@@ -178,7 +178,7 @@ def _form_repr(value, _depth=0, _seen=None):
                              ", ".join(parts))
     try:
         stored = vars(value)
-    except TypeError:
+    except Exception:
         stored = None
     if isinstance(stored, dict):
         if _seen is not None and id(value) in _seen:
@@ -2306,9 +2306,37 @@ def validate_headline_unit(unit):
     as axis values in numbers with its outcome in words."""
     if not isinstance(unit, dict):
         return False
-    if tuple(dict.keys(unit)) != HEADLINE_UNIT_FIELDS:
+    stored_pairs = list(dict.items(unit))
+    keys = [key for key, _stored_value in stored_pairs]
+
+    def _field_value(field):
+        for stored_key, stored_value in stored_pairs:
+            if any(key_text is not None
+                   and str.__eq__(key_text, field)
+                   for key_text in _registry_key_texts(stored_key)):
+                return True, stored_value
+        return False, None
+
+    if any(
+            not any(
+                any(key_text is not None
+                    and str.__eq__(key_text, field)
+                    for key_text in _registry_key_texts(key))
+                for field in HEADLINE_UNIT_FIELDS)
+            for key in keys):
         return False
-    identifier = dict.get(unit, "headline_unit_identifier_and_issue_date")
+    for field in HEADLINE_UNIT_FIELDS:
+        present, field_value = _field_value(field)
+        if not present or field_value is None:
+            return False
+    if len(keys) != len(HEADLINE_UNIT_FIELDS) or not all(
+            any(key_text is not None
+                and str.__eq__(key_text, field)
+                for key_text in _registry_key_texts(key))
+            for key, field in zip(keys, HEADLINE_UNIT_FIELDS)):
+        return False
+    identifier = _field_value(
+        "headline_unit_identifier_and_issue_date")[1]
     if isinstance(identifier, str):
         identifier = str.__str__(identifier)
     else:
@@ -2319,29 +2347,30 @@ def validate_headline_unit(unit):
     if F01_UNIT_MARK in identifier:
         return False
     for field in HEADLINE_UNIT_FIELDS:
-        if dict.get(unit, field) is None:
-            return False
-        if not _envelope_part_stands(dict.get(unit, field)):
+        if not _envelope_part_stands(_field_value(field)[1]):
             return False
     for field in ("holding_region", "failure_region"):
-        if not _region_stands(dict.get(unit, field)):
+        if not _region_stands(_field_value(field)[1]):
             return False
-    claim = dict.get(unit, "claim_sentence")
+    claim = _field_value("claim_sentence")[1]
     if isinstance(claim, str):
         claim = str.__str__(claim)
     claim = str(claim).lower()
     if "everywhere" in claim or "all points" in claim:
         return False
     if not _field10_stands(
-            dict.get(unit, "qualifiers_and_markings_block")):
+            _field_value("qualifiers_and_markings_block")[1]):
         return False
-    if not _field10_matches_grounds(unit):
+    grounds_unit = {
+        field: _field_value(field)[1]
+        for field in HEADLINE_UNIT_FIELDS}
+    if not _field10_matches_grounds(grounds_unit):
         return False
     if not _has_plain_scope_limits_sentence(
-            dict.get(unit, "claim_sentence")):
+            _field_value("claim_sentence")[1]):
         return False
     if not _has_plain_scope_limits_sentence(
-            dict.get(unit, "grounding_sentence")):
+            _field_value("grounding_sentence")[1]):
         return False
     return True
 
