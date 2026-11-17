@@ -52,7 +52,7 @@ def _freeze(value, _memo=None):
     distinct numbered form, a plain text numbered form where
     a form carrying the key itself cannot stand inserted, in
     the MOD-14 cured form, so no carried entry is silently
-    dropped on that reading and no bare error escapes the copy."""
+    dropped on that reading and no bare error escapes the copy. A text key whose plain stored text already stands in the copy from a distinct handed key stands carried under the same distinct numbered form, so two distinct keys storing the one text stand as two entries in the copy."""
     if _memo is None:
         _memo = {}
     if isinstance(value, dict):
@@ -63,32 +63,41 @@ def _freeze(value, _memo=None):
         for key, item in dict.items(value):
             copied_key = _freeze(key, _memo)
             copied_item = _freeze(item, _memo)
-            try:
-                copied[copied_key] = copied_item
-            except Exception:
-                counter = 2
-                while True:
-                    if isinstance(copied_key, str):
-                        candidate = (
-                            str.__str__(copied_key)
-                            + " (carried key " + str(counter) + ")")
-                    elif counter == 2:
-                        candidate = (copied_key, counter)
-                    else:
-                        candidate = (
-                            "(carried key " + str(counter) + ")")
-                    try:
-                        candidate_taken = candidate in copied
-                    except Exception:
-                        candidate_taken = False
-                    if candidate_taken:
-                        counter += 1
-                        continue
-                    try:
-                        copied[candidate] = copied_item
-                        break
-                    except Exception:
-                        counter += 1
+            key_taken = False
+            if isinstance(copied_key, str):
+                try:
+                    key_taken = copied_key in copied
+                except Exception:
+                    key_taken = False
+            if not key_taken:
+                try:
+                    copied[copied_key] = copied_item
+                    continue
+                except Exception:
+                    pass
+            counter = 2
+            while True:
+                if isinstance(copied_key, str):
+                    candidate = (
+                        str.__str__(copied_key)
+                        + " (carried key " + str(counter) + ")")
+                elif counter == 2:
+                    candidate = (copied_key, counter)
+                else:
+                    candidate = (
+                        "(carried key " + str(counter) + ")")
+                try:
+                    candidate_taken = candidate in copied
+                except Exception:
+                    candidate_taken = False
+                if candidate_taken:
+                    counter += 1
+                    continue
+                try:
+                    copied[candidate] = copied_item
+                    break
+                except Exception:
+                    counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:

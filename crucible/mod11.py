@@ -2495,27 +2495,48 @@ def _headline_unit_refusal(unit):
             "quote_headline_unit stands refused: the headline unit stands "
             "in no record form, a headline unit stands as a field mapping, "
             "and no unit stands quoted")
-    keys = list(dict.keys(unit))
-    extra = [key for key in keys if key not in HEADLINE_UNIT_FIELDS]
+    stored_pairs = list(dict.items(unit))
+    keys = [key for key, _stored_value in stored_pairs]
+
+    def _field_value(field):
+        for stored_key, stored_value in stored_pairs:
+            if any(key_text is not None
+                   and str.__eq__(key_text, field)
+                   for key_text in _registry_key_texts(stored_key)):
+                return True, stored_value
+        return False, None
+
+    extra = [
+        key for key in keys
+        if not any(
+            any(key_text is not None
+                and str.__eq__(key_text, field)
+                for key_text in _registry_key_texts(key))
+            for field in HEADLINE_UNIT_FIELDS)]
     if extra:
         return (
             "quote_headline_unit stands refused: fields beyond the closed "
             "unit: " + ", ".join(_stored_str(key) for key in extra)
             + ", and no unit stands quoted")
     for field in HEADLINE_UNIT_FIELDS:
-        if field not in keys or dict.get(unit, field) is None:
+        present, field_value = _field_value(field)
+        if not present or field_value is None:
             return (
                 "quote_headline_unit stands refused: headline unit field "
                 "absent: " + field + ", and no unit stands quoted")
-    if tuple(keys) != HEADLINE_UNIT_FIELDS:
+    if len(keys) != len(HEADLINE_UNIT_FIELDS) or not all(
+            any(key_text is not None
+                and str.__eq__(key_text, field)
+                for key_text in _registry_key_texts(key))
+            for key, field in zip(keys, HEADLINE_UNIT_FIELDS)):
         return (
             "quote_headline_unit stands refused: the headline unit fields "
             "stand out of the closed unit order, and no unit stands quoted")
     prefix = "quote_headline_unit stands refused: "
     suffix = ", and no unit stands quoted"
     try:
-        identifier = dict.get(
-            unit, "headline_unit_identifier_and_issue_date")
+        identifier = _field_value(
+            "headline_unit_identifier_and_issue_date")[1]
         if isinstance(identifier, str) \
                 and F01_UNIT_MARK in str.__str__(identifier):
             return (
@@ -2523,18 +2544,18 @@ def _headline_unit_refusal(unit):
                 "headline_unit_identifier_and_issue_date carries "
                 "the centre only fixture mark" + suffix)
         for field in HEADLINE_UNIT_FIELDS:
-            if not _envelope_part_stands(dict.get(unit, field)):
+            if not _envelope_part_stands(_field_value(field)[1]):
                 return (
                     prefix + "headline unit field " + field
                     + " stands empty, hidden, or in no standing "
                     "content form" + suffix)
         for field in ("holding_region", "failure_region"):
-            if not _region_stands(dict.get(unit, field)):
+            if not _region_stands(_field_value(field)[1]):
                 return (
                     prefix + "headline unit field " + field
                     + " does not carry its sampled point "
                     "enumeration in standing form" + suffix)
-        claim_value = dict.get(unit, "claim_sentence")
+        claim_value = _field_value("claim_sentence")[1]
         claim_text = claim_value
         if isinstance(claim_text, str):
             claim_text = str.__str__(claim_text)
@@ -2545,7 +2566,7 @@ def _headline_unit_refusal(unit):
                 "claims the result everywhere or over all points"
                 + suffix)
         if not _field10_stands(
-                dict.get(unit, "qualifiers_and_markings_block")):
+                _field_value("qualifiers_and_markings_block")[1]):
             return (
                 prefix + "headline unit field "
                 "qualifiers_and_markings_block does not carry "
@@ -2557,13 +2578,13 @@ def _headline_unit_refusal(unit):
                 "the mark a ground stated in the unit requires"
                 + suffix)
         if not _has_plain_scope_limits_sentence(
-                dict.get(unit, "claim_sentence")):
+                _field_value("claim_sentence")[1]):
             return (
                 prefix + "headline unit field claim_sentence "
                 "carries no plain scope and limits sentence"
                 + suffix)
         if not _has_plain_scope_limits_sentence(
-                dict.get(unit, "grounding_sentence")):
+                _field_value("grounding_sentence")[1]):
             return (
                 prefix + "headline unit field grounding_sentence "
                 "carries no plain scope and limits sentence"

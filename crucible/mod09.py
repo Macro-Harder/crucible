@@ -431,7 +431,7 @@ def _stored_copy(value, _memo=None):
     form carrying the key itself cannot stand inserted, in the
     MOD-14 cured form, so no carried entry is silently dropped
     on that reading and no bare error of those kinds escapes
-    the copy. A part
+    the copy. A text key whose plain stored text already stands in the copy from a distinct handed key stands carried under the same distinct numbered form, so two distinct keys storing the one text stand as two entries in the copy. A part
     in no container form and no buffer form stands copied
     as itself."""
     if _memo is None:
@@ -444,38 +444,49 @@ def _stored_copy(value, _memo=None):
         for key, item in dict.items(value):
             copied_key = _stored_copy(key, _memo)
             copied_item = _stored_copy(item, _memo)
-            try:
-                copied[copied_key] = copied_item
-            except (TypeError, RuntimeError, ValueError,
-                    AttributeError, OverflowError, KeyError,
-                    OSError):
-                counter = 2
-                while True:
-                    if isinstance(copied_key, str):
-                        candidate = (
-                            str.__str__(copied_key)
-                            + " (carried key " + str(counter) + ")")
-                    elif counter == 2:
-                        candidate = (copied_key, counter)
-                    else:
-                        candidate = (
-                            "(carried key " + str(counter) + ")")
-                    try:
-                        candidate_taken = candidate in copied
-                    except (TypeError, RuntimeError, ValueError,
-                            AttributeError, OverflowError, KeyError,
-                            OSError):
-                        candidate_taken = False
-                    if candidate_taken:
-                        counter += 1
-                        continue
-                    try:
-                        copied[candidate] = copied_item
-                        break
-                    except (TypeError, RuntimeError, ValueError,
-                            AttributeError, OverflowError, KeyError,
-                            OSError):
-                        counter += 1
+            key_taken = False
+            if isinstance(copied_key, str):
+                try:
+                    key_taken = copied_key in copied
+                except (TypeError, RuntimeError, ValueError,
+                        AttributeError, OverflowError, KeyError,
+                        OSError):
+                    key_taken = False
+            if not key_taken:
+                try:
+                    copied[copied_key] = copied_item
+                    continue
+                except (TypeError, RuntimeError, ValueError,
+                        AttributeError, OverflowError, KeyError,
+                        OSError):
+                    pass
+            counter = 2
+            while True:
+                if isinstance(copied_key, str):
+                    candidate = (
+                        str.__str__(copied_key)
+                        + " (carried key " + str(counter) + ")")
+                elif counter == 2:
+                    candidate = (copied_key, counter)
+                else:
+                    candidate = (
+                        "(carried key " + str(counter) + ")")
+                try:
+                    candidate_taken = candidate in copied
+                except (TypeError, RuntimeError, ValueError,
+                        AttributeError, OverflowError, KeyError,
+                        OSError):
+                    candidate_taken = False
+                if candidate_taken:
+                    counter += 1
+                    continue
+                try:
+                    copied[candidate] = copied_item
+                    break
+                except (TypeError, RuntimeError, ValueError,
+                        AttributeError, OverflowError, KeyError,
+                        OSError):
+                    counter += 1
         return copied
     if isinstance(value, list):
         if id(value) in _memo:
@@ -619,7 +630,8 @@ def _catalogue_repr(name, _depth=0, _seen=None):
         return repr(complex.__complex__(name))
     try:
         stored = vars(name)
-    except TypeError:
+    except (TypeError, RuntimeError, ValueError, AttributeError,
+            OverflowError, KeyError, OSError):
         stored = None
     if isinstance(stored, dict):
         if _seen is not None and id(name) in _seen:
@@ -867,7 +879,7 @@ def _render_safe_copy(value, _depth=0, _seen=None):
     construction stands carried whole in list form, in the
     cured pole list form of this module family. A part
     standing past a depth of 100, or standing again on its own
-    copy path, stands as its base object repr text."""
+    copy path, stands as its base object repr text. A text key whose plain stored text already stands in the copy from a distinct handed key stands carried under the same distinct numbered form, so two distinct keys storing the one text stand as two entries in the copy."""
     if isinstance(value, dict):
         if _depth > 100 or (
                 _seen is not None and id(value) in _seen):
@@ -877,38 +889,49 @@ def _render_safe_copy(value, _depth=0, _seen=None):
         for key, item in list(dict.items(value)):
             copied_key = _render_safe_copy(key, _depth + 1, seen)
             copied_item = _render_safe_copy(item, _depth + 1, seen)
-            try:
-                copied[copied_key] = copied_item
-            except (TypeError, RuntimeError, ValueError,
-                    AttributeError, OverflowError, KeyError,
-                    OSError):
-                counter = 2
-                while True:
-                    if isinstance(copied_key, str):
-                        candidate = (
-                            str.__str__(copied_key)
-                            + " (carried key " + str(counter) + ")")
-                    elif counter == 2:
-                        candidate = (copied_key, counter)
-                    else:
-                        candidate = (
-                            "(carried key " + str(counter) + ")")
-                    try:
-                        candidate_taken = candidate in copied
-                    except (TypeError, RuntimeError, ValueError,
-                            AttributeError, OverflowError, KeyError,
-                            OSError):
-                        candidate_taken = False
-                    if candidate_taken:
-                        counter += 1
-                        continue
-                    try:
-                        copied[candidate] = copied_item
-                        break
-                    except (TypeError, RuntimeError, ValueError,
-                            AttributeError, OverflowError, KeyError,
-                            OSError):
-                        counter += 1
+            key_taken = False
+            if isinstance(copied_key, str):
+                try:
+                    key_taken = copied_key in copied
+                except (TypeError, RuntimeError, ValueError,
+                        AttributeError, OverflowError, KeyError,
+                        OSError):
+                    key_taken = False
+            if not key_taken:
+                try:
+                    copied[copied_key] = copied_item
+                    continue
+                except (TypeError, RuntimeError, ValueError,
+                        AttributeError, OverflowError, KeyError,
+                        OSError):
+                    pass
+            counter = 2
+            while True:
+                if isinstance(copied_key, str):
+                    candidate = (
+                        str.__str__(copied_key)
+                        + " (carried key " + str(counter) + ")")
+                elif counter == 2:
+                    candidate = (copied_key, counter)
+                else:
+                    candidate = (
+                        "(carried key " + str(counter) + ")")
+                try:
+                    candidate_taken = candidate in copied
+                except (TypeError, RuntimeError, ValueError,
+                        AttributeError, OverflowError, KeyError,
+                        OSError):
+                    candidate_taken = False
+                if candidate_taken:
+                    counter += 1
+                    continue
+                try:
+                    copied[candidate] = copied_item
+                    break
+                except (TypeError, RuntimeError, ValueError,
+                        AttributeError, OverflowError, KeyError,
+                        OSError):
+                    counter += 1
         return copied
     if isinstance(value, list):
         if _depth > 100 or (

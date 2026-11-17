@@ -1059,11 +1059,11 @@ def derivation_input_record(value):
     params = _base_dict_get(value, "parameter_values")
     if not isinstance(params, dict):
         params = {}
-    stored_names = list(dict.__iter__(params))
+    stored_pairs = list(dict.items(params))
+    stored_pairs.sort(key=lambda pair: _stored_name(pair[0]))
     rendered = tuple(
-        _stored_name(name) + "=" + _stored_name(
-            dict.__getitem__(params, name))
-        for name in sorted(stored_names, key=_stored_name))
+        _stored_name(name) + "=" + _stored_name(item)
+        for name, item in stored_pairs)
     return {
         "derivation_version_string": _base_dict_get(
             value, "derivation_version"),
@@ -1099,12 +1099,14 @@ def run_record_derivation_fields(value):
     carried = _base_dict_get(value, "parameter_values")
     if not isinstance(carried, dict):
         carried = {}
-    stored_names = list(dict.__iter__(carried))
+    stored_pairs = list(dict.items(carried))
+    stored_pairs.sort(key=lambda pair: _stored_name(pair[0]))
     return {
         "derivation_version": _base_dict_get(value, "derivation_version"),
         "parameter_values": {
-            name: dict.__getitem__(carried, name)
-            for name in sorted(stored_names, key=_stored_name)
+            (str.__str__(name) if isinstance(name, str)
+             else name): item
+            for name, item in stored_pairs
         },
     }
 

@@ -91,11 +91,20 @@ def _vocabulary_text(value):
     """Render a handed value for a vocabulary sentence: a text
     form or a buffer form stands rendered by the text it stores,
     read through _stored_text, so a memoryview form names the
-    value it stores and never a volatile memory address. Any
-    other form stands rendered through _safe_str."""
+    value it stores and never a volatile memory address. A plain
+    number stands rendered as its own text, on the plain
+    number _plain_number builds from base operations, never
+    through a reading the value itself supplies. Any
+    other form stands rendered through _stored_text as well, on
+    the text it stores, which stands as the empty text for a
+    value carrying no text form, so no name stands rendered
+    from a string reading a non text value itself supplies."""
     if isinstance(value, (str, bytes, bytearray, memoryview)):
         return _stored_text(value)
-    return _safe_str(value)
+    plain = _plain_number(value)
+    if plain is not None:
+        return str(plain)
+    return _stored_text(value)
 
 
 def _stored_repr(value, _depth=0):
@@ -2642,7 +2651,7 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
                         continue
                     where = (
                         " for viewer " + _vocabulary_text(dict.get(delivery, "viewer_id"))
-                        + " at day " + _safe_str(dict.get(delivery, "simulated_day")))
+                        + " at day " + _vocabulary_text(dict.get(delivery, "simulated_day")))
                     if isinstance(component, (int, float)) and not isinstance(
                             component, bool):
                         raise ValueError(
@@ -3349,7 +3358,7 @@ def retain_checkpoint(manifest, store_kind="sweep"):
         named_day = judged_form[1] if judged_form[0] == "int" else judged_day
         raise ValueError(
             "second checkpoint for the same run and day is rejected: "
-            + _vocabulary_text(run_id) + " day " + _safe_str(named_day))
+            + _vocabulary_text(run_id) + " day " + _vocabulary_text(named_day))
     if len(bucket) >= 10000:
         raise ValueError("checkpoint cap in named form: a run stands at the ruled cap of 10,000 checkpoints per run under ruling Entry 18, and no further checkpoint stands retained")
     stored = _safe_copy(manifest)
