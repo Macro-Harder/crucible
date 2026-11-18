@@ -106,9 +106,10 @@ class TestR1604Presentation(unittest.TestCase):
             self.assertIn(prose, presentation["awaiting_supply_fields"])
         self.assertIn(
             "awaiting supply", presentation["standing"])
-        self.assertIn(
+        self.assertNotIn(
             "scheduling_order_identifier",
             presentation["placeholder_fields"])
+        self.assertEqual(presentation["placeholder_fields"], [])
 
     def test_made_record_carries_the_presentation(self):
         record = mod12.make_family_record()

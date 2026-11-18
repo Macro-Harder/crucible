@@ -259,9 +259,15 @@ class TestF401PreservedProductForms(unittest.TestCase):
             mod12.family_record_validation_failures(sealed), [])
         self.assertTrue(mod12.validate_family_record(sealed))
         self.assertTrue(mod11.validate_family_record(sealed))
-        self.assertTrue(
-            mod01.family_supports_reportable_run(sealed).truth_value)
+        judgement = mod01.family_supports_reportable_run(sealed)
+        self.assertFalse(judgement.truth_value)
+        self.assertFalse(judgement.reportable_ready)
         self.assertTrue(mod01.run_is_reportable("1", sealed))
+        supplied = sealed_supplied()
+        supplied_judgement = mod01.family_supports_reportable_run(
+            supplied)
+        self.assertTrue(supplied_judgement.truth_value)
+        self.assertTrue(supplied_judgement.reportable_ready)
 
 
 if __name__ == "__main__":
