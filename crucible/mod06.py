@@ -2939,10 +2939,28 @@ def validate_escrow_result(result):
 # ---------------------------------------------------------------------------
 
 def allowed_subpaths():
+    """The allowed subpaths of the escrow core instructions.
+
+        Arguments: no argument stands handed in.
+        Returns: a mapping of the allowed subpaths, a copy of
+        the allowed subpath table the core stands on.
+        Failure: no exception stands raised at this door; the
+        mapping stands returned as it stands.
+    """
     return dict(_ALLOWED)
 
 
 def excluded_subpaths():
+    """The excluded subpaths of the escrow core instructions.
+
+        Arguments: no argument stands handed in.
+        Returns: a mapping naming each excluded subpath and the
+        ground of its exclusion, the pool subpaths and the
+        excluded profile among them.
+        Failure: no exception stands raised at this door; an
+        instruction on an excluded subpath stands refused at
+        the instruction doors in their named refusal form.
+    """
     return {
         "pool subpaths": "excluded; no pool instruction stands among the 12 core instructions",
         EXCLUDED_PROFILE: "excluded in every working run; the construction that needs a DQ-5 answer",
@@ -3071,6 +3089,15 @@ def classify_instruction_refusal():
 
 
 def instruction_refusal_class():
+    """The refusal class of an escrow instruction.
+
+        Arguments: no argument stands handed in.
+        Returns: the answer of classify_instruction_refusal, the
+        refusal classification the core stands on.
+        Failure: no exception stands raised at this door of its
+        own; a failure of the classification stands as
+        classify_instruction_refusal answers it.
+    """
     return classify_instruction_refusal()
 
 
@@ -3103,6 +3130,17 @@ def pause_cap(variant="B-4", stated_value=None):
 
 
 def pause_value_in_force(variant="B-4", stated_value=None):
+    """The pause value in force for one escrow variant.
+
+        Arguments: variant, the escrow variant, B-4 where none
+        stands handed in; stated_value, the pause value the
+        contract states, or None.
+        Returns: the answer of pause_cap on the variant and the
+        stated value, the pause value in force.
+        Failure: no exception stands raised at this door of its
+        own; a value outside the pause cap stands as pause_cap
+        answers it.
+    """
     return pause_cap(variant, stated_value=stated_value)
 
 
@@ -3146,6 +3184,14 @@ def recommended_sweep_set():
 
 
 def profiles():
+    """The escrow profiles of the recommended sweep set.
+
+        Arguments: no argument stands handed in.
+        Returns: the answer of recommended_sweep_set, the
+        profiles the recommended sweep set states.
+        Failure: no exception stands raised at this door; the
+        profiles stand returned as they stand.
+    """
     return recommended_sweep_set()
 
 

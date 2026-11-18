@@ -94,6 +94,17 @@ class NamedFailure(Exception):
 
 
 class AlterationBarred(NamedFailure):
+    """The named failure raised where an alteration stands barred.
+
+        Arguments: the failure message handed to the exception,
+        as NamedFailure takes it.
+        Returns: an exception instance of this class, raised by
+        the doors that bar an alteration, never returned as a
+        value.
+        Failure: this class is the failure form itself: a named
+        failure, raised, never a partial record presented as
+        complete.
+    """
     pass
 
 
@@ -475,11 +486,34 @@ class DeliveryPoint:
 
 
 class RuleCoreDeliveryPoint(DeliveryPoint):
+    """The delivery point where the rule cores receive deliveries.
+
+        Arguments: no argument stands handed in; the point names
+        itself rule_core_delivery for the rule_cores side.
+        Returns: a DeliveryPoint standing for the rule core
+        delivery point of the Tick Engine.
+        Failure: no exception stands raised at this door; a
+        delivery that cannot stand at this point stands refused
+        by the delivery acts that use the point, in their named
+        failure form.
+    """
     def __init__(self):
         super().__init__("rule_core_delivery", "rule_cores")
 
 
 class DetectionLayerDeliveryPoint(DeliveryPoint):
+    """The delivery point where the Detection Layer receives deliveries.
+
+        Arguments: no argument stands handed in; the point names
+        itself detection_layer_delivery for the detection_layer
+        side.
+        Returns: a DeliveryPoint standing for the Detection Layer
+        delivery point of the Tick Engine.
+        Failure: no exception stands raised at this door; a
+        delivery that cannot stand at this point stands refused
+        by the delivery acts that use the point, in their named
+        failure form.
+    """
     def __init__(self):
         super().__init__("detection_layer_delivery", "detection_layer")
 
@@ -2302,6 +2336,17 @@ def exercise_f09_canary(canary_value=CANARY_VALUE):
 
 
 def canary_appears_in_projection(canary_value=CANARY_VALUE):
+    """Whether the F-09 canary value appears in a projection.
+
+        Arguments: canary_value, the canary value to exercise,
+        standing as CANARY_VALUE where none stands handed in.
+        Returns: the answer of exercise_f09_canary on the canary
+        value handed in, stating whether the canary appears in
+        the projection the exercise builds.
+        Failure: no exception stands raised at this door of its
+        own; a failure of the exercise stands as the exercise
+        answers it.
+    """
     return exercise_f09_canary(canary_value)
 
 
@@ -2336,10 +2381,30 @@ class TickEngine:
 
 
 def run(*args, **kwargs):
+    """Run one run on a fresh TickEngine.
+
+        Arguments: the arguments of TickEngine.run, handed
+        through as they stand.
+        Returns: the answer of TickEngine.run on a fresh engine,
+        a completed or a failed run as that door states it.
+        Failure: a gated run stands refused by that door in its
+        named failure form, the GatedRun failure naming the
+        DQ7-02 adoption gate; no seed stands drawn at this door.
+    """
     return TickEngine().run(*args, **kwargs)
 
 
 def tick(*args, **kwargs):
+    """Advance one tick on a fresh TickEngine.
+
+        Arguments: the arguments of TickEngine.tick, handed
+        through as they stand.
+        Returns: the answer of TickEngine.tick on a fresh engine,
+        the tick standing as that door states it.
+        Failure: a gated tick stands refused by that door in its
+        named failure form, the GatedRun failure naming the
+        DQ7-02 adoption gate; no seed stands drawn at this door.
+    """
     return TickEngine().tick(*args, **kwargs)
 
 

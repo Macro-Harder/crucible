@@ -3070,6 +3070,15 @@ def validate_calibration_field(value):
 
 
 def validate_store_kind(kind):
+    """Whether one value stands as a stated store kind.
+
+        Arguments: kind, the value handed in for judgement.
+        Returns: True where the value stands as one of the stated
+        store kinds in STORE_KINDS, and False in every other case.
+        Failure: no exception stands raised for a value in no
+        stated kind form; the failure form is the bare False
+        return.
+    """
     return _stored_text_in(kind, STORE_KINDS)
 
 
@@ -3145,6 +3154,15 @@ def validate_store_addressing(addressing):
 
 
 def reserved_matter_values():
+    """The reserved matter values a record may carry.
+
+        Arguments: no argument stands handed in.
+        Returns: RESERVED_MATTER_VALUES, the tuple of reserved
+        matter values the reserved matter group of a record
+        admits.
+        Failure: no exception stands raised at this door; the
+        values stand returned as they stand.
+    """
     return RESERVED_MATTER_VALUES
 
 
@@ -3182,9 +3200,8 @@ class StatedJudgement:
     The judgement states, on its face and in its attributes, the
     standing its answer rests on: which fields stand open, which
     stand supplied, which stand diverged, and whether the record
-    stands reportable ready on supplied values. Its boolean
-    reading (the value attribute, and the reading __bool__
-    answers) stands as the completeness bar judgement the
+    stands reportable ready on supplied values. Its value
+    attribute stands as the completeness bar judgement the
     TG-01.3 pin states: a record carrying every completeness
     field as an open marker stands complete on that limb. Its
     truth value stands apart from that bar reading (Step 16 fix
@@ -3194,7 +3211,13 @@ class StatedJudgement:
     the reportable ready value, so a reader of the truth value,
     of an equality reading against a boolean, or of the dict
     form takes the qualified standing and not an unqualified
-    True. The dict form of the same judgement stands at
+    True. The boolean reading __bool__ answers stands as the
+    truth value stands (Step 16 fix wave 7, row F7-01, ruling
+    T16-73): a judgement tests in a boolean context exactly as
+    its truth value stands, at every door that returns one, so
+    the boolean a caller reads from a judgement and the truth
+    value the judgement states cannot part company. The dict
+    form of the same judgement stands at
     family_reportable_standing.
     """
 
@@ -3216,7 +3239,7 @@ class StatedJudgement:
                 self.reportable_ready or not self.open_fields))
 
     def __bool__(self):
-        return self.value
+        return self.truth_value
 
     def __eq__(self, other):
         if isinstance(other, bool):
@@ -4599,6 +4622,44 @@ def _record_validation_failures(form_id, instance):
                 "stands outside the record the form states",
                 "remove the field " + stored + ", or check its "
                 "spelling against the form field list"))
+    # Container value in a scalar stated field (Step 16 fix
+    # wave 7, row F7-02, ruling T16-73): a value standing in a
+    # container form, a dict, a list, or a set, in a field whose
+    # stated form is scalar stands named here in the standing
+    # failure form, so validate_record, which answers as this
+    # list stands, refuses the record on the same fault. This
+    # entry stands on Form 2, the sweep point specification
+    # form, where every field stands in a scalar stated form:
+    # identifiers, stepped numbers, selectors, and stated text
+    # values, no field of the form admitting a container. On
+    # the other forms the product carries fields whose stated
+    # form is itself a container and single part container
+    # dresses the doors read as the scalar value they wrap, and
+    # no stated form table in the product distinguishes those
+    # fields field by field, so a container entry at those
+    # forms would refuse values in their stated forms, which
+    # the bound forbids; those forms stand outside this entry
+    # exactly as they stood before this wave.
+    if fid == "2":
+        for field in form_fields(fid):
+            found, value = present_value(field)
+            if found and isinstance(value, (dict, list, set)):
+                if isinstance(value, dict):
+                    _container_word = "a dict"
+                elif isinstance(value, list):
+                    _container_word = "a list"
+                else:
+                    _container_word = "a set"
+                failures.append(_failure_sentence(
+                    field,
+                    "the field stands in a scalar stated form on "
+                    "this form, and the value the record carries "
+                    "on it stands in a container form, " +
+                    _container_word + ", which no scalar stated "
+                    "form admits",
+                    "hand the field " + field + " with a value in "
+                    "the scalar form the form states for it, not "
+                    "in a container form"))
     for field, checker, stated in (
             ("calibration_claim_field", validate_calibration_field,
              "the stated calibration claim form"),
@@ -5053,6 +5114,16 @@ def run_is_reportable(form_id, instance):
 # ---------------------------------------------------------------------------
 
 def named_failure_forms():
+    """The named failure forms of the product.
+
+        Arguments: no argument stands handed in.
+        Returns: NAMED_FAILURES, the tuple of named failure forms
+        the failure representation stands on, each a failure stated
+        as a value with a name.
+        Failure: no exception stands raised at this door; the
+        failure form is the named failure forms themselves, which
+        this door returns as they stand.
+    """
     return NAMED_FAILURES
 
 
@@ -5256,6 +5327,18 @@ class VersionStamp:
 
 
 def validate_version_stamp(stamp, sealed_family_hash=None):
+    """Whether one version stamp stands complete and matching.
+
+        Arguments: stamp, a VersionStamp or a mapping of its
+        fields; sealed_family_hash, the sealed family hash the
+        stamp must match where one stands handed in, or None.
+        Returns: True where every VersionStamp field stands
+        present on the stamp and, where a sealed family hash
+        stands handed in, the stamp family manifest hash stands
+        equal to it; False in every other case.
+        Failure: no exception stands raised for a malformed
+        stamp; the failure form is the bare False return.
+    """
     try:
         values = VersionStamp.as_dict(stamp) if isinstance(
             stamp, VersionStamp) else stamp
@@ -5409,6 +5492,19 @@ def _stored_key(key):
 
 
 def validate_provenance_block(block):
+    """Whether one provenance block stands in its stated form.
+
+        Arguments: block, a ProvenanceBlock or a mapping of its
+        fields, carrying its excluded class counts, its excluded
+        class shares, and its entries.
+        Returns: True where the counts and the shares stand as
+        non empty mappings over the one key set, every count
+        stands as a count value, every share stands as a share
+        value, and every entry carries its field and its
+        applicability; False in every other case.
+        Failure: no exception stands raised for a malformed
+        block; the failure form is the bare False return.
+    """
     try:
         data = ProvenanceBlock.as_dict(block) if isinstance(
             block, ProvenanceBlock) else block

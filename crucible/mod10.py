@@ -3284,6 +3284,163 @@ RECORDER_DAILY_AGGREGATE_SHAPE = "Recorder daily aggregate row"
 FORM14_DAILY_AGGREGATES_SHAPE = "mod01 Form 14 DailyAggregates record"
 
 
+def daily_aggregates_validation_failures(aggregates):
+    """Every reason validate_daily_aggregates refuses the
+    aggregates handed in, as a list of named failures (Step 16
+    fix wave 7, row F7-03, ruling T16-73).
+
+    Arguments: aggregates, the handing validate_daily_aggregates
+    judges, a list or tuple of Recorder daily aggregate rows.
+    Returns: a list of sentences, one per fault, each naming
+    the stated value refused, the rule it breaks, and the next
+    step, in the named failure form the sibling surfaces use.
+    An empty list stands for a handing
+    validate_daily_aggregates accepts.
+    Failure: no exception stands raised for a malformed
+    handing; the failure form is the named sentences this door
+    returns, beside the bare False of
+    validate_daily_aggregates, whose boolean signature and
+    standing answers stand unchanged.
+
+    A formally valid mod01 Form 14 DailyAggregates record
+    stands refused at this door, and the refusal stands named
+    here in the open: the record stands in the Form 14 shape,
+    keyed by run_identifier and viewer_identifier, while this
+    door judges Recorder daily aggregate rows, keyed by
+    viewer_id beside run_id, so the stated value refused is
+    the record shape itself, and the Form 14 record stands
+    judged at validate_form14_daily_aggregates_record.
+    """
+    failures = []
+
+    def _form14_shaped(record):
+        return isinstance(record, dict) and (
+            dict.__contains__(record, "viewer_identifier")
+            or dict.__contains__(record, "run_identifier"))
+
+    if not isinstance(aggregates, (list, tuple)):
+        if _form14_shaped(aggregates):
+            failures.append(
+                "validate_daily_aggregates stands refused: the "
+                "handing stands as one mod01 Form 14 "
+                "DailyAggregates record, keyed by "
+                "run_identifier and viewer_identifier, and this "
+                "door judges Recorder daily aggregate rows in a "
+                "list or tuple, keyed by viewer_id beside "
+                "run_id, so the stated value refused is the "
+                "Form 14 record shape itself; next step: hand "
+                "the aggregates as a list of Recorder daily "
+                "aggregate rows, or judge the Form 14 record at "
+                "validate_form14_daily_aggregates_record, and "
+                "no aggregates stand validated")
+        else:
+            failures.append(
+                "validate_daily_aggregates stands refused: the "
+                "handing stands in no list or tuple form, and "
+                "this door judges Recorder daily aggregate rows "
+                "handed as a list or tuple; next step: hand the "
+                "aggregates as a list or tuple of Recorder "
+                "daily aggregate rows, and no aggregates stand "
+                "validated")
+        return failures
+    stored_records = list(_base_iter(aggregates))
+    if not stored_records:
+        failures.append(
+            "validate_daily_aggregates stands refused: the "
+            "handing carries no Recorder daily aggregate row, "
+            "and this door judges at least one row; next step: "
+            "hand at least one Recorder daily aggregate row, "
+            "and no aggregates stand validated")
+        return failures
+    for record in stored_records:
+        if not isinstance(record, dict):
+            failures.append(
+                "validate_daily_aggregates stands refused: one "
+                "handed row stands in no record form, and every "
+                "Recorder daily aggregate row stands as a "
+                "record; next step: hand every row as a record, "
+                "and no aggregates stand validated")
+            continue
+        if dict.__contains__(record, "singular_vector"):
+            failures.append(
+                "validate_daily_aggregates stands refused: "
+                "field singular_vector: a Recorder daily "
+                "aggregate row carries no singular_vector "
+                "field, and the handed row carries one; next "
+                "step: remove the field singular_vector from "
+                "the row, and no aggregates stand validated")
+        if not dict.__contains__(record, "viewer_id"):
+            if _form14_shaped(record):
+                failures.append(
+                    "validate_daily_aggregates stands refused: "
+                    "field viewer_id: the row carries "
+                    "viewer_identifier, the mod01 Form 14 "
+                    "DailyAggregates field name, and no "
+                    "viewer_id, and this door judges Recorder "
+                    "daily aggregate rows keyed by viewer_id "
+                    "beside run_id, so the stated value refused "
+                    "is the Form 14 record shape the row "
+                    "stands in; next step: hand Recorder daily "
+                    "aggregate rows keyed by viewer_id, or "
+                    "judge the Form 14 record at "
+                    "validate_form14_daily_aggregates_record, "
+                    "and no aggregates stand validated")
+            else:
+                failures.append(
+                    "validate_daily_aggregates stands refused: "
+                    "field viewer_id: a Recorder daily "
+                    "aggregate row stands keyed by viewer_id "
+                    "beside run_id, and the handed row carries "
+                    "no viewer_id; next step: supply the field "
+                    "viewer_id on the row, and no aggregates "
+                    "stand validated")
+        for field in ("joint_outcome_components",
+                      "component_denominators"):
+            if dict.__contains__(record, field):
+                values = dict.get(record, field)
+                if isinstance(values, (list, tuple)):
+                    values = list(_base_iter(values))
+                if not _components_stand_numeric(values):
+                    failures.append(
+                        "validate_daily_aggregates stands "
+                        "refused: field " + field + ": the "
+                        "components a Recorder daily aggregate "
+                        "row carries stand as numbers, and the "
+                        "value the row carries on this field "
+                        "stands in no numeric component form; "
+                        "next step: hand the field " + field +
+                        " as numeric components, and no "
+                        "aggregates stand validated")
+        if dict.__contains__(record, "joint_outcome_components"):
+            components = dict.get(
+                record, "joint_outcome_components")
+            if isinstance(components, (list, tuple)):
+                components = list(_base_iter(components))
+            if not isinstance(components, (list, tuple)):
+                failures.append(
+                    "validate_daily_aggregates stands refused: "
+                    "field joint_outcome_components: the "
+                    "components stand as a list or tuple of "
+                    "four numbers, and the value the row "
+                    "carries on this field stands in no list "
+                    "or tuple form; next step: hand the field "
+                    "joint_outcome_components as four numeric "
+                    "components, and no aggregates stand "
+                    "validated")
+            elif len(components) != 4:
+                failures.append(
+                    "validate_daily_aggregates stands refused: "
+                    "field joint_outcome_components: the "
+                    "components stand as four numbers, and the "
+                    "value the row carries on this field "
+                    "stands as " + str(len(components)) +
+                    " components; next step: hand the field "
+                    "joint_outcome_components as four numeric "
+                    "components, and no aggregates stand "
+                    "validated")
+    return failures
+
+
 def validate_recorder_daily_aggregate_rows(aggregates):
     """Judge Recorder daily aggregate rows under their own name.
 

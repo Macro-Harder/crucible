@@ -364,10 +364,28 @@ def work_credit(events):
 
 
 def credit_work(events):
+    """The work credit of a set of work events, at the credit door.
+
+        Arguments: events, the work events handed in.
+        Returns: the answer of work_credit on the events, the
+        credit the events stand under at this door.
+        Failure: no exception stands raised at this door of its
+        own; a failure of the credit act stands as work_credit
+        answers it.
+    """
     return work_credit(events)
 
 
 def accept_work(events):
+    """The work credit of a set of work events, at the accept door.
+
+        Arguments: events, the work events handed in.
+        Returns: the answer of work_credit on the events, the
+        credit the events stand under at this door.
+        Failure: no exception stands raised at this door of its
+        own; a failure of the credit act stands as work_credit
+        answers it.
+    """
     return work_credit(events)
 
 
@@ -579,6 +597,18 @@ def feeder_position(feeder, edges):
 # ---------------------------------------------------------------------------
 
 def aggregation_interface():
+    """The standing of the aggregation interface, stated in the open.
+
+        Arguments: no argument stands handed in.
+        Returns: a mapping stating the interface form, its
+        standing, that no aggregation rule stands adopted, that
+        the candidate stands as a comparison form only, and that
+        headline use stands not permitted, with DQ7-04 BLOCKED
+        in its standing.
+        Failure: no exception stands raised at this door; the
+        failure form is the standing the mapping states, no
+        adopted rule and no headline use permitted.
+    """
     return {
         "form": "interface",
         "standing": AGGREGATION_STANDING,
@@ -703,10 +733,30 @@ def aggregate_reputation(inputs):
 
 
 def aggregation_score(inputs):
+    """The aggregation score of one set of inputs.
+
+        Arguments: inputs, the inputs handed in for scoring.
+        Returns: the answer of aggregate_reputation on the
+        inputs, the score the inputs stand under.
+        Failure: an input set carrying none of the stated
+        candidate fields stands refused by aggregate_reputation
+        in its named refusal form, and no score stands returned
+        for it.
+    """
     return aggregate_reputation(inputs)
 
 
 def compare_aggregation(inputs):
+    """The aggregation comparison of one set of inputs.
+
+        Arguments: inputs, the inputs handed in for comparison.
+        Returns: the answer of aggregate_reputation on the
+        inputs, the comparison the inputs stand under.
+        Failure: an input set carrying none of the stated
+        candidate fields stands refused by aggregate_reputation
+        in its named refusal form, and no comparison stands
+        returned for it.
+    """
     return aggregate_reputation(inputs)
 
 
@@ -966,6 +1016,19 @@ def boundary_neighbourhood(scores, boundary, distance_slices):
 
 
 def band_transition(scores, boundary, distance_slices, form="society level"):
+    """The band transition reading of scores at one boundary.
+
+        Arguments: scores, the scores handed in; boundary, the
+        band boundary the reading stands at; distance_slices,
+        the distance slices of the neighbourhood reading; form,
+        the form the result stands under, society level where
+        none stands handed in.
+        Returns: the boundary neighbourhood reading of the
+        scores, carrying the form handed in on its face.
+        Failure: no exception stands raised at this door of its
+        own; a failure of the neighbourhood reading stands as
+        boundary_neighbourhood answers it.
+    """
     result = boundary_neighbourhood(scores, boundary, distance_slices)
     result["form"] = form
     return result
@@ -1004,6 +1067,17 @@ def gate_passing_share(eligible, passing, epoch=None):
 
 
 def compute_share(eligible, passing, epoch=None):
+    """The gate passing share of one epoch, at the compute door.
+
+        Arguments: eligible, the eligible count or set; passing,
+        the passing count or set; epoch, the epoch the share
+        stands for, or None.
+        Returns: the answer of gate_passing_share on the values
+        handed in, the share the epoch stands under.
+        Failure: no exception stands raised at this door of its
+        own; a share that cannot stand computed stands as
+        gate_passing_share answers it.
+    """
     return gate_passing_share(eligible, passing, epoch=epoch)
 
 
@@ -1017,6 +1091,15 @@ def share_for_epoch(epoch, eligible=None, passing=None):
 
 
 def undelivered_share():
+    """The share value that stands for an undelivered share.
+
+        Arguments: no argument stands handed in.
+        Returns: UNKNOWN_SHARE, the stated unknown share value,
+        standing for a share no delivery stands behind.
+        Failure: no exception stands raised at this door; the
+        unknown value is itself the honest standing of an
+        undelivered share, never a scored zero.
+    """
     return UNKNOWN_SHARE
 
 
@@ -1130,10 +1213,28 @@ def cost_statement_valid(record):
 
 
 def cost_statement(record):
+    """The cost statement standing of one record.
+
+        Arguments: record, the record handed in for judgement.
+        Returns: a mapping carrying one entry, valid, standing
+        as the answer of cost_statement_valid on the record.
+        Failure: no exception stands raised at this door; a
+        record whose cost statement stands invalid answers with
+        valid standing False in the mapping.
+    """
     return {"valid": cost_statement_valid(record)}
 
 
 def validate_run_share_logs(record):
+    """Whether the share logs of one record stand valid.
+
+        Arguments: record, the record handed in for judgement.
+        Returns: the answer of cost_statement_valid on the
+        record, True where its cost and share statement stands
+        valid and False in every other case.
+        Failure: no exception stands raised for an invalid
+        record; the failure form is the bare False return.
+    """
     return cost_statement_valid(record)
 
 
@@ -2968,10 +3069,32 @@ def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
 
 
 def adjudication_outcome(case, **kwargs):
+    """The adjudication outcome of one case.
+
+        Arguments: case, the adjudication case handed in, with
+        the further arguments of adjudicate handed through as
+        they stand.
+        Returns: the answer of adjudicate on the case, the
+        outcome the case stands under.
+        Failure: no exception stands raised at this door of its
+        own; a failure of the adjudication stands as adjudicate
+        answers it, in its named form.
+    """
     return adjudicate(case, **kwargs)
 
 
 def challenge_outcome(case, **kwargs):
+    """The challenge outcome of one case.
+
+        Arguments: case, the challenge case handed in, with the
+        further arguments of adjudicate handed through as they
+        stand.
+        Returns: the answer of adjudicate on the case, the
+        outcome the challenge stands under.
+        Failure: no exception stands raised at this door of its
+        own; a failure of the adjudication stands as adjudicate
+        answers it, in its named form.
+    """
     return adjudicate(case, **kwargs)
 
 
