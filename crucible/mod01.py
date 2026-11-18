@@ -3389,6 +3389,16 @@ def completeness_standing(record):
     naming where it has one, whether it stands alone or beside
     a diverged pair. A field standing with both spellings
     present keeps the naming its standing already carries.
+
+    Beside a diverged pair (Step 16 fix wave 5, row F5-01,
+    ruling T16-60), that naming runs per field unmet, not per
+    branch taken: a field standing with both spellings
+    present in an unmet kind (a placeholder, a bare scalar,
+    or an absent value on both spellings) stands named in
+    missing_fields and in the standing sentence beside the
+    diverged naming, in field order, beside its own kind
+    bucket. The alone form and the pure diverged form keep
+    their standing wordings.
     """
     result = {
         "fields": [],
@@ -3453,8 +3463,10 @@ def completeness_standing(record):
             result["bare_scalar_fields"].append(prose)
         else:
             result["absent_fields"].append(prose)
-        if diverged_stands and not (
-                prose_present and slug_present) and (
+        if diverged_stands and standing != "diverged" and (
+                not (prose_present and slug_present)
+                or standing not in (
+                    "open marker", "supplied")) and (
                 prose not in result["missing_fields"]):
             result["missing_fields"].append(prose)
     complete = all(
@@ -3479,6 +3491,18 @@ def completeness_standing(record):
                 "; the fields named also do not stand with both "
                 "spellings present, and stand named as not "
                 "standing complete: " + ", ".join(spelling_unmet))
+        both_present_unmet = [
+            entry["field"] for entry in result["fields"]
+            if entry["brief_name_present"]
+            and entry["form_name_present"]
+            and entry["standing"] not in (
+                "open marker", "supplied", "diverged")]
+        if both_present_unmet:
+            result["standing"] += (
+                "; the fields named also stand with both "
+                "spellings present in an unmet form, and stand "
+                "named as not standing complete: "
+                + ", ".join(both_present_unmet))
     elif not complete:
         result["standing"] = (
             "completeness standing unmet: the fields named do not "
