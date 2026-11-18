@@ -3897,16 +3897,141 @@ _FAMILY_EDIT_KEYS = (
 )
 
 
+_SEAL_NO_HASH_STANDING = (
+    "no hash value stands on the record; "
+    "no hash stands computed by this seal")
+
+_SEAL_RECORDED_HASH_STANDING = (
+    "hash value as recorded on the record, "
+    "stated as the hash")
+
+_EDITED_IDENTIFIER_SUFFIX = "-edited-1"
+
+
+def _seal_form_stands(family_record):
+    """Whether the sealed standing of one family record stands
+    in the form the product own seal act writes it (Step 16
+    fix wave 4, row F4-01, ruling T16-49), in the same
+    settlement MOD-01 and MOD-12 state: the record stands
+    sealed, the seal stands as a record value carrying the
+    version, hash, and hash standing keys alone, the seal
+    version and the seal hash stand equal to the version and
+    the hash the seal itself carries, the family manifest hash
+    stands equal to that hash, the hash standing stands in the
+    form the seal act writes for the hash it carries, the seal
+    version stands as the family version the record carries or
+    as the seal act default where no version value stands, and
+    the sweep manifest stands as the manifest the sweep act
+    produces for the record as it stands, its family
+    identifier, its family version, and its sealed family
+    record hash, the first hash value standing among the
+    family manifest hash, the seal hash, and the seal hash
+    itself. A sealed standing in any other form stands in no
+    form the seal act writes."""
+    if _registry_stored_value(family_record, "sealed") is not True:
+        return False
+    seal = _registry_stored_value(family_record, "seal")
+    if not isinstance(seal, dict):
+        return False
+    seal_fields = set()
+    for key, _item in list(dict.items(seal)):
+        text = _registry_stored_text(key)
+        if text is not None:
+            seal_fields.add(text)
+    if seal_fields != {"version", "hash", "hash_standing"}:
+        return False
+    version = _registry_stored_value(seal, "version")
+    hash_value = _registry_stored_value(seal, "hash")
+    hash_standing = _registry_stored_value(seal, "hash_standing")
+    if not mod01._base_value_equals(
+            _registry_stored_value(family_record, "seal_version"),
+            version):
+        return False
+    if not mod01._base_value_equals(
+            _registry_stored_value(family_record, "seal_hash"),
+            hash_value):
+        return False
+    if not mod01._base_value_equals(
+            _registry_stored_value(
+                family_record, "family_manifest_hash"),
+            hash_value):
+        return False
+    standing_text = _registry_stored_text(hash_standing)
+    if hash_value is None:
+        if standing_text is None or not str.__eq__(
+                standing_text, _SEAL_NO_HASH_STANDING):
+            return False
+    elif mod01._stored_value_present(hash_value):
+        if standing_text is None or not str.__eq__(
+                standing_text, _SEAL_RECORDED_HASH_STANDING):
+            return False
+    else:
+        return False
+    family_version = _registry_stored_value(
+        family_record, "family_version")
+    expected_version = (
+        family_version if mod01._stored_value_present(family_version)
+        else "version 1")
+    if not mod01._base_value_equals(version, expected_version):
+        return False
+    manifest = _registry_stored_value(family_record, "sweep_manifest")
+    if not isinstance(manifest, dict):
+        return False
+    manifest_fields = set()
+    for key, _item in list(dict.items(manifest)):
+        text = _registry_stored_text(key)
+        if text is not None:
+            manifest_fields.add(text)
+    if manifest_fields != {
+            "family_identifier", "family_version",
+            "sealed_family_record_hash"}:
+        return False
+    if _stored_pair_present(family_record, "family_identifier"):
+        identifier_value = _registry_stored_value(
+            family_record, "family_identifier")
+    else:
+        identifier_value = _registry_stored_value(
+            family_record, "family_id")
+    sealed_hash = None
+    for candidate in (
+            _registry_stored_value(
+                family_record, "family_manifest_hash"),
+            _registry_stored_value(family_record, "seal_hash"),
+            hash_value):
+        if mod01._stored_value_present(candidate):
+            sealed_hash = candidate
+            break
+    expected_manifest = {
+        "family_identifier": identifier_value,
+        "family_version": family_version,
+        "sealed_family_record_hash": sealed_hash,
+    }
+    for field in ("family_identifier", "family_version",
+                  "sealed_family_record_hash"):
+        if not mod01._base_value_equals(
+                _registry_stored_value(manifest, field),
+                expected_manifest[field]):
+            return False
+    return True
+
+
 def _legitimate_wider_keys(family_record):
     """The seal and edit keys of one family record that stand
     in the form the product own seal and edit acts write them
-    (Step 16 fix wave 3, row F3-01, ruling T16-39), in the same
-    settlement MOD-01 and MOD-12 state: the seal keys together
-    on a record standing sealed with the seal as a record
-    value; the edit keys together with each marker standing
-    as True and the runs under value standing as the family
-    identifier the record carries; or the runs under key alone
-    carrying that identifier with no edit marker beside it."""
+    (Step 16 fix wave 3, row F3-01, ruling T16-39, as settled
+    at Step 16 fix wave 4, row F4-01, ruling T16-49), in the
+    same settlement MOD-01 and MOD-12 state: the seal keys
+    together on a record whose sealed standing stands in the
+    form the seal act writes it, as _seal_form_stands states;
+    the edit keys together with each marker standing as True,
+    the runs under value standing as the family identifier
+    the record carries, that identifier standing in the edited
+    form the edit act writes, carrying the edited suffix that
+    act appends, and the record standing unsealed as that act
+    leaves it, or standing sealed in the seal act form where
+    a later seal carried the edit keys through; or the runs
+    under key alone carrying that identifier with no edit
+    marker beside it."""
     if not isinstance(family_record, dict):
         return set()
     try:
@@ -3918,10 +4043,9 @@ def _legitimate_wider_keys(family_record):
     except Exception:
         return set()
     legitimate = set()
+    seal_form = _seal_form_stands(family_record)
     if all(key in present for key in _FAMILY_SEAL_KEYS):
-        if _registry_stored_value(
-                family_record, "sealed") is True and isinstance(
-                _registry_stored_value(family_record, "seal"), dict):
+        if seal_form:
             legitimate.update(_FAMILY_SEAL_KEYS)
     identifier_text = _registry_stored_text(
         _registry_stored_value(family_record, "family_id"))
@@ -3933,6 +4057,11 @@ def _legitimate_wider_keys(family_record):
     runs_matches = (
         runs_text is not None and identifier_text is not None
         and str.__eq__(runs_text, identifier_text))
+    edited_form = (
+        identifier_text is not None
+        and str.endswith(identifier_text, _EDITED_IDENTIFIER_SUFFIX)
+        and (_registry_stored_value(family_record, "sealed") is False
+             or seal_form))
     if all(key in present for key in _FAMILY_EDIT_KEYS):
         if _registry_stored_value(
                 family_record, "edited_after_seal") is True and (
@@ -3940,7 +4069,7 @@ def _legitimate_wider_keys(family_record):
                     family_record, "identifier_changed") is True) and (
                 _registry_stored_value(
                     family_record, "runs_start_again") is True) and (
-                runs_matches):
+                runs_matches) and edited_form:
             legitimate.update(_FAMILY_EDIT_KEYS)
     elif "runs_under" in present and not any(
             key in present for key in _FAMILY_EDIT_KEYS[1:]):

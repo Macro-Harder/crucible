@@ -3285,12 +3285,15 @@ def _stands_placeholder_text(text):
 def _stands_open_marker_text(text):
     """Whether one stored text stands as an open marker under
     OP-13 under the folded reading: the folded form of the
-    text opens with the folded marker prefix and carries the
-    OP-13 name in folded form, so a marker in case or spacing
-    dress stands read as a marker."""
+    text stands equal to the folded form of the marker
+    vocabulary, the one marker text _OP13_MARKER, whole and
+    in place, so a marker in case or spacing dress stands
+    read as a marker, and a text that opens with the marker
+    prefix and carries the OP-13 name anywhere in its body
+    stands as no marker (Step 16 fix wave 4, row F4-02,
+    ruling T16-50)."""
     folded = _folded_vocabulary_text(text)
-    return str.startswith(folded, OPEN_MARKER_PREFIX) and (
-        str.__contains__(folded, "op-13"))
+    return str.__eq__(folded, _folded_vocabulary_text(_OP13_MARKER))
 
 
 def _completeness_value_standing(value):
@@ -3377,6 +3380,15 @@ def completeness_standing(record):
     for the other unmet fields. The judgements at that edge do
     not change: the record stands incomplete on the completeness
     limb for every judgement of the key set.
+
+    Beside a diverged pair (Step 16 fix wave 4, row F4-05,
+    ruling T16-53), that naming does not stand preempted by the
+    diverged branch: every field that does not stand with both
+    spellings present stands named in missing_fields and in
+    the standing sentence, in its own kind bucket beside that
+    naming where it has one, whether it stands alone or beside
+    a diverged pair. A field standing with both spellings
+    present keeps the naming its standing already carries.
     """
     result = {
         "fields": [],
@@ -3393,6 +3405,15 @@ def completeness_standing(record):
         result["complete_on_completeness_limb"] = False
         result["reportable_ready"] = False
         return result
+    diverged_stands = False
+    for prose, slug in COMPLETENESS_KEY_PAIRS:
+        if _stored_pairs_present(record, prose) and (
+                _stored_pairs_present(record, slug)) and not (
+                _values_agree(
+                    _stored_pairs_value(record, prose),
+                    _stored_pairs_value(record, slug))):
+            diverged_stands = True
+            break
     for prose, slug in COMPLETENESS_KEY_PAIRS:
         prose_present = _stored_pairs_present(record, prose)
         slug_present = _stored_pairs_present(record, slug)
@@ -3432,6 +3453,10 @@ def completeness_standing(record):
             result["bare_scalar_fields"].append(prose)
         else:
             result["absent_fields"].append(prose)
+        if diverged_stands and not (
+                prose_present and slug_present) and (
+                prose not in result["missing_fields"]):
+            result["missing_fields"].append(prose)
     complete = all(
         entry["standing"] in ("open marker", "supplied")
         and entry["brief_name_present"] and entry["form_name_present"]
@@ -3445,6 +3470,15 @@ def completeness_standing(record):
             "the fields named carry different values, and the "
             "diverged state stands named rather than judged in "
             "silence: " + ", ".join(result["diverged_fields"]))
+        spelling_unmet = [
+            entry["field"] for entry in result["fields"]
+            if not (entry["brief_name_present"]
+                    and entry["form_name_present"])]
+        if spelling_unmet:
+            result["standing"] += (
+                "; the fields named also do not stand with both "
+                "spellings present, and stand named as not "
+                "standing complete: " + ", ".join(spelling_unmet))
     elif not complete:
         result["standing"] = (
             "completeness standing unmet: the fields named do not "
@@ -3491,21 +3525,142 @@ _FAMILY_EDIT_KEYS = (
 )
 
 
+_SEAL_NO_HASH_STANDING = (
+    "no hash value stands on the record; "
+    "no hash stands computed by this seal")
+
+_SEAL_RECORDED_HASH_STANDING = (
+    "hash value as recorded on the record, "
+    "stated as the hash")
+
+_EDITED_IDENTIFIER_SUFFIX = "-edited-1"
+
+
+def _family_seal_form_stands(record):
+    """Whether the sealed standing of one family record stands
+    in the form the product own seal act writes it (Step 16
+    fix wave 4, row F4-01, ruling T16-49): the record stands
+    sealed, the seal stands as a record value carrying the
+    version, hash, and hash standing keys alone, the seal
+    version and the seal hash stand equal to the version and
+    the hash the seal itself carries, the family manifest hash
+    stands equal to that hash, the hash standing stands in the
+    form the seal act writes for the hash it carries, the seal
+    version stands as the family version the record carries or
+    as the seal act default where no version value stands, and
+    the sweep manifest stands as the manifest the sweep act
+    produces for the record as it stands, its family
+    identifier, its family version, and its sealed family
+    record hash, the first hash value standing among the
+    family manifest hash, the seal hash, and the seal hash
+    itself. A sealed standing in any other form stands in no
+    form the seal act writes."""
+    if _stored_pairs_value(record, "sealed") is not True:
+        return False
+    seal = _stored_pairs_value(record, "seal")
+    if not isinstance(seal, dict):
+        return False
+    seal_fields = set()
+    for key in dict.keys(seal):
+        stored = _stored_key_text(key)
+        if stored is None:
+            stored = _stored_text(key)
+        if stored is not None:
+            seal_fields.add(stored)
+    if seal_fields != {"version", "hash", "hash_standing"}:
+        return False
+    version = _stored_pairs_value(seal, "version")
+    hash_value = _stored_pairs_value(seal, "hash")
+    hash_standing = _stored_pairs_value(seal, "hash_standing")
+    if not _base_value_equals(
+            _stored_pairs_value(record, "seal_version"), version):
+        return False
+    if not _base_value_equals(
+            _stored_pairs_value(record, "seal_hash"), hash_value):
+        return False
+    if not _base_value_equals(
+            _stored_pairs_value(record, "family_manifest_hash"),
+            hash_value):
+        return False
+    standing_text = _stored_text(hash_standing)
+    if hash_value is None:
+        if standing_text is None or not str.__eq__(
+                standing_text, _SEAL_NO_HASH_STANDING):
+            return False
+    elif _stored_value_present(hash_value):
+        if standing_text is None or not str.__eq__(
+                standing_text, _SEAL_RECORDED_HASH_STANDING):
+            return False
+    else:
+        return False
+    family_version = _stored_pairs_value(record, "family_version")
+    expected_version = (
+        family_version if _stored_value_present(family_version)
+        else "version 1")
+    if not _base_value_equals(version, expected_version):
+        return False
+    manifest = _stored_pairs_value(record, "sweep_manifest")
+    if not isinstance(manifest, dict):
+        return False
+    manifest_fields = set()
+    for key in dict.keys(manifest):
+        stored = _stored_key_text(key)
+        if stored is None:
+            stored = _stored_text(key)
+        if stored is not None:
+            manifest_fields.add(stored)
+    if manifest_fields != {
+            "family_identifier", "family_version",
+            "sealed_family_record_hash"}:
+        return False
+    if _stored_pairs_present(record, "family_identifier"):
+        identifier_value = _stored_pairs_value(
+            record, "family_identifier")
+    else:
+        identifier_value = _stored_pairs_value(record, "family_id")
+    sealed_hash = None
+    for candidate in (
+            _stored_pairs_value(record, "family_manifest_hash"),
+            _stored_pairs_value(record, "seal_hash"),
+            hash_value):
+        if _stored_value_present(candidate):
+            sealed_hash = candidate
+            break
+    expected_manifest = {
+        "family_identifier": identifier_value,
+        "family_version": family_version,
+        "sealed_family_record_hash": sealed_hash,
+    }
+    for field in ("family_identifier", "family_version",
+                  "sealed_family_record_hash"):
+        if not _base_value_equals(
+                _stored_pairs_value(manifest, field),
+                expected_manifest[field]):
+            return False
+    return True
+
+
 def _family_legitimate_wider_keys(record, include_seal=True):
     """The seal and edit keys of one family record that stand
     in the form the product own seal and edit acts write them
-    (Step 16 fix wave 3, row F3-01, ruling T16-39). The seal
-    keys stand legitimate only together, on a record standing
-    sealed, with the seal itself standing as a record value.
-    The edit keys stand legitimate only together, with each
-    edit marker standing as True and the runs under value
-    standing as the family identifier the record carries, the
-    form the edit of a sealed record writes; the runs under
-    key alone stands legitimate where it carries that same
-    identifier and no edit marker stands beside it, the form
-    the edit of an unsealed record writes. Every other seal
-    or edit key standing on a record stands in no product act
-    form and stands legitimate nowhere."""
+    (Step 16 fix wave 3, row F3-01, ruling T16-39, as settled
+    at Step 16 fix wave 4, row F4-01, ruling T16-49). The seal
+    keys stand legitimate only together, on a record whose
+    sealed standing stands in the form the seal act writes
+    it, as _family_seal_form_stands states. The edit keys
+    stand legitimate only together, with each edit marker
+    standing as True, the runs under value standing as the
+    family identifier the record carries, that identifier
+    standing in the edited form the edit act writes, carrying
+    the edited suffix that act appends, and the record
+    standing unsealed as that act leaves it, or standing
+    sealed in the seal act form where a later seal carried
+    the edit keys through; the runs under key alone stands
+    legitimate where it carries that same identifier and no
+    edit marker stands beside it, the form the edit of an
+    unsealed record writes. Every other seal or edit key
+    standing on a record stands in no product act form and
+    stands legitimate nowhere."""
     if not isinstance(record, dict):
         return set()
     try:
@@ -3519,10 +3674,10 @@ def _family_legitimate_wider_keys(record, include_seal=True):
     except Exception:
         return set()
     legitimate = set()
+    seal_form = include_seal and _family_seal_form_stands(record)
     if include_seal and all(
             key in present for key in _FAMILY_SEAL_KEYS):
-        if _stored_pairs_value(record, "sealed") is True and isinstance(
-                _stored_pairs_value(record, "seal"), dict):
+        if seal_form:
             legitimate.update(_FAMILY_SEAL_KEYS)
     identifier_text = _stored_text(
         _stored_pairs_value(record, "family_id"))
@@ -3534,6 +3689,11 @@ def _family_legitimate_wider_keys(record, include_seal=True):
     runs_matches = (
         runs_text is not None and identifier_text is not None
         and str.__eq__(runs_text, identifier_text))
+    edited_form = (
+        identifier_text is not None
+        and str.endswith(identifier_text, _EDITED_IDENTIFIER_SUFFIX)
+        and (_stored_pairs_value(record, "sealed") is False
+             or seal_form))
     if all(key in present for key in _FAMILY_EDIT_KEYS):
         if _stored_pairs_value(
                 record, "edited_after_seal") is True and (
@@ -3541,7 +3701,7 @@ def _family_legitimate_wider_keys(record, include_seal=True):
                     record, "identifier_changed") is True) and (
                 _stored_pairs_value(
                     record, "runs_start_again") is True) and (
-                runs_matches):
+                runs_matches) and edited_form:
             legitimate.update(_FAMILY_EDIT_KEYS)
     elif "runs_under" in present and not any(
             key in present for key in _FAMILY_EDIT_KEYS[1:]):
@@ -4229,6 +4389,82 @@ def _diagnosed_failure_entries(form_id, instance):
     return entries
 
 
+def _entry_named_field(entry):
+    prefix = "validate_record stands refused: field "
+    if not entry.startswith(prefix):
+        return None
+    field, sep, _tail = entry[len(prefix):].partition(": ")
+    return field if sep else None
+
+
+def _additional_diagnosed_failure_entries(
+        form_id, instance, dedicated):
+    """The multi fault naming extension (Step 16 fix wave 4,
+    row F4-03, ruling T16-51).
+
+    The naming rule of T16-40 applies on multi fault records
+    in full: where dedicated entries have named some faults
+    of a record the inner judgement refuses, a simultaneous
+    fault no dedicated entry has named stands diagnosed by
+    field against the inner judgement itself, whether or not
+    a dedicated entry also stands. The act first corrects
+    every field a dedicated entry has named, to the value
+    the product own minimal valid instance carries for it,
+    or removes the field where the minimal instance carries
+    no such field; the two spellings of a Form 1 completeness
+    pair stand corrected together, as the pair carries one
+    field. Where the inner judgement accepts the corrected
+    record, every inner fault stood among the named faults
+    and no entry stands added. Where it still refuses, the
+    faults that remain stand diagnosed by the standing
+    diagnosis act on the corrected record, and no entry
+    naming an already named field stands returned, so no
+    fault at this door stands named twice and a single fault
+    record keeps the entries it stood with before."""
+    named = []
+    for entry in dedicated:
+        field = _entry_named_field(entry)
+        if field is not None and field not in named:
+            named.append(field)
+    fid = _fid(form_id)
+    if fid == "1":
+        for _prose, _slug in COMPLETENESS_KEY_PAIRS:
+            if _prose in named or _slug in named:
+                for _spelling in (_prose, _slug):
+                    if _spelling not in named:
+                        named.append(_spelling)
+    try:
+        if fid == "36":
+            _kind = _stored_text_dress(_stored_pairs_value(
+                instance, "entry_kind"))
+            reference = minimal_valid_instance(
+                fid,
+                entry_kind=_kind if _kind in (
+                    "ordinary", "agent", "supersession") else None)
+        else:
+            reference = minimal_valid_instance(fid)
+    except Exception:
+        reference = {}
+    corrected = {}
+    for _key, _item in dict.items(instance):
+        if _stored_key_text(_key) not in named:
+            corrected[_key] = _item
+    for _field in named:
+        if _field in reference:
+            corrected[_field] = copy.deepcopy(reference[_field])
+    try:
+        inner_ok = _validate_record_inner(form_id, corrected)
+    except (RecordTraversalFailure, RecursionError):
+        return []
+    if inner_ok:
+        return []
+    entries = []
+    for entry in _diagnosed_failure_entries(form_id, corrected):
+        if _entry_named_field(entry) not in named:
+            entries.append(entry)
+    return entries
+
+
 def _record_validation_failures(form_id, instance):
     fid = _fid(form_id)
     if fid not in _FORM_SPECS:
@@ -4571,6 +4807,15 @@ def _record_validation_failures(form_id, instance):
         # draws a sentence that names no field.
         failures.extend(
             _diagnosed_failure_entries(form_id, instance))
+    elif not inner_ok:
+        # The multi fault naming extension (Step 16 fix wave
+        # 4, row F4-03, ruling T16-51): the naming rule applies
+        # on multi fault records in full, so a simultaneous
+        # fault no dedicated entry above has named stands
+        # diagnosed by field against the inner judgement
+        # whether or not a dedicated entry also stands.
+        failures.extend(_additional_diagnosed_failure_entries(
+            form_id, instance, failures))
     return failures
 
 

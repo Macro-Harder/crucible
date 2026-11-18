@@ -231,7 +231,7 @@ class TestPresentationScanFolded(unittest.TestCase):
         record = supplied_family()
         record["operator_note_xyz"] = "STATED VALUE"
         presentation = mod12.family_record_presentation(record)
-        self.assertIn(
+        self.assertNotIn(
             "operator_note_xyz", presentation["placeholder_fields"])
 
 

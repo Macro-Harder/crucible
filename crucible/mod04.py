@@ -2502,24 +2502,32 @@ def validate_run_scheduling_order(record):
     shortened prototype literal, or reads a case or spacing
     variant of either literal under the standing folded reading,
     in plain form or carried in a single part container dress,
-    fails, per operation C-14 and open point OP-08.
+    fails, per operation C-14 and open point OP-08. The headline
+    class itself stands read through _stored_text_dress, the same
+    stored text reading the mod01 doors apply, so a class carried
+    in a bytes like or single part container dress stands judged
+    as the headline class it stores.
     """
     if not isinstance(record, dict):
         return False
     order = dict.get(record, "scheduling_order_identifier")
     if not order:
         return False
-    if dict.get(record, "run_class") == "headline" and _stands_prototype_order(order):
+    if _stored_text_dress(dict.get(record, "run_class")) == "headline" and _stands_prototype_order(order):
         return False
     return True
 
 
 def headline_order_stands(record):
     """Return True only where a headline run order stands stated
-    and is not a prototype order."""
+    and is not a prototype order. The headline class stands read
+    through _stored_text_dress, the same stored text reading the
+    mod01 doors apply, so a class carried in a bytes like or
+    single part container dress stands judged as the headline
+    class it stores."""
     if not isinstance(record, dict):
         return False
-    if dict.get(record, "run_class") != "headline":
+    if _stored_text_dress(dict.get(record, "run_class")) != "headline":
         return False
     order = dict.get(record, "scheduling_order_identifier")
     return bool(order) and not _stands_prototype_order(order)

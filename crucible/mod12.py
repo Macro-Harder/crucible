@@ -112,22 +112,125 @@ def _stored_pairs_value(record, field):
     return None
 
 
+_SEAL_RECORDED_HASH_STANDING = (
+    "hash value as recorded on the record, "
+    "stated as the hash")
+
+_EDITED_IDENTIFIER_SUFFIX = "-edited-1"
+
+
+def _seal_form_stands(record):
+    """Whether the sealed standing of one family record stands
+    in the form the product own seal act writes it (Step 16
+    fix wave 4, row F4-01, ruling T16-49): the record stands
+    sealed, the seal stands as a record value carrying the
+    version, hash, and hash standing keys alone, the seal
+    version and the seal hash stand equal to the version and
+    the hash the seal itself carries, the family manifest hash
+    stands equal to that hash, the hash standing stands in the
+    form the seal act writes for the hash it carries, the seal
+    version stands as the family version the record carries or
+    as the seal act default where no version value stands, and
+    the sweep manifest stands equal to the manifest the sweep
+    act produces for the record as it stands. A sealed standing
+    in any other form stands in no form the seal act writes."""
+    if _stored_pairs_value(record, "sealed") is not True:
+        return False
+    seal = _stored_pairs_value(record, "seal")
+    if not isinstance(seal, dict):
+        return False
+    seal_fields = set()
+    for key, _item in list(dict.items(seal)):
+        text = _key_stored_text(key)
+        if text:
+            seal_fields.add(text)
+    if seal_fields != {"version", "hash", "hash_standing"}:
+        return False
+    version = _stored_pairs_value(seal, "version")
+    hash_value = _stored_pairs_value(seal, "hash")
+    hash_standing = _stored_pairs_value(seal, "hash_standing")
+    if not _stored_values_equal(
+            _stored_pairs_value(record, "seal_version"), version):
+        return False
+    if not _stored_values_equal(
+            _stored_pairs_value(record, "seal_hash"), hash_value):
+        return False
+    if not _stored_values_equal(
+            _stored_pairs_value(record, "family_manifest_hash"),
+            hash_value):
+        return False
+    if hash_value is None:
+        if not _stored_text_equals_form(
+                hash_standing, _SEAL_NO_HASH_STANDING):
+            return False
+    elif _stored_value_present(hash_value):
+        if not _stored_text_equals_form(
+                hash_standing, _SEAL_RECORDED_HASH_STANDING):
+            return False
+    else:
+        return False
+    family_version = _stored_pairs_value(record, "family_version")
+    expected_version = (
+        family_version if _stored_value_present(family_version)
+        else "version 1")
+    if not _stored_values_equal(version, expected_version):
+        return False
+    manifest = _stored_pairs_value(record, "sweep_manifest")
+    if not isinstance(manifest, dict):
+        return False
+    manifest_fields = set()
+    for key, _item in list(dict.items(manifest)):
+        text = _key_stored_text(key)
+        if text:
+            manifest_fields.add(text)
+    if manifest_fields != {
+            "family_identifier", "family_version",
+            "sealed_family_record_hash"}:
+        return False
+    try:
+        expected_manifest = sweep_manifest(record)
+    except Exception:
+        return False
+    for field in ("family_identifier", "family_version",
+                  "sealed_family_record_hash"):
+        if not _stored_values_equal(
+                _stored_pairs_value(manifest, field),
+                _stored_pairs_value(expected_manifest, field)):
+            return False
+    return True
+
+
+def _stored_text_equals_form(value, expected):
+    """Whether a handed value stands as the expected text,
+    judged on the text it stores, never through a reading the
+    value itself supplies."""
+    stored = _stored_text(value)
+    return stored is not None and str.__eq__(stored, expected)
+
+
 def _legitimate_wider_keys(record, include_seal=True):
     """The seal and edit keys of one family record that stand
     in the form the product own seal and edit acts write them
-    (Step 16 fix wave 3, row F3-01, ruling T16-39). The seal
-    keys stand legitimate only together, on a record standing
-    sealed, with the seal itself standing as a record value.
-    The edit keys stand legitimate only together, with each
-    edit marker standing as True and the runs under value
-    standing as the family identifier the record carries, the
-    form the edit of a sealed record writes; the runs under
-    key alone stands legitimate where it carries that same
-    identifier and no edit marker stands beside it, the form
-    the edit of an unsealed record writes. Where include_seal
-    stands False, at the seal itself, the seal keys stand
-    legitimate nowhere, because no record handed to the seal
-    has yet been sealed by that act."""
+    (Step 16 fix wave 3, row F3-01, ruling T16-39, as settled
+    at Step 16 fix wave 4, row F4-01, ruling T16-49). The seal
+    keys stand legitimate only together, on a record whose
+    sealed standing stands in the form the seal act writes
+    it, as _seal_form_stands states. The edit keys stand
+    legitimate only together, with each edit marker standing
+    as True, the runs under value standing as the family
+    identifier the record carries, that identifier standing
+    in the edited form the edit act writes, carrying the
+    edited suffix that act appends, and the record standing
+    unsealed as that act leaves it, or standing sealed in the
+    seal act form where a later seal carried the edit keys
+    through; the runs under key alone stands legitimate where
+    it carries that same identifier and no edit marker stands
+    beside it, the form the edit of an unsealed record writes.
+    Where include_seal stands False, at the seal itself, the
+    seal keys stand legitimate nowhere, because no record
+    handed to the seal has yet been sealed by that act, and
+    the resealed standing does not carry the edit keys
+    through that act either."""
     if not isinstance(record, dict):
         return set()
     try:
@@ -141,9 +244,9 @@ def _legitimate_wider_keys(record, include_seal=True):
     legitimate = set()
     seal_keys = _FAMILY_SEAL_EDIT_KEYS[:4]
     edit_keys = _FAMILY_SEAL_EDIT_KEYS[4:]
+    seal_form = include_seal and _seal_form_stands(record)
     if include_seal and all(key in present for key in seal_keys):
-        if _stored_pairs_value(record, "sealed") is True and isinstance(
-                _stored_pairs_value(record, "seal"), dict):
+        if seal_form:
             legitimate.update(seal_keys)
     identifier_text = _stored_text(
         _stored_pairs_value(record, "family_id"))
@@ -155,6 +258,11 @@ def _legitimate_wider_keys(record, include_seal=True):
     runs_matches = (
         runs_text is not None and identifier_text is not None
         and str.__eq__(runs_text, identifier_text))
+    edited_form = (
+        identifier_text is not None
+        and str.endswith(identifier_text, _EDITED_IDENTIFIER_SUFFIX)
+        and (_stored_pairs_value(record, "sealed") is False
+             or seal_form))
     if all(key in present for key in edit_keys):
         if _stored_pairs_value(
                 record, "edited_after_seal") is True and (
@@ -162,7 +270,7 @@ def _legitimate_wider_keys(record, include_seal=True):
                     record, "identifier_changed") is True) and (
                 _stored_pairs_value(
                     record, "runs_start_again") is True) and (
-                runs_matches):
+                runs_matches) and edited_form:
             legitimate.update(edit_keys)
     elif "runs_under" in present and not any(
             key in present for key in edit_keys[1:]):
@@ -274,8 +382,13 @@ def family_record_presentation(record):
     stands placeholder, in the mixed case of a placeholder
     field beside an absent or open field as in the whole
     placeholder case (Step 16 fix wave 3, row F3-03, ruling
-    T16-41). The supply itself stands charged to no fix and
-    no value stands invented here (OP-16).
+    T16-41). The placeholder fields this presentation names
+    stand as the completeness fields alone: the scan field
+    set is the completeness field set, so a non completeness
+    field carrying placeholder text stands named nowhere in
+    placeholder_fields (Step 16 fix wave 4, row F4-02,
+    ruling T16-50). The supply itself stands charged to no
+    fix and no value stands invented here (OP-16).
     """
     if not isinstance(record, dict):
         return {
@@ -289,22 +402,9 @@ def family_record_presentation(record):
             "finished": False,
         }
     standing = _mod01.completeness_standing(record)
-    placeholder_fields = []
-    for key, item in dict.items(record):
-        if not isinstance(key, str):
-            continue
-        try:
-            text = _dress_text(item)
-        except Exception:
-            text = None
-        if text is not None and isinstance(text, str) and (
-                _mod01._stands_placeholder_text(text)):
-            placeholder_fields.append(str.__str__(key))
     completeness_placeholder_fields = list(
         standing["placeholder_fields"])
-    for field in completeness_placeholder_fields:
-        if field not in placeholder_fields:
-            placeholder_fields.append(field)
+    placeholder_fields = list(completeness_placeholder_fields)
     awaiting = list(standing["open_fields"]) + list(
         standing["missing_fields"])
     finished = bool(
