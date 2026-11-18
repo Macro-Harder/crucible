@@ -45,6 +45,77 @@ _CONTROLLER_ALIAS_PAIRS = (
     ("kill_checks", "kill_check_fields"),
 )
 
+# The named carriage keys of a made family record (Step 16 fix
+# wave 2, row F2-01, ruling T16-23): the keys make_family_record
+# carries beside the Form 1 fields and the completeness brief
+# names, enumerated by name from that construction. A stored
+# key standing outside the Form 1 fields, the completeness
+# brief names, and these carriage keys stands unnamed, and the
+# family surfaces that read the MOD-01 judgement on a made
+# record refuse it by name, in place of reading the inner
+# judgement alone. The seal and edit carriage keys below stand
+# beside the made record keys at the surfaces that judge
+# sealed and edited records, and the controller bar keys
+# stand admitted at the validation surfaces that judge those
+# bars by name.
+FAMILY_CARRIAGE_KEYS = (
+    "family_id",
+    "claims",
+    "kill_checks",
+    "family_version",
+    "family_manifest_hash",
+    "sealed",
+    "registry_basis_fields",
+    "results_seen",
+    "form",
+    "alias_keys",
+    "completeness_presentation",
+)
+
+_FAMILY_SEAL_EDIT_KEYS = (
+    "seal",
+    "seal_version",
+    "seal_hash",
+    "sweep_manifest",
+    "runs_under",
+    "edited_after_seal",
+    "identifier_changed",
+    "runs_start_again",
+)
+
+_FAMILY_CONTROLLER_BAR_KEYS = (
+    "ecology_point",
+    "amendment_landed",
+    "data_dependent_top_up",
+    "look_register",
+)
+
+
+def _unnamed_family_fields(record, controller_bars=False):
+    """The stored keys of one family record standing outside
+    the Form 1 fields, the completeness brief names, and the
+    named carriage keys, each named by the text it stores.
+    The keys stand read through base dict operations on the
+    stored pairs, never through a reading the handed record
+    supplies, in the form the seal already guards. A key
+    storing no text stands named by its safe string form."""
+    if not isinstance(record, dict):
+        return []
+    allowed = set(_mod01.form_fields("1"))
+    allowed.update(_mod01.COMPLETENESS_FIELDS)
+    allowed.update(FAMILY_CARRIAGE_KEYS)
+    allowed.update(_FAMILY_SEAL_EDIT_KEYS)
+    if controller_bars:
+        allowed.update(_FAMILY_CONTROLLER_BAR_KEYS)
+    unnamed = []
+    for key, _item in list(dict.items(record)):
+        text = _key_stored_text(key)
+        if not text:
+            unnamed.append(_safe_str(key))
+        elif text not in allowed:
+            unnamed.append(text)
+    return unnamed
+
 
 def _alias_values_equal(first, second):
     """Whether two alias twin values store the same value, judged
@@ -103,8 +174,12 @@ def family_record_presentation(record):
     as awaiting supply, the fields carrying placeholder text
     stand named as placeholder fields, and the record stands as
     finished only where no completeness field stands awaiting
-    supply, missing, or diverged. The supply itself stands
-    charged to no fix and no value stands invented here (OP-16).
+    supply, missing, diverged, or standing as a placeholder
+    value, and a completeness field standing as a placeholder
+    value stands named as placeholder in the standing text
+    (Step 16 fix wave 2, row F2-04, ruling T16-30). The supply
+    itself stands charged to no fix and no value stands
+    invented here (OP-16).
     """
     if not isinstance(record, dict):
         return {
@@ -128,12 +203,18 @@ def family_record_presentation(record):
             text = None
         if text is not None and str.__eq__(text, "stated value"):
             placeholder_fields.append(str.__str__(key))
+    completeness_placeholder_fields = list(
+        standing["placeholder_fields"])
+    for field in completeness_placeholder_fields:
+        if field not in placeholder_fields:
+            placeholder_fields.append(field)
     awaiting = list(standing["open_fields"]) + list(
         standing["missing_fields"])
     finished = bool(
         not awaiting and not standing["diverged_fields"]
         and not standing["bare_scalar_fields"]
-        and not standing["absent_fields"])
+        and not standing["absent_fields"]
+        and not completeness_placeholder_fields)
     if awaiting:
         standing_text = (
             "awaiting supply and not finished: the completeness "
@@ -145,6 +226,13 @@ def family_record_presentation(record):
             "not finished: the completeness fields named stand "
             "diverged between their two spellings: "
             + ", ".join(standing["diverged_fields"]))
+    elif completeness_placeholder_fields:
+        standing_text = (
+            "not finished: the completeness fields named stand "
+            "as placeholder values, placeholder text in place "
+            "of supplied values, and no completeness field "
+            "standing as placeholder stands supplied: "
+            + ", ".join(completeness_placeholder_fields))
     elif finished:
         standing_text = (
             "supplied: every completeness field stands supplied, "
@@ -532,16 +620,25 @@ def seal_family_record(record):
         raise NamedControllerFailure(
             "family record cannot seal, completeness items missing: "
             + ", ".join(missing))
-    # Merge composition (Step 16 fix merge): Builder 3 charged this
-    # check against MOD-01 validate_record as that door stood in its
-    # copy, the inner record judgement. Builder 1 split that door:
-    # the public validate_record now also carries the R16-14 named
-    # extra field layer, and _validate_record_bool carries the inner
-    # judgement every standing mod12 caller reads. This check reads
-    # the inner judgement, as every other MOD-01 judgement call in
-    # this module does after the merge, so a made family record
-    # carrying its marked alias and presentation keys seals or
-    # refuses on the same ground Builder 3 proved.
+    # Step 16 fix wave 2, row F2-01, ruling T16-23: the seal check
+    # reads the inner judgement together with the named extra
+    # field layer of the public door, in carriage form: a stored
+    # field standing outside the Form 1 fields, the completeness
+    # brief names, and the named carriage keys stands refused
+    # and named here, while a made record carrying only named
+    # carriage keys seals on the inner judgement as before. The
+    # seal docstring above names the public door, and under this
+    # cure it stands true: every record the public door refuses
+    # for Form 1 on the inner judgement or on an unnamed field
+    # stands refused at this seal.
+    unnamed = _unnamed_family_fields(record)
+    if isinstance(record, dict) and unnamed:
+        raise NamedControllerFailure(
+            "family record cannot seal, the record carries a "
+            "field standing outside the form fields and the "
+            "named carriage keys: " + ", ".join(unnamed)
+            + ", and no seal stands on a record carrying an "
+            "unnamed field")
     if isinstance(record, dict) and not _mod01._validate_record_bool(
             "1", record):
         raise NamedControllerFailure(
@@ -762,6 +859,16 @@ def family_record_validation_failures(record):
         failures.append(
             "data dependent top up stands with no look register: "
             "the data dependent top up gate stands refused")
+    # A field standing outside the Form 1 fields and the named
+    # carriage keys stands named as a failure (Step 16 fix wave
+    # 2, row F2-01, ruling T16-23), in place of passing on the
+    # inner judgement alone.
+    for field in _unnamed_family_fields(
+            record, controller_bars=True):
+        failures.append(
+            "unnamed field: " + field + ": the field stands "
+            "outside the Form 1 fields and the named carriage "
+            "keys, so the record stands refused on that field")
     # A diverged alias state stands named as a failure, never
     # silently judged (R16-11): the entry names the pair and the
     # divergence, on the controller pairs and on the completeness
@@ -3287,6 +3394,7 @@ __all__ = [
     "GATE_QUESTION",
     "FAMILY_COMPLETENESS_ITEMS",
     "FAMILY_ALIAS_KEYS",
+    "FAMILY_CARRIAGE_KEYS",
     "DECAY_SLICES",
     "NamedControllerFailure",
     "alias_divergences",

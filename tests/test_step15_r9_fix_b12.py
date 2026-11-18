@@ -141,22 +141,28 @@ class TestControlsStandingBothWays(unittest.TestCase):
 
     def test_control_mod12_within_bound_seal_copies_whole(self):
         record = mod12.make_family_record()
-        record["deep_field"] = list_chain(50)
+        record["control_axes_and_step_values"] = list_chain(50)
         sealed = mod12.seal_family_record(record)
         self.assertTrue(sealed["sealed"])
-        self.assertEqual(chain_depth(sealed["deep_field"]), 50)
+        self.assertEqual(
+            chain_depth(sealed["control_axes_and_step_values"]), 50)
         boundary = mod12.make_family_record()
-        boundary["deep_field"] = list_chain(100)
+        boundary["control_axes_and_step_values"] = list_chain(100)
         sealed_boundary = mod12.seal_family_record(boundary)
         self.assertTrue(sealed_boundary["sealed"])
-        self.assertEqual(chain_depth(sealed_boundary["deep_field"]), 100)
+        self.assertEqual(
+            chain_depth(
+                sealed_boundary["control_axes_and_step_values"]), 100)
         shared = [1, 2]
         record = mod12.make_family_record()
-        record["first"] = shared
-        record["second"] = shared
+        record["control_axes_and_step_values"] = shared
+        record["assumption_sets_in_play"] = shared
         sealed = mod12.seal_family_record(record)
-        self.assertIs(sealed["first"], sealed["second"])
-        self.assertEqual(sealed["first"], [1, 2])
+        self.assertIs(
+            sealed["control_axes_and_step_values"],
+            sealed["assumption_sets_in_play"])
+        self.assertEqual(
+            sealed["control_axes_and_step_values"], [1, 2])
 
     def test_control_mod13_within_bound_extend_copies_whole(self):
         history = [{"rule_set_version": "v1", "run_id": "r1"}]

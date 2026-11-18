@@ -2400,6 +2400,33 @@ PROTOTYPE_ORDER = "prototype"
 # before, so no bar standing before that row is weakened.
 BRIEF_PROTOTYPE_ORDER = "prototype order"
 PROTOTYPE_ORDER_VALUES = (PROTOTYPE_ORDER, BRIEF_PROTOTYPE_ORDER)
+# The folded readings of the two charged literals, under the
+# standing folded reading of this module (Step 16 fix wave 2,
+# row F2-06, ruling T16-29). The bar below reads its value
+# through that reading, the same folded reading this module
+# applies to stored text at its barred surfaces, so case and
+# spacing variants of the barred words stand barred in the
+# same form as the literals themselves. No new barred value
+# stands invented (OP-16): the folded judgement stands exact,
+# so a value carrying the barred words beside other words, or
+# extending them, stands unbarred.
+_PROTOTYPE_ORDER_FOLDED_READINGS = frozenset(
+    reading
+    for name in PROTOTYPE_ORDER_VALUES
+    for reading in _folded_readings(name))
+
+
+def _stands_prototype_order(order):
+    """Whether one scheduling order value reads as a barred
+    prototype order: any folded reading of the value, its
+    stored text read through _stored_text and folded as
+    _folded_readings folds it, standing among the folded
+    readings of the two charged literals."""
+    return any(
+        reading in _PROTOTYPE_ORDER_FOLDED_READINGS
+        for reading in _folded_readings(order))
+
+
 EVENT_KINDS = (
     "work_submission", "work_acceptance", "vouch_creation",
     "vouch_revocation", "challenge_opening", "challenge_response",
@@ -2442,15 +2469,16 @@ def validate_run_scheduling_order(record):
     Every run record states the order it used. A headline run whose
     scheduling order identifier is absent, or reads prototype
     order (the brief literal value, brief Shape 1), or reads the
-    shortened prototype literal, fails, per operation C-14 and
-    open point OP-08.
+    shortened prototype literal, or reads a case or spacing
+    variant of either literal under the standing folded reading,
+    fails, per operation C-14 and open point OP-08.
     """
     if not isinstance(record, dict):
         return False
     order = dict.get(record, "scheduling_order_identifier")
     if not order:
         return False
-    if dict.get(record, "run_class") == "headline" and order in PROTOTYPE_ORDER_VALUES:
+    if dict.get(record, "run_class") == "headline" and _stands_prototype_order(order):
         return False
     return True
 
@@ -2463,7 +2491,7 @@ def headline_order_stands(record):
     if dict.get(record, "run_class") != "headline":
         return False
     order = dict.get(record, "scheduling_order_identifier")
-    return bool(order) and order not in PROTOTYPE_ORDER_VALUES
+    return bool(order) and not _stands_prototype_order(order)
 
 
 def measure_order_sensitivity(states_under_order_a, states_under_order_b):

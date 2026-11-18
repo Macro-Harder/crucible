@@ -4,7 +4,7 @@ The package surface carries the slice modules. MOD-01, types and
 validation, stands in mod01; its public surface is re-exported here.
 
 Surface guide, in short. The package carries fifteen modules,
-mod01 to mod14 and mod16, exporting 641 names in total on the
+mod01 to mod14 and mod16, exporting 658 names in total on the
 summed basis. mod01 Types and validation; mod02 Seed and Stream
 Engine; mod03 Society Generator; mod04 Tick Engine; mod05 Parley
 Core; mod06 Escrow Core; mod07 Escrow Adapter; mod08 Detection

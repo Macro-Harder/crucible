@@ -121,26 +121,33 @@ class TestR6007FreezeSetParts(unittest.TestCase):
 
     def test_seal_delivers_list_set_payload_whole(self):
         record = mod12.make_family_record()
-        record["payload"] = _ListMoneySet((1, 2))
+        record["control_axes_and_step_values"] = _ListMoneySet((1, 2))
         sealed = mod12.seal_family_record(record)
-        self.assertNotEqual(sealed["payload"], _MONEY_DICT)
-        self.assertIsInstance(sealed["payload"], set)
-        self.assertEqual(set(sealed["payload"]), {1, 2})
+        self.assertNotEqual(
+            sealed["control_axes_and_step_values"], _MONEY_DICT)
+        self.assertIsInstance(
+            sealed["control_axes_and_step_values"], set)
+        self.assertEqual(
+            set(sealed["control_axes_and_step_values"]), {1, 2})
 
     def test_seal_delivers_list_frozenset_payload_whole(self):
         record = mod12.make_family_record()
-        record["payload"] = _ListMoneyFrozenset((1, 2))
+        record["control_axes_and_step_values"] = (
+            _ListMoneyFrozenset((1, 2)))
         sealed = mod12.seal_family_record(record)
-        self.assertNotEqual(sealed["payload"], _MONEY_DICT)
-        self.assertIsInstance(sealed["payload"], frozenset)
-        self.assertEqual(set(sealed["payload"]), {1, 2})
+        self.assertNotEqual(
+            sealed["control_axes_and_step_values"], _MONEY_DICT)
+        self.assertIsInstance(
+            sealed["control_axes_and_step_values"], frozenset)
+        self.assertEqual(
+            set(sealed["control_axes_and_step_values"]), {1, 2})
 
     def test_seal_delivers_deepcopy_object_as_itself(self):
         carrier = _DeepcopyMoney()
         record = mod12.make_family_record()
-        record["payload"] = carrier
+        record["control_axes_and_step_values"] = carrier
         sealed = mod12.seal_family_record(record)
-        self.assertIs(sealed["payload"], carrier)
+        self.assertIs(sealed["control_axes_and_step_values"], carrier)
 
 
 class TestR6007Controls(unittest.TestCase):
@@ -157,9 +164,9 @@ class TestR6007Controls(unittest.TestCase):
 
     def test_plain_set_payload_seals_whole(self):
         record = mod12.make_family_record()
-        record["payload"] = {1, 2}
+        record["control_axes_and_step_values"] = {1, 2}
         sealed = mod12.seal_family_record(record)
-        self.assertEqual(sealed["payload"], {1, 2})
+        self.assertEqual(sealed["control_axes_and_step_values"], {1, 2})
         self.assertTrue(sealed["sealed"])
 
     def test_plain_record_seals_whole(self):

@@ -3862,11 +3862,68 @@ def validate_disclosure_form(form):
     return True
 
 
+# The named carriage keys of a made family record, in the
+# MOD-12 made record form, with the seal and edit carriage
+# keys of that module beside them (Step 16 fix wave 2, row
+# F2-01, ruling T16-23).
+_FAMILY_CARRIAGE_KEYS = (
+    "family_id",
+    "claims",
+    "kill_checks",
+    "family_version",
+    "family_manifest_hash",
+    "sealed",
+    "registry_basis_fields",
+    "results_seen",
+    "form",
+    "alias_keys",
+    "completeness_presentation",
+    "seal",
+    "seal_version",
+    "seal_hash",
+    "sweep_manifest",
+    "runs_under",
+    "edited_after_seal",
+    "identifier_changed",
+    "runs_start_again",
+)
+
+
+def _unnamed_family_fields(family_record):
+    """The stored keys of one family record standing outside
+    the Form 1 fields, the completeness brief names, and the
+    named carriage keys, each named by the text it stores.
+    The keys stand read through base dict operations on the
+    stored pairs, never through a reading the handed record
+    supplies."""
+    allowed = set(mod01.form_fields("1"))
+    allowed.update(mod01.COMPLETENESS_FIELDS)
+    allowed.update(_FAMILY_CARRIAGE_KEYS)
+    unnamed = []
+    for key, _item in list(dict.items(family_record)):
+        text = _registry_stored_text(key)
+        if text is None:
+            try:
+                text = str(key)
+            except Exception:
+                text = object.__repr__(key)
+            unnamed.append(text)
+        elif text not in allowed:
+            unnamed.append(text)
+    return unnamed
+
+
 def validate_family_record(family_record):
     """Return whether a family record passes MOD-01 validation
     for Form 1 and supports a reportable run under its
-    completeness bar."""
+    completeness bar. A record carrying a field standing
+    outside the Form 1 fields, the completeness brief names,
+    and the named carriage keys stands refused here, in place
+    of passing on the inner judgement alone (Step 16 fix wave
+    2, row F2-01, ruling T16-23)."""
     if not isinstance(family_record, dict):
+        return False
+    if _unnamed_family_fields(family_record):
         return False
     if not mod01._validate_record_bool("1", family_record):
         return False
