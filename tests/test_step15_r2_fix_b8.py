@@ -5,6 +5,7 @@ R1-026, R1-057, R1-058, R1-059, R1-063, R1-074, R1-090, R1-091.
 Each test was written before its cure and stood failing on the
 uncured tree.
 """
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 import pathlib
 import unittest
 
@@ -135,8 +136,9 @@ class TestDepthAndCycleGuard(unittest.TestCase):
 
 class TestManifestAndEdit(unittest.TestCase):
     def test_sweep_manifest_form_23_and_seal_match(self):
-        sealed = mod12.seal_family_record(
-            mod12.make_family_record(family_id="fam-b8"))
+        record = mod12.make_family_record(family_id="fam-b8")
+        record["family_manifest_hash"] = "hash-b8-recorded"
+        sealed = mod12.seal_family_record(record)
         manifest = mod12.sweep_manifest(sealed)
         for field in ("family_identifier", "family_version",
                       "sealed_family_record_hash"):

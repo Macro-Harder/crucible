@@ -2753,10 +2753,22 @@ def _canonical_store_kind(store_kind):
 
 
 def retain_run_record(record, store_kind="sweep"):
+    """Retain one run record in the store of one kind.
+
+    Arguments: record, a dict carrying a run identifier under run_id or run_identifier; store_kind, one of sweep, pilot, or live, standing as sweep where none stands handed in.
+    Returns: a copy of the record as retained.
+    Failure: a named ValueError from the store retention act, stating the ground and that no record stands retained, for an identity less record, a second record for the same run, a record carrying a real money field, or a store flush failure; an unknown store kind stands refused in named form before any retention stands attempted.
+    """
     return _STORES[_canonical_store_kind(store_kind)].retain_run_record(record)
 
 
 def read_run_record(run_id, store_kind="sweep"):
+    """Read the one run record retained under a run identifier.
+
+    Arguments: run_id, the run identifier in text form; store_kind, one of sweep, pilot, or live, standing as sweep where none stands handed in.
+    Returns: a copy of the retained record. Reading never writes and never fabricates a record to fill an absence.
+    Failure: LookupFailure, the named lookup failure of this module, stands raised where no record stands retained under the identifier handed in.
+    """
     return _STORES[_canonical_store_kind(store_kind)].read_run_record(run_id)
 
 
@@ -2769,6 +2781,12 @@ def run_records_for_run(run_id="run-under-test"):
 
 
 def validate_run_record_set(records):
+    """Judge a handed set of run records as a run record set.
+
+    Arguments: records, a list or tuple holding the records to judge; a set stands judged only where it holds exactly one record.
+    Returns: True where the set holds one record carrying a run identifier and no group writer standing against the group owners of this module, and False in every other case.
+    Failure: no exception stands raised for a malformed set; the failure form is the bare False return, stated here in the open so a caller expects no named reason from this act.
+    """
     if not isinstance(records, (list, tuple)):
         return False
     stored_records = list(_base_iter(records))
@@ -3210,8 +3228,22 @@ def rederive_regime_classification(aggregates):
 
 
 def validate_daily_aggregates(aggregates):
-    """Validate daily aggregate records on their stored contents:
-    every record stands read through the base dict readings, its
+    """Validate Recorder daily aggregate rows, and no other shape.
+
+    Shape separation, stated in the open (R16-18): this act judges
+    the Recorder daily aggregate row shape, the rows
+    daily_aggregates_for_run returns, keyed by viewer_id beside
+    run_id, record_identity, and writer. It does not judge the
+    mod01 Form 14 DailyAggregates record shape, keyed by
+    run_identifier, simulated_day, and viewer_identifier. A
+    canonical Form 14 record therefore returns False here, not
+    in silence: the two shapes stand separated by name, this act
+    standing for the Recorder row, and
+    validate_form14_daily_aggregates_record standing for the
+    Form 14 record, with validate_recorder_daily_aggregate_rows
+    standing as the long name of this act.
+
+    Every record stands read through the base dict readings, its
     containment judged by the base containment reading, its
     fields taken by the base get reading, and its component
     values read through the base iteration of their form, never
@@ -3246,6 +3278,40 @@ def validate_daily_aggregates(aggregates):
             if len(components) != 4:
                 return False
     return True
+
+
+RECORDER_DAILY_AGGREGATE_SHAPE = "Recorder daily aggregate row"
+FORM14_DAILY_AGGREGATES_SHAPE = "mod01 Form 14 DailyAggregates record"
+
+
+def validate_recorder_daily_aggregate_rows(aggregates):
+    """Judge Recorder daily aggregate rows under their own name.
+
+    Arguments: aggregates, a list or tuple of Recorder daily
+    aggregate rows, the shape daily_aggregates_for_run returns.
+    Returns: the verdict of validate_daily_aggregates on the
+    rows handed in.
+    Failure: no exception stands raised for a malformed handing;
+    the failure form is the bare False return of the act this
+    name stands for, stated here in the open.
+    """
+    return validate_daily_aggregates(aggregates)
+
+
+def validate_form14_daily_aggregates_record(record):
+    """Judge one mod01 Form 14 DailyAggregates record by name.
+
+    Arguments: record, one dict in the Form 14 shape, keyed by
+    run_identifier, simulated_day, and viewer_identifier.
+    Returns: True where the record validates as Form 14 under
+    MOD-01, and False in every other case. This act judges no
+    Recorder daily aggregate row; that shape stands judged by
+    validate_recorder_daily_aggregate_rows.
+    Failure: no exception stands raised for a malformed record;
+    the failure form is the bare False return, stated here in
+    the open.
+    """
+    return mod01.validate_record("14", record)
 
 
 def build_joint_outcome_vector(components=None, divergence_companion=None):
@@ -3300,7 +3366,7 @@ def build_joint_outcome_vector(components=None, divergence_companion=None):
             "of one vector carry more than one viewer identifier")
     record["divergence_companion"] = _safe_copy(
         divergence_companion or {"nil_divergence_components": []})
-    if not mod01.validate_record("15", record):
+    if not mod01._validate_record_bool("15", record):
         raise ValueError(
             "joint outcome component in named form: the assembled "
             "record fails Form 15 validation")
@@ -3356,10 +3422,22 @@ def gate_passing_shares_for_run(run_id):
 
 
 def event_log_fields():
+    """State the field names of the EventLog form, Form 36.
+
+    Arguments: none.
+    Returns: the tuple of Form 36 field names, taken from MOD-01, the single owner of that field list.
+    Failure: none; this act reads a stored field list and raises nothing on an ordinary call.
+    """
     return _EVENT_LOG_FIELDS
 
 
 def daily_snapshot_fields():
+    """State the field names of the DailySnapshot form, Form 37.
+
+    Arguments: none.
+    Returns: the tuple of Form 37 field names, taken from MOD-01, the single owner of that field list.
+    Failure: none; this act reads a stored field list and raises nothing on an ordinary call.
+    """
     return _DAILY_SNAPSHOT_FIELDS
 
 
@@ -4132,6 +4210,12 @@ def _stated_count(value, name):
 
 
 def storage_accounting(retained):
+    """Account a retained set in the storage accounting form.
+
+    Arguments: retained, a dict of counts under the names summaries, daily_snapshots, event_logs, checkpoints, and held_corpus_copies, a name carrying no count standing as zero.
+    Returns: a dict carrying the result count, the checkpoint count, each count as read, and the checkpoint stock basis statement the count rests on.
+    Failure: a named ValueError where retained stands in no dict form, or where a count stands in no stated count form, naming the count that failed.
+    """
     if not isinstance(retained, dict):
         raise ValueError(
             "storage accounting count in named form: the retained set "
@@ -4177,6 +4261,12 @@ def _claimed_total(claimed, name):
 
 
 def validate_storage_accounting(claimed):
+    """Judge a claimed storage accounting against its counts.
+
+    Arguments: claimed, a dict in the form storage_accounting returns, carrying its counts beside its claimed totals.
+    Returns: True where the claimed result count equals the sum of its summary, snapshot, and event log counts, and, where a checkpoint count stands claimed, where that count equals its checkpoint and held corpus copy counts; False where a claimed total disagrees.
+    Failure: a named ValueError where claimed stands in no dict form or a count stands in no stated count form; a disagreeing total stands answered by the bare False return, stated here in the open.
+    """
     if not isinstance(claimed, dict):
         raise ValueError(
             "storage accounting count in named form: the claimed set "
@@ -4275,6 +4365,12 @@ def cumulative_storage_projection(prior_records, new_family_rows):
 
 
 def retention_policy_table():
+    """State the retention policy table in its recorded form.
+
+    Arguments: none.
+    Returns: a dict naming the recorded rule clauses C1 to C12, the recorded rule DQ7-08, and the reliance standing of the table, which stands as recorded form only with the reconciliation gate standing.
+    Failure: none; this act returns a stored statement and raises nothing on an ordinary call.
+    """
     return {
         "recorded_rule_clauses": tuple("C%d" % n for n in range(1, 13)),
         "recorded_rule": "DQ7-08",
@@ -4283,6 +4379,12 @@ def retention_policy_table():
 
 
 def validate_storage_claim(claim):
+    """Judge one storage claim against the recorded rule form.
+
+    Arguments: claim, a dict carrying a basis and a reliance statement.
+    Returns: False where the claim rests on basis DQ7-08 with reliance stated as governing, and True in every other dict case.
+    Failure: no exception stands raised; a claim in no dict form, and a claim refused on its face, both stand answered by the bare False return, stated here in the open.
+    """
     if not isinstance(claim, dict):
         return False
     if _base_value_eq(dict.get(claim, "basis"), "DQ7-08") and _base_value_eq(dict.get(claim, "reliance"), "governing"):
@@ -5108,6 +5210,12 @@ def _fired_stands(fired):
 
 
 def apply_flag_evaluation(record, outcome=None, tier=None, actor="program", inputs=None):
+    """Apply the flag evaluation rule to one summary record.
+
+    Arguments: record, the summary record dict the evaluation stands on; outcome, one of the outcomes the rule names, promote or demote, or none; tier, one of the tiers the rule names, or none; actor, standing as program, a person standing barred from this act; inputs, the evaluation inputs where any stand handed in.
+    Returns: an updated copy of the record carrying the flag evaluation as performed.
+    Failure: a named ValueError, stating the ground and that no flag evaluation stands performed, where the record stands in no dict form, where a person stands as actor, where the outcome or tier stands outside the vocabulary the rule names, or where the outcome stands as demote, which the rule never effects.
+    """
     if not isinstance(record, dict):
         raise ValueError(
             "flag evaluation in named form: the evaluation stands on a "
@@ -5471,6 +5579,12 @@ def retention_record_for_run(run_id, store_kind="sweep"):
 
 
 def validate_retention_report(report):
+    """Judge one retention report on its face.
+
+    Arguments: report, a dict carrying a source and a tier claim.
+    Returns: False where the report rests on interval records and claims the final tier, and True in every other dict case.
+    Failure: no exception stands raised; a report in no dict form stands answered by the bare False return, stated here in the open.
+    """
     if not isinstance(report, dict):
         return False
     if _base_value_eq(dict.get(report, "source"), "interval_records") and _base_value_eq(dict.get(report, "tier_claim"), "final"):
@@ -5479,6 +5593,12 @@ def validate_retention_report(report):
 
 
 def append_annotation(checkpoint, annotation=None):
+    """Append an annotation record to a checkpoint record.
+
+    Arguments: checkpoint, the checkpoint record dict the annotation stands on; annotation, the annotation to carry, standing as an empty record where none stands handed in.
+    Returns: an updated copy of the checkpoint carrying the annotation under annotation_record; the handed checkpoint itself stands unedited.
+    Failure: a named ValueError, stating that an annotation stands on a checkpoint record and that no other form stands annotated, where the checkpoint stands in no dict form.
+    """
     if not isinstance(checkpoint, dict):
         raise ValueError(
             "identity less checkpoint: an annotation stands on a "
@@ -5626,6 +5746,12 @@ def resume_from_checkpoint(checkpoint, store_kind=None):
 
 
 def validate_annotation_claim(claim):
+    """Judge one annotation claim on its face.
+
+    Arguments: claim, a dict carrying the claim statement to judge.
+    Returns: False where the claim states annotation state equality across an append, and True in every other dict case.
+    Failure: no exception stands raised; a claim in no dict form stands answered by the bare False return, stated here in the open.
+    """
     if not isinstance(claim, dict):
         return False
     if _base_value_eq(dict.get(claim, "claim"), "annotation_state_equal_across_append"):
@@ -5658,6 +5784,12 @@ def retention_sizing(fixture="F-27", costing_forms="F-19"):
 
 
 def validate_retention_sizing(sizing):
+    """Judge one retention sizing statement on its face.
+
+    Arguments: sizing, a dict carrying workings with a central form and a high form, the high form carrying an events per agent per day value, and wording whose values stand judged against the barred words of the rule.
+    Returns: True where every stated part stands present and no wording value stands as a barred word, and False in every other case.
+    Failure: no exception stands raised for a malformed sizing; the failure form is the bare False return, stated here in the open.
+    """
     if not isinstance(sizing, dict):
         return False
     workings = dict.get(sizing, "workings") or {}
@@ -5681,6 +5813,12 @@ def validate_retention_sizing(sizing):
 
 
 def retention_met(record):
+    """Judge whether a retention record states retention met.
+
+    Arguments: record, a RetentionRecord dict, Form 33, carrying its later evaluation with its conditions, its inputs, and its outcome, beside the summary record and retained forms statements of the record itself.
+    Returns: True only where the record stands in no declaration only form, its later evaluation conditions stand as the stated three, its inputs and outcome stand stated, and its summary record and retained forms statements stand; False in every other case.
+    Failure: no exception stands raised for a malformed record; the failure form is the bare False return, stated here in the open.
+    """
     if not isinstance(record, dict):
         return False
     if _stored_stands(dict.get(record, "declaration_only")) or _stored_text(dict.get(record, "state")) == "DECLARED NOT CLOSED":
@@ -5713,6 +5851,12 @@ def retention_met(record):
 
 
 def pre_registered_full_log_sample(family_id="family-under-test"):
+    """State the pre registered full log sample record form.
+
+    Arguments: family_id, the family identifier the sample stands registered for, standing as family-under-test where none stands handed in.
+    Returns: a dict stating the sample kind as a retention sample, its run class, its family identifier, its standing inside the family record, and its registration standing as before runs.
+    Failure: none; this act returns a stated form record and raises nothing on an ordinary call.
+    """
     return {
         "kind": "retention_sample",
         "run_class": "ordinary_screening",
@@ -5723,6 +5867,12 @@ def pre_registered_full_log_sample(family_id="family-under-test"):
 
 
 def validate_sample_record(sample):
+    """Judge one sample record on its face.
+
+    Arguments: sample, a dict carrying its kind, its family record standing, and its registration standing where its kind stands as a retention sample.
+    Returns: False where the sample presents as a generator test battery sample, or where a retention sample stands outside its family record or registered after runs, and True in every other dict case.
+    Failure: no exception stands raised; a sample in no dict form stands answered by the bare False return, stated here in the open.
+    """
     if not isinstance(sample, dict):
         return False
     if _base_value_eq(dict.get(sample, "presented_as"), "generator_test_battery_sample"):
@@ -5736,6 +5886,12 @@ def validate_sample_record(sample):
 
 
 def validate_retention_record(record):
+    """Judge one retention record against its governing rule.
+
+    Arguments: record, a dict carrying its governing rule and its reliance statement.
+    Returns: False where the governing rule stands as DQ7-08 and the reliance stands stated as governing, and True in every other dict case.
+    Failure: no exception stands raised; a record in no dict form stands answered by the bare False return, stated here in the open.
+    """
     if not isinstance(record, dict):
         return False
     governing = _stored_text(dict.get(record, "governing_rule") or "")
@@ -5745,10 +5901,22 @@ def validate_retention_record(record):
 
 
 def store_indexes():
+    """State the record index of each store of this module.
+
+    Arguments: none.
+    Returns: a dict mapping each store kind, sweep, pilot, and live, to the list of run identifiers its store holds, in retention order.
+    Failure: none on an ordinary call; this act reads the standing stores and raises nothing of its own.
+    """
     return {kind: _STORES[kind].index() for kind in STORE_KINDS}
 
 
 def validate_store_placement(artefact):
+    """Judge the placement of one artefact against its store.
+
+    Arguments: artefact, a dict carrying its kind and the store it stands placed in, with a confinement label where it carries a value.
+    Returns: False where a pilot artefact stands placed in any store but the pilot store, or carries a value with no confinement label, and True in every other dict case.
+    Failure: no exception stands raised; an artefact in no dict form stands answered by the bare False return, stated here in the open.
+    """
     if not isinstance(artefact, dict):
         return False
     if _base_value_eq(dict.get(artefact, "kind"), "pilot"):
@@ -5760,6 +5928,12 @@ def validate_store_placement(artefact):
 
 
 def store_lookup(store_kinds=None, key=None, store_kind=None):
+    """Look up one run record in exactly one store.
+
+    Arguments: store_kinds, the one store kind to read, or store_kind standing for it; key, the run identifier to resolve in that store.
+    Returns: a copy of the record retained under the key in the named store.
+    Failure: a named ValueError where the lookup names no store kind, more than one store kind, or a store kind outside sweep, pilot, and live; LookupFailure, the named lookup failure of this module, where no record stands retained under the key in that store.
+    """
     kinds = store_kinds
     if isinstance(kinds, str):
         kinds = (kinds,)

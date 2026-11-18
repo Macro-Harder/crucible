@@ -1,3 +1,4 @@
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 # Step 15 Round 1 fix tests, cluster 2. MOD-14 and MOD-12 surfaces.
 import json
 import unittest
@@ -282,6 +283,7 @@ class TestFamilyRecord(unittest.TestCase):
             self.assertIn(field, record)
         self.assertTrue(mod12.validate_family_record(record))
         self.assertTrue(mod11.validate_family_record(record))
+        record["family_manifest_hash"] = "hash-fix2-recorded"
         sealed = mod12.seal_family_record(record)
         self.assertIsInstance(sealed["seal"], dict)
         self.assertTrue(sealed["seal"]["version"])

@@ -3868,7 +3868,7 @@ def validate_family_record(family_record):
     completeness bar."""
     if not isinstance(family_record, dict):
         return False
-    if not mod01.validate_record("1", family_record):
+    if not mod01._validate_record_bool("1", family_record):
         return False
     return mod01.family_supports_reportable_run(family_record)
 

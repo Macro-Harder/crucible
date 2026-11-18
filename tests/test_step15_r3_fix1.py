@@ -7,6 +7,7 @@ run record validation stays boolean. The money field names below
 stand built by joining parts, in the form MOD-12 itself uses for
 its marker, so this file carries no joined spelling of its own.
 """
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 
 import unittest
 
@@ -116,7 +117,7 @@ class TestR3A703Mod12SeparatorShapes(unittest.TestCase):
 class TestR3StandingControls(unittest.TestCase):
     def test_money_name_at_none_validates_and_retains(self):
         name = _DOTTED_NAMES[0]
-        instance = _form4(**{name: None})
+        instance = _form4(variant_record_fields={name: None})
         self.assertIs(mod01.validate_record("4", instance), True, name)
         self.assertIs(mod01.run_is_reportable("4", instance), True, name)
         store = mod10.RecorderStore(store_kind="sweep")
@@ -126,7 +127,7 @@ class TestR3StandingControls(unittest.TestCase):
         self.assertIs(mod12.validate_run_record(record), True, name)
 
     def test_amount_alone_still_validates_at_all_three(self):
-        instance = _form4(stake={"amount": 5})
+        instance = _form4(variant_record_fields={"amount": 5})
         self.assertIs(mod01.validate_record("4", instance), True)
         store = mod10.RecorderStore(store_kind="sweep")
         kept = store.retain_run_record(
@@ -136,8 +137,8 @@ class TestR3StandingControls(unittest.TestCase):
         self.assertIs(mod12.validate_run_record(record), True)
 
     def test_shape_fragments_in_sibling_branches_still_validate(self):
-        instance = _form4(
-            first={"amount": 5}, second={"currency": "USD"})
+        instance = _form4(variant_record_fields={
+            "first": {"amount": 5}, "second": {"currency": "USD"}})
         self.assertIs(mod01.validate_record("4", instance), True)
 
     def test_unmutated_form4_and_clean_run_record_still_pass(self):

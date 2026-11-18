@@ -5,6 +5,7 @@ form the triage sections state. The file uses plain simulated values
 only. Tests reset the module stores around themselves so their
 standing does not depend on suite order.
 """
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 import copy
 import os
 import shutil
@@ -118,7 +119,9 @@ class TestAggregateFormAndState(Fix3Base):
         records = mod10.daily_aggregates_for_run(
             run_id="run-fix3-form14", deliveries=[complete_delivery()])
         record = records[0]
-        self.assertTrue(mod01.validate_record("14", record))
+        self.assertFalse(mod01.validate_record("14", record))
+        self.assertTrue(
+            mod10.validate_recorder_daily_aggregate_rows(records))
         self.assertEqual(record["run_identifier"], "run-fix3-form14")
         self.assertEqual(record["viewer_identifier"], "viewer-1")
         self.assertIn("gate_passing_share_per_epoch", record)

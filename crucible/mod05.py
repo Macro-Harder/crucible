@@ -591,6 +591,32 @@ def aggregation_interface():
     }
 
 
+_AGGREGATION_FIELD_GROUPS = (
+    ("agent_identifier", "agent"),
+    ("accepted_work", "accepted"),
+    ("vouches_received", "received_vouches"),
+    ("penalties", "penalty_count"),
+)
+
+
+def _stated_name(record, *names):
+    """The first stated name, in the order given, under which a
+    handed record stores a value that is not None, read through
+    the base dict readings in the form _get reads them. A record
+    in no dict form, or storing no such value, stands as None."""
+    if isinstance(record, dict):
+        for name in names:
+            for stored_key, item in dict.items(record):
+                if isinstance(stored_key, str) and str.__eq__(
+                        str.__str__(stored_key), name) and item is not None:
+                    return name
+    return None
+
+
+def _stands_numeric(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def aggregate_reputation(inputs):
     """The recommended candidate behind the aggregation interface,
     in comparison form only. It produces one reputation score for an
@@ -601,7 +627,59 @@ def aggregate_reputation(inputs):
     bearing vouches received, and its penalty count. The comparison
     score is accepted work plus received score bearing stake, less
     penalties, as a single deterministic value.
+
+    An input carrying none of the stated fields stands refused in
+    a named failure form stating that no stated field stood read
+    and nothing stood scored, so a fieldless input never returns a
+    score 0 standing in for a genuine zero. A stated field carrying
+    a value in no form its computation can read, a count in no
+    numeric form, the vouches in no container form, a vouch entry
+    in no dict form, or the stake of a score bearing vouch in no
+    numeric form, stands refused in a named failure form naming
+    the field.
     """
+    if not any(
+            _stated_name(inputs, *group) is not None
+            for group in _AGGREGATION_FIELD_GROUPS):
+        raise ValueError(
+            "aggregate_reputation stands refused: no stated field "
+            "stood read in the inputs and nothing stood scored; the "
+            "inputs carry none of the stated candidate fields "
+            "(agent_identifier, accepted_work, vouches_received, "
+            "penalties), and no score stands returned")
+    for names in (("accepted_work", "accepted"), ("penalties", "penalty_count")):
+        stated = _stated_name(inputs, *names)
+        if stated is not None and not _stands_numeric(_get(inputs, *names)):
+            raise ValueError(
+                "aggregate_reputation stands refused: the " + stated
+                + " field stands in no numeric form, the comparison "
+                "score reads that field as a count, and no score "
+                "stands returned")
+    vouches_name = _stated_name(inputs, "vouches_received", "received_vouches")
+    if vouches_name is not None:
+        received_value = _get(inputs, "vouches_received", "received_vouches")
+        if not isinstance(received_value, (list, tuple, set, frozenset)):
+            raise ValueError(
+                "aggregate_reputation stands refused: the " + vouches_name
+                + " field stands in no container form, the comparison "
+                "score reads that field as the vouches received, and "
+                "no score stands returned")
+        for edge in _stored_list(received_value):
+            if not isinstance(edge, dict):
+                raise ValueError(
+                    "aggregate_reputation stands refused: an entry of "
+                    "the " + vouches_name + " field stands in no dict "
+                    "form, the comparison score reads each vouch as a "
+                    "record, and no score stands returned")
+            if _get(edge, "score_bearing_flag", "score_bearing", default=True):
+                stake = _get(edge, "stake", default=None)
+                if stake is not None and not _stands_numeric(stake):
+                    raise ValueError(
+                        "aggregate_reputation stands refused: the stake "
+                        "field of a score bearing entry of the "
+                        + vouches_name + " field stands in no numeric "
+                        "form, the comparison score reads that field as "
+                        "a count, and no score stands returned")
     agent = _get(inputs, "agent_identifier", "agent")
     accepted = _get(inputs, "accepted_work", "accepted", default=0) or 0
     penalties = _get(inputs, "penalties", "penalty_count", default=0) or 0
@@ -708,10 +786,50 @@ def eligibility(score, bands, evaluation_order=None, panel_minimum=None, cap_max
 def reputation_and_band_values(agents_scores, bands, viewer=None, evaluation_order=None):
     """The view edge supply: the reputation and band values this core
     already owns, supplied for assembly into a view by MOD-04,
-    without MOD-04 taking over their computation."""
+    without MOD-04 taking over their computation.
+
+    The agents_scores field standing in no dict form, a score it
+    carries standing in no numeric form, or the bands field standing
+    in no container of (band name, minimum score) pairs, or carrying
+    a band minimum in no numeric form, stands refused in a named
+    failure form naming the field, in place of a bare interpreter
+    error escaping from the band comparison or the items reading.
+    """
+    if not isinstance(agents_scores, dict):
+        raise ValueError(
+            "reputation_and_band_values stands refused: the "
+            "agents_scores field stands in no dict form, the values "
+            "stand read from the scores it stores by agent, and no "
+            "values stand returned")
+    score_items = list(dict.items(agents_scores))
+    for agent, score in score_items:
+        if not _stands_numeric(score):
+            raise ValueError(
+                "reputation_and_band_values stands refused: the "
+                "agents_scores field carries a score standing in no "
+                "numeric form, the band judgements read each score as "
+                "a number, and no values stand returned")
+    if not isinstance(bands, (list, tuple, set, frozenset)):
+        raise ValueError(
+            "reputation_and_band_values stands refused: the bands "
+            "field stands in no container form, the band judgements "
+            "read it as (band name, minimum score) pairs, and no "
+            "values stand returned")
+    for band in _stored_list(bands):
+        if isinstance(band, (str, bytes, dict)) or not isinstance(
+                band, (list, tuple)) or len(band) != 2:
+            raise ValueError(
+                "reputation_and_band_values stands refused: an entry "
+                "of the bands field stands in no (band name, minimum "
+                "score) pair form, and no values stand returned")
+        if not _stands_numeric(band[1]):
+            raise ValueError(
+                "reputation_and_band_values stands refused: the bands "
+                "field carries a band minimum standing in no numeric "
+                "form, the band judgements read each minimum as a "
+                "number, and no values stand returned")
     order_record = evaluation_order if isinstance(evaluation_order, dict) else evaluation_order_record(evaluation_order)
     values = {}
-    score_items = dict.items(agents_scores) if isinstance(agents_scores, dict) else agents_scores.items()
     for agent, score in score_items:
         values[agent] = band_membership(score, bands, evaluation_order=order_record)
     return {"viewer": viewer, "values": values}

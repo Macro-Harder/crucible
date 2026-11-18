@@ -27,6 +27,143 @@ GATE_QUESTION = "DQ7-02"
 
 FAMILY_COMPLETENESS_ITEMS = tuple(_mod01.COMPLETENESS_FIELDS)
 
+# The alias keys of the user facing family record (Step 16,
+# R16-11): each alias stands marked as an alias of the one field
+# it carries, in the record itself under the alias_keys entry.
+# The completeness pairs stand in the same marking: the brief
+# name of a completeness field stands as the alias of its Form 1
+# field name, the one key set of MOD-01 (R16-15).
+FAMILY_ALIAS_KEYS = {
+    "family_id": "family_identifier",
+    "claims": "headline_claims",
+    "kill_checks": "kill_check_fields",
+}
+
+_CONTROLLER_ALIAS_PAIRS = (
+    ("family_id", "family_identifier"),
+    ("claims", "headline_claims"),
+    ("kill_checks", "kill_check_fields"),
+)
+
+
+def _alias_values_equal(first, second):
+    """Whether two alias twin values store the same value, judged
+    through the stored values reading of this module, with a
+    cyclic or raising reading standing as no agreement beyond
+    identity."""
+    if first is second:
+        return True
+    try:
+        if _carries_cycle(first) or _carries_cycle(second):
+            return False
+        return bool(_stored_values_equal(first, second))
+    except Exception:
+        return False
+
+
+def alias_divergences(record):
+    """The diverged alias states of one family record, named:
+    one entry per alias pair whose two keys stand present and
+    carry different values, across the controller pairs and the
+    completeness pairs. A diverged alias state stands named here
+    rather than silently judged (R16-11)."""
+    diverged = []
+    if not isinstance(record, dict):
+        return diverged
+    for alias, canonical in _CONTROLLER_ALIAS_PAIRS:
+        if dict.__contains__(record, alias) and dict.__contains__(
+                record, canonical):
+            if not _alias_values_equal(
+                    dict.get(record, alias),
+                    dict.get(record, canonical)):
+                diverged.append(
+                    "diverged alias keys: " + alias + " and "
+                    + canonical + " carry different values for one "
+                    "field, and the diverged state stands named "
+                    "rather than judged in silence")
+    standing = _mod01.completeness_standing(record)
+    for prose in standing["diverged_fields"]:
+        entry = None
+        for candidate in standing["fields"]:
+            if candidate["field"] == prose:
+                entry = candidate
+                break
+        slug = entry["key"] if entry is not None else prose
+        diverged.append(
+            "diverged alias keys: " + slug + " and " + prose
+            + " carry different values for one completeness "
+            "field, and the diverged state stands named rather "
+            "than judged in silence")
+    return diverged
+
+
+def family_record_presentation(record):
+    """The presentation of one family record (Step 16, R16-04):
+    the completeness fields standing as open markers stand named
+    as awaiting supply, the fields carrying placeholder text
+    stand named as placeholder fields, and the record stands as
+    finished only where no completeness field stands awaiting
+    supply, missing, or diverged. The supply itself stands
+    charged to no fix and no value stands invented here (OP-16).
+    """
+    if not isinstance(record, dict):
+        return {
+            "standing": "not a record: no presentation stands",
+            "awaiting_supply_fields": [],
+            "open_fields": [],
+            "supplied_fields": [],
+            "diverged_fields": [],
+            "missing_fields": [],
+            "placeholder_fields": [],
+            "finished": False,
+        }
+    standing = _mod01.completeness_standing(record)
+    placeholder_fields = []
+    for key, item in dict.items(record):
+        if not isinstance(key, str):
+            continue
+        try:
+            text = _dress_text(item)
+        except Exception:
+            text = None
+        if text is not None and str.__eq__(text, "stated value"):
+            placeholder_fields.append(str.__str__(key))
+    awaiting = list(standing["open_fields"]) + list(
+        standing["missing_fields"])
+    finished = bool(
+        not awaiting and not standing["diverged_fields"]
+        and not standing["bare_scalar_fields"]
+        and not standing["absent_fields"])
+    if awaiting:
+        standing_text = (
+            "awaiting supply and not finished: the completeness "
+            "fields named stand awaiting supply, their values "
+            "standing as open markers under OP-13 in place of "
+            "supplied values: " + ", ".join(awaiting))
+    elif standing["diverged_fields"]:
+        standing_text = (
+            "not finished: the completeness fields named stand "
+            "diverged between their two spellings: "
+            + ", ".join(standing["diverged_fields"]))
+    elif finished:
+        standing_text = (
+            "supplied: every completeness field stands supplied, "
+            "and no completeness field stands awaiting supply")
+    else:
+        standing_text = (
+            "not finished: the completeness standing stands as "
+            + standing["standing"])
+    return {
+        "standing": standing_text,
+        "awaiting_supply_fields": awaiting,
+        "open_fields": list(standing["open_fields"]),
+        "supplied_fields": list(standing["supplied_fields"]),
+        "diverged_fields": list(standing["diverged_fields"]),
+        "missing_fields": list(standing["missing_fields"]),
+        "placeholder_fields": placeholder_fields,
+        "finished": finished,
+    }
+
 _MONEY_MARKER = "real_" + "money"
 _ANCHOR_VALUES_FIELD = "anchor_" + "scenario_values"
 
@@ -238,6 +375,21 @@ def make_family_record(family_id="family-under-test", claims=None,
         "results_seen": False,
         "form": "family record",
     })
+    # The alias keys stand marked as aliases on the record itself
+    # (R16-11): one key per field stands as the field, and every
+    # further spelling stands in this marking and nowhere as a
+    # second field. The completeness pairs stand in the same
+    # marking, the brief name as alias of the Form 1 field name.
+    aliases = dict(FAMILY_ALIAS_KEYS)
+    for prose, slug in _mod01.COMPLETENESS_KEY_PAIRS:
+        aliases[prose] = slug
+    record["alias_keys"] = aliases
+    # The presentation names the unsupplied completeness fields
+    # as awaiting supply (R16-04): the made record does not
+    # present as finished while its completeness values stand as
+    # open markers.
+    record["completeness_presentation"] = family_record_presentation(
+        record)
     return record
 
 
@@ -328,13 +480,31 @@ def _shape_refusal(subject, value, act_wording):
         + ", and no act stands performed on it")
 
 
+_SEAL_HASH_PLACEHOLDER = (
+    "manifest hash supplied as a record value, not computed")
+
+_SEAL_NO_HASH_STANDING = (
+    "no hash value stands on the record; "
+    "no hash stands computed by this seal")
+
+
 def seal_family_record(record):
     """Seal one family record. The completeness condition stands
     performed before the seal: a record missing any one of the
     completeness items this controller names is refused in the
-    named form and does not seal. The seal carries the version
-    value and the hash value as recorded strings supplied on the
-    record; no hash form is computed in this act. A sweep
+    named form and does not seal. At Step 16 row R16-17 the seal
+    also stands no seal on a record the product own validation
+    rejects: a record failing MOD-01 validate_record for Form 1
+    is refused in the named form and does not seal. The seal
+    hash field states the hash as a hash: where a hash value
+    stands recorded on the record it stands carried as the
+    hash, and where no hash value stands, or the only value
+    standing is the placeholder wording that stood here before
+    that row, the hash field stands as None and a hash standing
+    field beside it states that no hash value stands and no
+    hash stands computed by this seal, in place of presenting
+    the placeholder wording as a hash. No hash form is computed
+    in this act. A sweep
     manifest stands produced beside the seal. From the seal, any
     edit creates a new family identifier and runs under it start
     again. The record stands under the same depth bound and
@@ -362,6 +532,23 @@ def seal_family_record(record):
         raise NamedControllerFailure(
             "family record cannot seal, completeness items missing: "
             + ", ".join(missing))
+    # Merge composition (Step 16 fix merge): Builder 3 charged this
+    # check against MOD-01 validate_record as that door stood in its
+    # copy, the inner record judgement. Builder 1 split that door:
+    # the public validate_record now also carries the R16-14 named
+    # extra field layer, and _validate_record_bool carries the inner
+    # judgement every standing mod12 caller reads. This check reads
+    # the inner judgement, as every other MOD-01 judgement call in
+    # this module does after the merge, so a made family record
+    # carrying its marked alias and presentation keys seals or
+    # refuses on the same ground Builder 3 proved.
+    if isinstance(record, dict) and not _mod01._validate_record_bool(
+            "1", record):
+        raise NamedControllerFailure(
+            "family record cannot seal, the record validation "
+            "stands refused: the MOD-01 record judgement for "
+            "Form 1 rejects this record, and no seal stands on "
+            "a record the product own validation rejects")
     version_value = dict.get(record, "family_version")
     hash_value = dict.get(record, "family_manifest_hash")
     for seal_name, seal_value in (
@@ -370,18 +557,35 @@ def seal_family_record(record):
             raise NamedControllerFailure(_shape_refusal(
                 seal_name + " value", seal_value,
                 "family record cannot seal"))
+    if _stored_value_present(hash_value) and not (
+            isinstance(hash_value, str)
+            and str.__eq__(str.__str__(hash_value),
+                          _SEAL_HASH_PLACEHOLDER)):
+        resolved_hash = _freeze(hash_value)
+        hash_standing = (
+            "hash value as recorded on the record, "
+            "stated as the hash")
+    else:
+        resolved_hash = None
+        hash_standing = _SEAL_NO_HASH_STANDING
     sealed = _freeze(record)
     sealed["sealed"] = True
     sealed["seal"] = {
         "version": _freeze(version_value)
         if _stored_value_present(version_value) else "version 1",
-        "hash": _freeze(hash_value)
-        if _stored_value_present(hash_value) else (
-            "manifest hash supplied as a record value, not computed"),
+        "hash": resolved_hash,
+        "hash_standing": hash_standing,
     }
     sealed["seal_version"] = sealed["seal"]["version"]
     sealed["seal_hash"] = sealed["seal"]["hash"]
+    sealed["family_manifest_hash"] = resolved_hash
     sealed["sweep_manifest"] = sweep_manifest(sealed)
+    # The sealed record carries its presentation on its face
+    # (R16-04): where its completeness values stand unsupplied,
+    # the presentation names the fields as awaiting supply and
+    # the sealed record does not present as finished.
+    sealed["completeness_presentation"] = family_record_presentation(
+        sealed)
     return sealed
 
 
@@ -527,7 +731,7 @@ def family_record_validation_failures(record):
     for item in FAMILY_COMPLETENESS_ITEMS:
         if not _stored_value_present(dict.get(record, item)):
             failures.append("missing completeness item: " + item)
-    if not _mod01.validate_record("1", record):
+    if not _mod01._validate_record_bool("1", record):
         failures.append("the MOD-01 record judgement stands refused")
     if not _mod01.family_supports_reportable_run(record):
         failures.append(
@@ -558,6 +762,11 @@ def family_record_validation_failures(record):
         failures.append(
             "data dependent top up stands with no look register: "
             "the data dependent top up gate stands refused")
+    # A diverged alias state stands named as a failure, never
+    # silently judged (R16-11): the entry names the pair and the
+    # divergence, on the controller pairs and on the completeness
+    # pairs alike.
+    failures.extend(alias_divergences(record))
     return failures
 
 
@@ -575,7 +784,7 @@ def validate_family_record(record):
         return False
     if family_record_validation_failures(record):
         return False
-    if not _mod01.validate_record("1", record):
+    if not _mod01._validate_record_bool("1", record):
         return False
     if not _mod01.family_supports_reportable_run(record):
         return False
@@ -3015,6 +3224,10 @@ def _input_failure(action, ground):
         "form": "named input failure",
         "action": action,
         "failure": "named input failure: " + ground,
+        "ground_in_words": ground,
+        "next_step": (
+            "Correct the named input and call the start again; "
+            "no run stands started and no seed stands drawn."),
         "run_started": False,
         "seed_drawn": False,
     }
@@ -3073,8 +3286,11 @@ __all__ = [
     "RUN_CLASSES",
     "GATE_QUESTION",
     "FAMILY_COMPLETENESS_ITEMS",
+    "FAMILY_ALIAS_KEYS",
     "DECAY_SLICES",
     "NamedControllerFailure",
+    "alias_divergences",
+    "family_record_presentation",
     "make_family_record",
     "sweep_manifest",
     "retained_run_record",

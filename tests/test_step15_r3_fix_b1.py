@@ -1,3 +1,4 @@
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 # Step 15 rerun, fix wave 2, builder b1 tests. MOD-01 surfaces only.
 import unittest
 
@@ -44,7 +45,7 @@ class TestR2016BothReadingsInCurrencyKey(unittest.TestCase):
 
     def test_amount_key_alone_still_passes(self):
         instance = mod01.minimal_valid_instance("4")
-        instance["amount"] = 500
+        instance["variant_record_fields"] = {"amount": 500}
         self.assertTrue(mod01.validate_record("4", instance))
 
 

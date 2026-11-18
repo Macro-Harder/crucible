@@ -31,7 +31,9 @@ __all__ = [
     "GATE_EXECUTABLE_RUNS",
     "PROCESSING_TYPES",
     "PROJECTION_KEYS",
+    "BRIEF_PROTOTYPE_ORDER",
     "PROTOTYPE_ORDER",
+    "PROTOTYPE_ORDER_VALUES",
     "VALUE_APPEARS_DEPTH_BOUND",
     "VIEW_CLOSED_FIELDS",
     "VIEW_COPY_DEPTH_BOUND",
@@ -117,7 +119,8 @@ def _gated_message(act):
         + GATE_EXECUTABLE_RUNS
         + ". No adoption record stands for this gate, so nothing was "
         "started or drawn. Nothing stands for the operator to do; "
-        "the block sits with a decision elsewhere."
+        "the block sits with the decision on the "
+        + GATE_EXECUTABLE_RUNS + " adoption record."
     )
 
 
@@ -2390,6 +2393,13 @@ def run_tracer_cut():
 # ---------------------------------------------------------------------------
 
 PROTOTYPE_ORDER = "prototype"
+# The brief literal value of the prototype order bar, brief
+# Shape 1, stated at Step 16 row R16-13: a headline run whose
+# scheduling order identifier reads "prototype order" fails
+# validation. The shortened literal above stands barred as
+# before, so no bar standing before that row is weakened.
+BRIEF_PROTOTYPE_ORDER = "prototype order"
+PROTOTYPE_ORDER_VALUES = (PROTOTYPE_ORDER, BRIEF_PROTOTYPE_ORDER)
 EVENT_KINDS = (
     "work_submission", "work_acceptance", "vouch_creation",
     "vouch_revocation", "challenge_opening", "challenge_response",
@@ -2430,15 +2440,17 @@ def validate_run_scheduling_order(record):
     """Return True only where a run record may stand on its order.
 
     Every run record states the order it used. A headline run whose
-    scheduling order identifier is absent, or reads prototype,
-    fails, per operation C-14 and open point OP-08.
+    scheduling order identifier is absent, or reads prototype
+    order (the brief literal value, brief Shape 1), or reads the
+    shortened prototype literal, fails, per operation C-14 and
+    open point OP-08.
     """
     if not isinstance(record, dict):
         return False
     order = dict.get(record, "scheduling_order_identifier")
     if not order:
         return False
-    if dict.get(record, "run_class") == "headline" and order == PROTOTYPE_ORDER:
+    if dict.get(record, "run_class") == "headline" and order in PROTOTYPE_ORDER_VALUES:
         return False
     return True
 
@@ -2451,7 +2463,7 @@ def headline_order_stands(record):
     if dict.get(record, "run_class") != "headline":
         return False
     order = dict.get(record, "scheduling_order_identifier")
-    return bool(order) and order != PROTOTYPE_ORDER
+    return bool(order) and order not in PROTOTYPE_ORDER_VALUES
 
 
 def measure_order_sensitivity(states_under_order_a, states_under_order_b):
@@ -3168,7 +3180,7 @@ def write_checkpoint(manifest, agent_states=None,
             "checkpoint writing in named form: the CheckpointState "
             "carries no " + ", ".join(missing)
             + ", and neither the manifest nor the state stands written")
-    if not mod01.validate_record("13A", state):
+    if not mod01._validate_record_bool("13A", state):
         raise NamedFailure(
             "checkpoint writing in named form: the CheckpointState "
             "fails Form 13A validation, and neither the manifest "

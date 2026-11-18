@@ -7,6 +7,7 @@ claim claim-1 of family fam-1 against its matching three record
 log, in which run-2 stands failed. Values are simulated and
 test values only.
 """
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 import unittest
 
 from crucible import mod01, mod11, mod13
@@ -375,7 +376,10 @@ class TestR11098OutcomeReadInOneForm(unittest.TestCase):
         entry = full_entry(outcome="not reported",
                            confirmation_outcome="failed",
                            gate_failure="both gates")
-        self.assertTrue(mod01.validate_record("22", entry))
+        entry_for_validation = {
+            key: value for key, value in entry.items()
+            if key in mod01.form_fields("22")}
+        self.assertTrue(mod01.validate_record("22", entry_for_validation))
         self.assertTrue(mod13.compare_registry_against_run_log(
             entry, matching_log())["passed"])
         self.assertTrue(gate_valid(entry))
@@ -384,7 +388,10 @@ class TestR11098OutcomeReadInOneForm(unittest.TestCase):
         entry = full_entry(outcome="not reported",
                            confirmation_outcome="passed",
                            gate_failure="procedure gate")
-        self.assertTrue(mod01.validate_record("22", entry))
+        entry_for_validation = {
+            key: value for key, value in entry.items()
+            if key in mod01.form_fields("22")}
+        self.assertTrue(mod01.validate_record("22", entry_for_validation))
         self.assertTrue(mod13.compare_registry_against_run_log(
             entry, matching_log())["passed"])
         self.assertTrue(gate_valid(entry))
@@ -677,7 +684,7 @@ class TestR11105ContainerAndMemoryviewKeys(unittest.TestCase):
             run_log=matching_log())
         self.assertTrue(judged["valid"])
         self.assertEqual(judged["claim_identifier"], "claim-1")
-        self.assertTrue(mod01.validate_record("22", entry))
+        self.assertFalse(mod01.validate_record("22", entry))
 
     def test_claim_under_tuple_key(self):
         self.assert_claim_key_read(("claim_identifier",))
@@ -723,7 +730,10 @@ class TestControlsStandingBothWays(unittest.TestCase):
 
     def test_matching_entry_passes_all_three_acts(self):
         entry = full_entry()
-        self.assertTrue(mod01.validate_record("22", entry))
+        entry_for_validation = {
+            key: value for key, value in entry.items()
+            if key in mod01.form_fields("22")}
+        self.assertTrue(mod01.validate_record("22", entry_for_validation))
         self.assertTrue(mod13.compare_registry_against_run_log(
             entry, matching_log())["passed"])
         self.assertTrue(gate_valid(entry))

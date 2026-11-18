@@ -12,6 +12,20 @@ in the records. The two DQ7-12 forms, the dependency manifest and the
 process and network call log, stand as named open types with no
 validator claimed for them.
 
+Shape and Form numbering. The brief numbers its record shapes
+at section 5.3, Shapes 1 to 17, and this module numbers its
+record forms under the plan census. Shape 8 states two forms,
+VouchEdge and GraphSnapshot, so from brief Shape 9 the product
+Form number runs one ahead of the brief Shape number, under the
+plan one ahead rule: brief Shape 9 is Form 10, brief Shape 12
+is Form 13, brief Shape 13 is Form 14, and brief Shape 17 is
+Form 18. The full explicit cross reference stands at
+BRIEF_SHAPE_CROSS_REFERENCE in this module, with
+brief_shape_for_form and form_ids_for_brief_shape reading it.
+No product Form stands renumbered by that cross reference: the
+Form numbers stand as the plan census states them, and the
+cross reference states which brief Shape each Form answers.
+
 At OP-24 this module delivers no canonical form. It delivers the
 validation machinery only: the AC-1 state hash field list and its order
 carried as carriage, the one canonical rendering rule the brief states
@@ -32,6 +46,7 @@ __all__ = [
     "CALIBRATION_FIELD_VALUE",
     "CLOSED_FORMS",
     "COMPLETENESS_FIELDS",
+    "COMPLETENESS_KEY_PAIRS",
     "DQ163_MARK",
     "FORM_IDS",
     "FORM_TYPES",
@@ -45,18 +60,26 @@ __all__ = [
     "DependencyManifest",
     "ProvenanceBlock",
     "VersionStamp",
+    "BRIEF_SHAPE_CROSS_REFERENCE",
+    "brief_shape_for_form",
+    "StatedJudgement",
     "canonical_form_for_field",
     "check_reconciliation_trace",
+    "completeness_key_pairs",
+    "completeness_standing",
     "failure_value",
+    "family_reportable_standing",
     "family_supports_reportable_run",
     "field_conditions",
     "form_fields",
+    "form_ids_for_brief_shape",
     "form_name",
     "hash_equality_claim_permitted",
     "minimal_valid_family_record",
     "minimal_valid_instance",
     "named_failure_forms",
     "partial_record_is_marked",
+    "record_validation_failures",
     "reconciliation_criterion_verdict",
     "reconciliation_trace",
     "reconciliation_trace_check",
@@ -68,6 +91,7 @@ __all__ = [
     "validate_calibration_field",
     "validate_derivation_input_rendering",
     "validate_family_seal_match",
+    "validation_standing",
     "validate_lien_state",
     "validate_provenance_block",
     "validate_record",
@@ -124,6 +148,17 @@ _COMPLETENESS_SLUGS = (
     "reporting_resolution_per_trace",
     "decay_arm_donor_items",
 )
+
+# The one completeness key set, standing for validation and for the
+# reportability judgement alike (Step 16, R16-15): each completeness
+# field stands under two spellings, the brief name in
+# COMPLETENESS_FIELDS and the Form 1 field name in
+# _COMPLETENESS_SLUGS, and the two spellings carry one field, judged
+# once by completeness_standing. A record whose two spellings carry
+# different values stands diverged, and the diverged state stands
+# named in every standing result, never judged in silence (R16-11).
+COMPLETENESS_KEY_PAIRS = tuple(
+    zip(COMPLETENESS_FIELDS, _COMPLETENESS_SLUGS))
 
 # The AC-1 state hash field list, in the order brief section 10 states.
 # Carried as carriage only: the list and the order, and no hash equality
@@ -268,6 +303,10 @@ _FORM_SPECS = {
         "escrow_contract_states", "detection_state",
         "stream_positions_and_generator_states", "simulation_clock_value",
     )),
+    # Form 14 DailyAggregates record shape. This shape stands apart
+    # from the Recorder daily aggregate row shape of MOD-10, which
+    # carries viewer_id beside run_id, record_identity, and writer:
+    # the two shapes stand separated by name at each locus (R16-18).
     "14": ("DailyAggregates", _fields(
         "run_identifier", "simulated_day", "viewer_identifier",
         "joint_outcome_components", "honest_share",
@@ -484,8 +523,151 @@ def _fid(form_id):
 
 
 def form_name(form_id):
+    """The product name of one record form, by its product Form
+    number. The brief Shape the form answers stands apart from
+    the Form number from brief Shape 9 onward, under the plan
+    one ahead rule: read it through BRIEF_SHAPE_CROSS_REFERENCE
+    or brief_shape_for_form, never by assuming the Form number
+    and the brief Shape number agree."""
     spec = _FORM_SPECS.get(_fid(form_id))
     return spec[0] if spec else None
+
+
+# The explicit brief Shape cross reference of the product
+# registry, stated in the open at Step 16 row R16-01. Each entry
+# names the product Form, its product name, the brief Shape it
+# answers, and the brief name of that Shape. A brief Shape and
+# its brief name agree with the product name wherever the Shape
+# states one form; at brief Shape 8, which states two forms,
+# the brief name stands as the Shape states it and each Form
+# entry names its own form of the two. An entry whose
+# brief_shape stands as None carries no numbered brief Shape of
+# its own, in the form its brief_shape_note states. No Form
+# number in this table departs from the plan census, and no
+# brief Shape number departs from the brief: the table states
+# the correspondence between the two numberings as they stand.
+def _shape_entry(form_id, brief_shape, brief_name, note=None):
+    return {
+        "form_id": form_id,
+        "form_name": _FORM_SPECS[form_id][0],
+        "brief_shape": brief_shape,
+        "brief_name": brief_name,
+        "brief_shape_note": note,
+    }
+
+
+BRIEF_SHAPE_CROSS_REFERENCE = {
+    "1": _shape_entry("1", "1", "SweepFamilyRecord"),
+    "2": _shape_entry("2", "2", "SweepPoint"),
+    "3": _shape_entry("3", "3", "AssumptionRecord"),
+    "4": _shape_entry("4", "4", "RunRecord"),
+    "5": _shape_entry("5", "5", "SeedDerivationInput"),
+    "6": _shape_entry("6", "6", "StreamSet"),
+    "7": _shape_entry("7", "7", "AgentState"),
+    "8": _shape_entry("8", "8", "VouchEdge and GraphSnapshot",
+                      "Shape 8, first form of two"),
+    "9": _shape_entry("9", "8", "VouchEdge and GraphSnapshot",
+                      "Shape 8, second form of two"),
+    "10": _shape_entry("10", "9", "EscrowContractState"),
+    "11": _shape_entry("11", "10", "AdjudicationCase"),
+    "12": _shape_entry("12", "11", "DetectionState"),
+    "13": _shape_entry("13", "12", "CheckpointManifest"),
+    "13A": _shape_entry(
+        "13A", None, "CheckpointManifest",
+        "no numbered brief Shape of its own: counted beside "
+        "Form 13 in the checkpoint layer"),
+    "14": _shape_entry("14", "13", "DailyAggregates"),
+    "15": _shape_entry("15", "14", "JointOutcomeVector"),
+    "16": _shape_entry("16", "15", "HeadlineResultUnit"),
+    "17": _shape_entry("17", "16", "AnchorScenarioRecord"),
+    "18": _shape_entry("18", "17", "InterpretationLogEntry"),
+    "19": _shape_entry(
+        "19", None, "DetectionInput",
+        "no numbered brief Shape of its own: defined inside "
+        "the Shape 7 passage"),
+    "20": _shape_entry(
+        "20", None, "AnnotationRecord",
+        "no numbered brief Shape of its own: defined in the "
+        "Shape 16 passage"),
+    "21": _shape_entry(
+        "21", None, "AnnotationCheckRecord",
+        "no numbered brief Shape of its own: defined in the "
+        "Shape 16 passage"),
+    "22": _shape_entry(
+        "22", None, "SweepFamilyRegistry",
+        "no numbered brief Shape: a layer three form"),
+    "23": _shape_entry(
+        "23", None, "FamilyManifest",
+        "no numbered brief Shape: a layer three form"),
+    "24": _shape_entry(
+        "24", None, "SweepManifest",
+        "no numbered brief Shape: a layer three form"),
+    "25": _shape_entry(
+        "25", None, "PilotRecord",
+        "no numbered brief Shape: a layer three form"),
+    "26": _shape_entry(
+        "26", None, "SummaryRecord",
+        "no numbered brief Shape: a layer three form"),
+    "27": _shape_entry(
+        "27", None, "DetectionOutput",
+        "no numbered brief Shape: a layer three form"),
+    "28": _shape_entry(
+        "28", None, "ReplicationVerdictRecord",
+        "no numbered brief Shape: a layer three form"),
+    "29": _shape_entry(
+        "29", None, "TracerPassageRecord",
+        "no numbered brief Shape: a layer three form"),
+    "30": _shape_entry(
+        "30", None, "GatePassingShareRecord",
+        "no numbered brief Shape: a layer three form"),
+    "31": _shape_entry(
+        "31", None, "ReadingLoadPricingRecord",
+        "no numbered brief Shape: a layer three form"),
+    "32": _shape_entry(
+        "32", None, "SettingsLineageTestRecord",
+        "no numbered brief Shape: a layer three form"),
+    "33": _shape_entry(
+        "33", None, "RetentionRecord",
+        "no numbered brief Shape: a layer three form"),
+    "34": _shape_entry(
+        "34", None, "DisagreementCatalogue",
+        "no numbered brief Shape: a layer three form"),
+    "35": _shape_entry(
+        "35", None, "WeeklyContainer",
+        "no numbered brief Shape: a layer three form"),
+    "36": _shape_entry(
+        "36", None, "EventLog",
+        "no numbered brief Shape: a layer three form"),
+    "37": _shape_entry(
+        "37", None, "DailySnapshot",
+        "no numbered brief Shape: a layer three form"),
+}
+
+
+def brief_shape_for_form(form_id):
+    """The numbered brief Shape one product Form answers, as
+    BRIEF_SHAPE_CROSS_REFERENCE states it, or None where the
+    Form carries no numbered brief Shape of its own."""
+    entry = BRIEF_SHAPE_CROSS_REFERENCE.get(_fid(form_id))
+    if entry is None:
+        return None
+    return entry["brief_shape"]
+
+
+def form_ids_for_brief_shape(shape):
+    """The product Form numbers answering one numbered brief
+    Shape, as BRIEF_SHAPE_CROSS_REFERENCE states them. Brief
+    Shape 8 answers with two Forms, ("8", "9"); every other
+    numbered brief Shape from 1 to 17 answers with one Form.
+    A shape naming no numbered brief Shape returns an empty
+    tuple."""
+    wanted = _fid(shape)
+    return tuple(
+        form_id
+        for form_id, entry in BRIEF_SHAPE_CROSS_REFERENCE.items()
+        if entry["brief_shape"] is not None
+        and str.__eq__(entry["brief_shape"], wanted)
+    )
 
 
 def form_fields(form_id):
@@ -568,8 +750,20 @@ def minimal_valid_instance(form_id, entry_kind=None, condition_holds=None):
     A form with a stated condition takes condition_holds: the condition
     dict its field_conditions returns, or None where the condition does
     not hold.
+
+    An identifier naming no form stands refused in a named failure:
+    the failure names the handed identifier, states that no form
+    stands under it, and states the next step, and no instance
+    stands built.
     """
     fid = _fid(form_id)
+    if fid not in _FORM_SPECS:
+        raise ValueError(
+            "minimal_valid_instance stands refused: form identifier "
+            + _safe_str(form_id)
+            + " names no form: no form stands under that identifier; "
+            "next step: hand a stated form identifier, one of the "
+            "identifiers FORM_IDS states, and no instance stands built")
     if fid == "36":
         stored_kind = _stored_text(entry_kind)
         if entry_kind is not None and stored_kind not in (
@@ -633,6 +827,122 @@ def minimal_valid_family_record():
     for field in COMPLETENESS_FIELDS:
         record[field] = _OP13_MARKER
     return record
+
+
+# Field ownership for Forms 2 and 4, stated on the record (R16-07).
+# user_supplies: fields a user hands in when building the record.
+# system_fills: fields the system writes during or after a run; a
+# user building a record leaves these to the template standing.
+# never_fill: fields a user must never fill. On Form 4 these stand
+# as the seed fields: no seed stands drawn, read from a clock, or
+# assigned in completion order while the DQ7-02 adoption gate
+# stands, and the builders below refuse them by name.
+FORM_FIELD_OWNERSHIP = {
+    "2": {
+        "user_supplies": (
+            "point_identifier", "population_size", "farm_size",
+            "patience_in_days", "run_length_in_days",
+            "anchor_scenario_identifier", "escrow_variant_selector",
+            "assumption_set_selector", "design_kind", "decay_slice",
+        ),
+        "system_fills": (),
+        "never_fill": (),
+    },
+    "4": {
+        "user_supplies": (
+            "sweep_identifier", "sweep_family_identifier",
+            "family_version", "sweep_point_identifier", "run_class",
+            "design_kind", "replicate_group_identifier",
+            "replicate_index", "population_size", "run_length_in_days",
+            "horizon_variant_marker", "control_values",
+            "scheduling_order_identifier", "assumption_record",
+            "escrow_variant", "variant_record_fields",
+            "core_only_qualifier", "interpretation_choices",
+            "anchor_scenario_values", "dependence_labels",
+            "retention_tier", "store_kind",
+            "timing_pilot_or_provisional_marker",
+            "calibration_claim_field", "annotation_link",
+        ),
+        "system_fills": (
+            "family_manifest_hash", "run_identifier",
+            "stream_identifiers", "scheduling_position_identifiers",
+            "build_identifier", "matched_run_identifier",
+            "rule_version_set", "arbiter_accuracy_value",
+            "correlation_statement", "joint_outcome_vector",
+            "regime_classification", "winning_criterion_evaluation",
+            "gate_passing_share_per_epoch",
+            "excluded_class_counts_and_shares", "flag_conditions_fired",
+            "record_pointers", "end_of_run_state_hash",
+            "folding_record_reference", "seam_check_reference",
+            "nq10_listing", "nq6_classification_marker",
+            "outside_call_check", "run_status",
+        ),
+        "never_fill": (
+            "root_seed_reference", "derived_run_seed_identifier",
+        ),
+    },
+}
+
+
+def _build_form(form_id, values):
+    ownership = FORM_FIELD_OWNERSHIP[form_id]
+    for field in values:
+        if field in ownership["never_fill"]:
+            raise ValueError(
+                "field a user must never fill: " + field
+                + " stands as a seed field, and no seed stands drawn "
+                "or assigned while the DQ7-02 adoption gate stands; "
+                "the field stands unfilled and no record stands built")
+        if field in ownership["system_fills"]:
+            raise ValueError(
+                "field the system fills: " + field
+                + " stands written by the system during or after a "
+                "run, and a user building this record supplies no "
+                "value for it; no record stands built")
+        if field not in ownership["user_supplies"]:
+            raise ValueError(
+                "unknown field for Form " + form_id + ": " + str(field)
+                + "; the fields a user supplies stand named in "
+                "FORM_FIELD_OWNERSHIP, and no record stands built")
+    record = minimal_valid_instance(form_id)
+    for field, value in values.items():
+        record[field] = copy.deepcopy(value)
+    return record
+
+
+def build_sweep_point(**values):
+    """Build one SweepPoint record, Form 2, from user supplied fields.
+
+    Arguments: any of the Form 2 fields a user supplies, named in
+    FORM_FIELD_OWNERSHIP at "2" under user_supplies. A field left
+    unfilled carries the template standing of
+    minimal_valid_instance, so the record a caller builds stands
+    as a formally complete template until real values stand
+    supplied for it.
+    Returns: a plain dict in the Form 2 shape.
+    Failure: a named ValueError for a field the form does not
+    name. Form 2 carries no system filled field and no seed
+    field, so no other refusal stands on this path.
+    """
+    return _build_form("2", values)
+
+
+def build_run_record(**values):
+    """Build one RunRecord record, Form 4, from user supplied fields.
+
+    Arguments: any of the Form 4 fields a user supplies, named in
+    FORM_FIELD_OWNERSHIP at "4" under user_supplies. Fields the
+    system fills stand left to the template standing, and the
+    seed fields, root_seed_reference and
+    derived_run_seed_identifier, stand never filled by a user.
+    Returns: a plain dict in the Form 4 shape.
+    Failure: a named ValueError naming the DQ7-02 adoption gate
+    where a seed field stands handed in, a named ValueError where
+    a system filled field stands handed in, and a named
+    ValueError for a field the form does not name; on every
+    refusal no record stands built and no seed stands drawn.
+    """
+    return _build_form("4", values)
 
 
 # ---------------------------------------------------------------------------
@@ -2774,29 +3084,338 @@ def validate_family_seal_match(manifest, record):
     )
 
 
-def family_supports_reportable_run(record):
-    """The family completeness bar: every completeness field present,
-    each OP-13 value carried as an open marker and never as a number."""
-    if not isinstance(record, dict):
+def completeness_key_pairs():
+    """The one completeness key set: pairs of (brief name, Form 1
+    field name), one pair per completeness field, in field order.
+    The brief name stands as the alias of the Form 1 field name for
+    the same field (R16-11); neither spelling stands as a second
+    field."""
+    return COMPLETENESS_KEY_PAIRS
+
+
+class StatedJudgement:
+    """A judgement carrying its standing in words.
+
+    The judgement answers as its boolean in every truth and
+    equality reading, and it states, on its face and in its
+    attributes, the standing the answer rests on: which fields
+    stand open, which stand supplied, which stand diverged, and
+    whether the record stands reportable ready on supplied
+    values. A judgement over open markers therefore never stands
+    as an unqualified True (Step 16, R16-03). The dict form of
+    the same judgement stands at family_reportable_standing.
+    """
+
+    def __init__(self, value, standing="", open_fields=(),
+                 supplied_fields=(), diverged_fields=(),
+                 missing_fields=(), placeholder_fields=(),
+                 reportable_ready=False):
+        self.value = bool(value)
+        self.standing = standing
+        self.open_fields = tuple(open_fields)
+        self.supplied_fields = tuple(supplied_fields)
+        self.diverged_fields = tuple(diverged_fields)
+        self.missing_fields = tuple(missing_fields)
+        self.placeholder_fields = tuple(placeholder_fields)
+        self.reportable_ready = bool(reportable_ready)
+
+    def __bool__(self):
+        return self.value
+
+    def __eq__(self, other):
+        if isinstance(other, bool):
+            return self.value == other
+        if isinstance(other, StatedJudgement):
+            return self.value == other.value
+        return NotImplemented
+
+    def __ne__(self, other):
+        result = self.__eq__(other)
+        if result is NotImplemented:
+            return result
+        return not result
+
+    def __hash__(self):
+        return hash(self.value)
+
+    def __repr__(self):
+        word = "True" if self.value else "False"
+        if self.standing:
+            return word + " (standing: " + self.standing + ")"
+        return word
+
+    def as_dict(self):
+        return {
+            "judgement": self.value,
+            "standing": self.standing,
+            "open_fields": list(self.open_fields),
+            "supplied_fields": list(self.supplied_fields),
+            "diverged_fields": list(self.diverged_fields),
+            "missing_fields": list(self.missing_fields),
+            "placeholder_fields": list(self.placeholder_fields),
+            "reportable_ready": self.reportable_ready,
+        }
+
+
+def _completeness_value_standing(value):
+    """The standing of one completeness value, read through base
+    class operations on what the value stores: an open marker
+    under OP-13, a supplied recorded value (a recorded text, or a
+    non empty recorded sequence, mapping, or set of steps), the
+    placeholder text, an absent value, or a bare scalar. A bare
+    number stands as no recorded completeness value at all: the
+    TG-01.3 pin stands, a marker replaced by a bare number fails
+    the completeness bar."""
+    if value is None:
+        return "absent"
+    if isinstance(value, (list, tuple, set, frozenset)):
+        if _base_len(value) == 0:
+            return "absent"
+        if _base_len(value) == 1:
+            only = next(_base_iter(value))
+            return _completeness_value_standing(only)
+        return "supplied"
+    if isinstance(value, dict):
+        return "supplied" if _base_len(value) else "absent"
+    text = _stored_text_dress(value)
+    if text is not None:
+        if not str.__len__(text):
+            return "absent"
+        if str.startswith(text, OPEN_MARKER_PREFIX) and (
+                str.__contains__(text, "OP-13")):
+            return "open marker"
+        if str.__eq__(text, "stated value"):
+            return "placeholder"
+        return "supplied"
+    return "bare scalar"
+
+
+def _values_agree(first, second):
+    """Whether two handed values store the same value, judged
+    through base class operations only, with a handed reading
+    that raises standing as no agreement."""
+    if first is second:
+        return True
+    try:
+        return bool(_base_value_equals(first, second))
+    except Exception:
         return False
-    stored_pairs = [
-        (str.__str__(key), item)
-        for key, item in dict.items(record)
-        if isinstance(key, str)
-    ]
-    for field in COMPLETENESS_FIELDS:
-        found = [
-            item for key, item in stored_pairs if str.__eq__(key, field)
-        ]
-        if not found:
-            return False
-        value = found[0]
-        if not isinstance(value, str):
-            return False
-        if not str.startswith(value, OPEN_MARKER_PREFIX) or not (
-                str.__contains__(value, "OP-13")):
-            return False
-    return True
+
+
+def completeness_standing(record):
+    """The completeness standing of one family record, judged once
+    from the one completeness key set (R16-15).
+
+    Each completeness field stands judged from its two spellings
+    together: where both spellings stand present and carry
+    different values the field stands diverged and stands named
+    as diverged (R16-11); where they agree, or where one spelling
+    alone stands, the field takes the standing of the value it
+    carries, an open marker under OP-13, a supplied value, the
+    placeholder text, an absent value, or a bare scalar. The
+    result names the fields in each standing, so a formally
+    complete template stands distinguished from a record carrying
+    real values, with placeholder and marker values named as such
+    (R16-03). No value stands invented by this reading (OP-16).
+    """
+    result = {
+        "fields": [],
+        "open_fields": [],
+        "supplied_fields": [],
+        "placeholder_fields": [],
+        "diverged_fields": [],
+        "missing_fields": [],
+        "bare_scalar_fields": [],
+        "absent_fields": [],
+    }
+    if not isinstance(record, dict):
+        result["standing"] = "not a record: no completeness standing"
+        result["complete_on_completeness_limb"] = False
+        result["reportable_ready"] = False
+        return result
+    for prose, slug in COMPLETENESS_KEY_PAIRS:
+        prose_present = _stored_pairs_present(record, prose)
+        slug_present = _stored_pairs_present(record, slug)
+        if not prose_present and not slug_present:
+            standing = "missing"
+        else:
+            prose_value = _stored_pairs_value(record, prose)
+            slug_value = _stored_pairs_value(record, slug)
+            if prose_present and slug_present and not _values_agree(
+                    prose_value, slug_value):
+                standing = "diverged"
+            elif slug_present:
+                standing = _completeness_value_standing(slug_value)
+            else:
+                standing = _completeness_value_standing(prose_value)
+        result["fields"].append({
+            "field": prose,
+            "key": slug,
+            "standing": standing,
+            "brief_name_present": prose_present,
+            "form_name_present": slug_present,
+        })
+        if standing == "open marker":
+            result["open_fields"].append(prose)
+        elif standing == "supplied":
+            result["supplied_fields"].append(prose)
+        elif standing == "placeholder":
+            result["placeholder_fields"].append(prose)
+        elif standing == "diverged":
+            result["diverged_fields"].append(prose)
+        elif standing == "missing":
+            result["missing_fields"].append(prose)
+        elif standing == "bare scalar":
+            result["bare_scalar_fields"].append(prose)
+        else:
+            result["absent_fields"].append(prose)
+    complete = all(
+        entry["standing"] in ("open marker", "supplied")
+        and entry["brief_name_present"] and entry["form_name_present"]
+        for entry in result["fields"])
+    result["complete_on_completeness_limb"] = complete
+    result["reportable_ready"] = bool(
+        complete and not result["open_fields"])
+    if result["diverged_fields"]:
+        result["standing"] = (
+            "completeness standing diverged: the two spellings of "
+            "the fields named carry different values, and the "
+            "diverged state stands named rather than judged in "
+            "silence: " + ", ".join(result["diverged_fields"]))
+    elif not complete:
+        result["standing"] = (
+            "completeness standing unmet: the fields named do not "
+            "all stand present in an open marker or supplied form: "
+            + ", ".join(
+                entry["field"] for entry in result["fields"]
+                if entry["standing"] not in ("open marker", "supplied")))
+    elif result["open_fields"]:
+        result["standing"] = (
+            "completeness standing open: every completeness field "
+            "stands present, and the fields named stand as open "
+            "markers under OP-13, awaiting supply, so the family "
+            "does not stand reportable ready on supplied values: "
+            + ", ".join(result["open_fields"]))
+    else:
+        result["standing"] = (
+            "completeness standing supplied: every completeness "
+            "field stands present with a supplied value")
+    return result
+
+
+def family_reportable_standing(record):
+    """The reportable standing of one family record as a stated
+    result: the completeness bar judgement, the standing it rests
+    on, and the fields in each standing, in place of an
+    unqualified True over open markers (R16-03)."""
+    standing = completeness_standing(record)
+    return {
+        "supports_reportable_run": bool(
+            standing["complete_on_completeness_limb"]),
+        "standing": standing["standing"],
+        "open_fields": standing["open_fields"],
+        "supplied_fields": standing["supplied_fields"],
+        "diverged_fields": standing["diverged_fields"],
+        "missing_fields": standing["missing_fields"],
+        "placeholder_fields": standing["placeholder_fields"],
+        "reportable_ready": standing["reportable_ready"],
+    }
+
+
+def family_supports_reportable_run(record):
+    """The family completeness bar, judged once from the one
+    completeness key set: every completeness field present under
+    both of its spellings, the two spellings agreeing, and each
+    value standing as an open marker under OP-13 or as a supplied
+    recorded value, never as a bare number (TG-01.3 pin) and never
+    as the placeholder text.
+
+    The answer stands as a StatedJudgement: over open markers it
+    states the open standing and names the open fields in place
+    of an unqualified True (R16-03), and over supplied values it
+    states the supplied standing, so a family carrying supplied
+    values can pass (R16-15)."""
+    if not isinstance(record, dict):
+        return StatedJudgement(
+            False, standing="not a record: the completeness bar "
+            "stands unmet")
+    standing = completeness_standing(record)
+    return StatedJudgement(
+        standing["complete_on_completeness_limb"],
+        standing=standing["standing"],
+        open_fields=standing["open_fields"],
+        supplied_fields=standing["supplied_fields"],
+        diverged_fields=standing["diverged_fields"],
+        missing_fields=standing["missing_fields"],
+        placeholder_fields=standing["placeholder_fields"],
+        reportable_ready=standing["reportable_ready"])
+
+
+def validation_standing(form_id, instance):
+    """The stated validation result of one record instance: the
+    boolean judgement of validate_record, and, beside it, the
+    standing that judgement rests on, with placeholder values and
+    open marker values named as such, field by field (R16-03).
+
+    A formally complete instance carrying placeholder or marker
+    values stands named a template in its standing, distinguished
+    from a record carrying real values. For Form 1 the
+    completeness standing of completeness_standing stands folded
+    in, judged from the same one key set (R16-15)."""
+    fid = _fid(form_id)
+    valid = bool(validate_record(fid, instance))
+    placeholder_fields = []
+    open_marker_fields = []
+    if isinstance(instance, dict):
+        for key, item in dict.items(instance):
+            key_text = _stored_text(key)
+            if key_text is None:
+                continue
+            text = _stored_text_dress(item)
+            if text is None:
+                continue
+            if str.__eq__(text, "stated value"):
+                placeholder_fields.append(key_text)
+            elif str.startswith(text, OPEN_MARKER_PREFIX):
+                open_marker_fields.append(key_text)
+    result = {
+        "form": fid,
+        "valid": valid,
+        "placeholder_fields": placeholder_fields,
+        "open_marker_fields": open_marker_fields,
+        "supplied_fields": [],
+        "diverged_fields": [],
+    }
+    if fid == "1" and isinstance(instance, dict):
+        standing = completeness_standing(instance)
+        result["supplied_fields"] = list(standing["supplied_fields"])
+        result["diverged_fields"] = list(standing["diverged_fields"])
+        result["open_marker_fields"] = list(standing["open_fields"])
+        result["completeness_standing"] = standing["standing"]
+    if not valid:
+        result["standing"] = (
+            "invalid: the record fails validation")
+    elif fid == "1" and result["diverged_fields"]:
+        result["standing"] = (
+            "valid in form, with completeness standing diverged "
+            "on the fields named: "
+            + ", ".join(result["diverged_fields"]))
+    elif result["open_marker_fields"]:
+        result["standing"] = (
+            "template in open form: the record stands formally "
+            "complete, and the fields named carry open marker "
+            "values under OP-13, awaiting supply: "
+            + ", ".join(result["open_marker_fields"]))
+    elif placeholder_fields:
+        result["standing"] = (
+            "template: the record stands formally complete, and "
+            "the fields named carry the placeholder text in place "
+            "of real values: " + ", ".join(placeholder_fields))
+    else:
+        result["standing"] = (
+            "record carrying stated values: no placeholder or "
+            "open marker value stands on the record")
+    return result
 
 
 def _validate_record_inner(form_id, instance):
@@ -2953,13 +3572,47 @@ def _validate_record_inner(form_id, instance):
             if not any(
                     str.__eq__(stored, field) for field in allowed):
                 return False
+    if fid in ("1", "4"):
+        # The prototype order bar of brief Shape 1, at Step 16
+        # row R16-13: a headline family record, and a headline
+        # run record, whose scheduling order identifier reads
+        # the brief literal value "prototype order" fails
+        # validation and is not reportable as a headline run.
+        # The shortened literal "prototype" the product bar
+        # already refused at MOD-04 stays refused here as well,
+        # so no bar standing before this row is weakened. The
+        # Form 1 reading stands on the family record as the
+        # headline family definition surface: a family carrying
+        # the barred order names no lawful headline order.
+        _order_text = _stored_text_dress(_stored_pairs_value(
+            instance, "scheduling_order_identifier"))
+        if fid == "4":
+            _class_text = _stored_text_dress(_stored_pairs_value(
+                instance, "run_class"))
+            if _class_text != "headline":
+                _order_text = None
+        if _order_text in ("prototype order", "prototype"):
+            return False
     if fid == "1":
-        for slug in _COMPLETENESS_SLUGS:
+        # The completeness limb, judged from the one completeness
+        # key set (R16-15): each Form 1 completeness value stands
+        # as an open marker under OP-13 or as a supplied recorded
+        # value, and a brief name spelling standing beside it must
+        # carry the same value, a diverged pair failing here in
+        # the same judgement that judges the reportability bar.
+        # A bare scalar, the placeholder text, and an absent value
+        # all fail, as the marker only reading failed them before.
+        for prose, slug in COMPLETENESS_KEY_PAIRS:
             value = _stored_pairs_value(instance, slug)
-            if value is not None and not (
-                isinstance(value, str)
-                and str.startswith(value, OPEN_MARKER_PREFIX)
-            ):
+            if value is None:
+                continue
+            prose_value = _stored_pairs_value(
+                instance, prose, _STORED_MISSING)
+            if prose_value is not _STORED_MISSING and not (
+                    _values_agree(value, prose_value)):
+                return False
+            if _completeness_value_standing(value) not in (
+                    "open marker", "supplied"):
                 return False
     if _carries_reserved_matter(instance):
         return False
@@ -2988,15 +3641,212 @@ def _validate_record_inner(form_id, instance):
     return True
 
 
-def validate_record(form_id, instance):
-    """Validate one record instance against its form, in the form
-    _validate_record_inner states. A value deeper than the stated
-    traversal bound, or carrying a cycle, fails validation and
-    returns False, in place of a bare recursion error."""
+def _failure_sentence(field, rule, step):
+    return (
+        "validate_record stands refused: field " + field + ": "
+        + rule + "; next step: " + step
+        + ", and no record stands validated")
+
+
+def _record_validation_failures(form_id, instance):
+    fid = _fid(form_id)
+    if fid not in _FORM_SPECS:
+        return [_failure_sentence(
+            "form identifier " + _safe_str(form_id),
+            "no form stands under that identifier, so no field "
+            "list stands to check the record against",
+            "hand a stated form identifier, one of the identifiers "
+            "in FORM_IDS, or check the identifier for a mistyped "
+            "character")]
+    if not isinstance(instance, dict):
+        return [_failure_sentence(
+            "record",
+            "a record stands as a field mapping, and the handed "
+            "value stands in no record form",
+            "hand the record as a mapping of field names to values")]
+    failures = []
+    stored_pairs = list(dict.items(instance))
+
+    def present_value(field):
+        for key, item in stored_pairs:
+            if isinstance(key, str) and str.__eq__(
+                    str.__str__(key), field):
+                return True, item
+        return False, None
+
+    for field in required_fields(fid):
+        found, value = present_value(field)
+        if not found or value is None:
+            failures.append(_failure_sentence(
+                field,
+                "the field stands required on this form and stands "
+                "absent or empty on the record",
+                "supply the field " + field + " with a value in "
+                "the form the form states for it"))
+    for condition in _conditions_for(fid):
+        disc_found, disc_value = present_value(
+            condition["discriminator"])
+        if disc_value is True:
+            field_found, _field_value = present_value(
+                condition["field"])
+            if not field_found:
+                failures.append(_failure_sentence(
+                    condition["field"],
+                    "the field stands required where its stated "
+                    "condition holds, and that condition stands "
+                    "on the record",
+                    "supply the field " + condition["field"]
+                    + ", or clear the condition field "
+                    + condition["discriminator"] + " on the record"))
+    allowed = set(form_fields(fid))
+    allowed.update(
+        condition["discriminator"] for condition in _conditions_for(fid))
+    if fid == "1":
+        allowed.update(COMPLETENESS_FIELDS)
+    if fid == "36":
+        allowed.add("entry_kind")
+    def key_names_a_field(key):
+        plain = _stored_text(key)
+        if plain is not None and any(
+                str.__eq__(plain, field) for field in allowed):
+            return True
+        key_text = _stored_key_text(key)
+        if key_text is not None and any(
+                str.__eq__(key_text, field) for field in allowed):
+            return True
+        dress = _stored_text_dress(key)
+        if dress is not None and any(
+                str.__eq__(dress, field) for field in allowed):
+            return True
+        try:
+            for field in allowed:
+                if _folded_key_matches(
+                        key, _folded_money_key(field)):
+                    return True
+        except Exception:
+            return False
+        return False
+
+    for key, _item in stored_pairs:
+        stored = _stored_key_text(key)
+        if stored is None:
+            failures.append(_failure_sentence(
+                _safe_str(key),
+                "a field name stands as text on this form, and "
+                "the handed field name stands in no text form",
+                "name every field with a text field name from "
+                "the form field list"))
+        elif not key_names_a_field(key):
+            failures.append(_failure_sentence(
+                stored,
+                "the form names no such field, so the field "
+                "stands outside the record the form states",
+                "remove the field " + stored + ", or check its "
+                "spelling against the form field list"))
+    for field, checker, stated in (
+            ("calibration_claim_field", validate_calibration_field,
+             "the stated calibration claim form"),
+            ("store_kind", validate_store_kind,
+             "a stated store kind")):
+        found, value = present_value(field)
+        if found and value is not None and not checker(value):
+            failures.append(_failure_sentence(
+                field,
+                "the field stands in a stated form and the handed "
+                "value stands outside that form",
+                "hand the field " + field + " in " + stated))
+    if fid == "10":
+        found, value = present_value("lien_state")
+        if found and value is not None and not validate_lien_state(
+                value, cross_seam=bool(
+                    present_value("cross_seam_effect")[1])):
+            failures.append(_failure_sentence(
+                "lien_state",
+                "the field stands in a stated form and the handed "
+                "value stands outside that form",
+                "hand the field lien_state in one of the stated "
+                "lien states"))
+    if fid == "22":
+        for field, stated_set in (
+                ("outcome", ("reported", "not reported")),
+                ("confirmation_outcome", ("passed", "failed", "not run")),
+                ("gate_failure", (
+                    "procedure gate", "confirmation gate",
+                    "both gates", "none"))):
+            found, value = present_value(field)
+            if found and value is not None:
+                dress = _stored_text_dress(value)
+                if dress is None or dress not in stated_set:
+                    failures.append(_failure_sentence(
+                        field,
+                        "the field stands in a stated set of values "
+                        "and the handed value stands outside that set",
+                        "hand the field " + field + " as one of: "
+                        + ", ".join(stated_set)))
+    try:
+        inner_ok = _validate_record_inner(form_id, instance)
+    except (RecordTraversalFailure, RecursionError):
+        failures.append(_failure_sentence(
+            "record",
+            "the record stands deeper than the depth the reader "
+            "walks, or a part of it points back to itself, so "
+            "the record cannot stand read whole",
+            "hand a record whose parts stand in plain nested "
+            "form, with no part pointing back to a part around it"))
+        return failures
+    if not inner_ok and not failures:
+        failures.append(_failure_sentence(
+            form_name(fid) + " record",
+            "a stated rule of this form stands unmet by a value "
+            "on the record",
+            "check each value on the record against the stated "
+            "form for its field, in form_fields and "
+            "field_conditions for this form"))
+    return failures
+
+
+def record_validation_failures(form_id, instance):
+    """Every reason a record does not stand valid against its
+    form, as a list of named failures. Each failure names the
+    field, the rule the field breaks, and the next step for the
+    operator. An empty list stands for a record that stands
+    valid. This door never raises for a record that merely
+    fails validation."""
+    return list(_record_validation_failures(form_id, instance))
+
+
+def _validate_record_bool(form_id, instance):
+    """The yes or no judgement behind validate_record, for the
+    product callers whose own answer form stands as a boolean."""
     try:
         return _validate_record_inner(form_id, instance)
     except (RecordTraversalFailure, RecursionError):
         return False
+
+
+def validate_record(form_id, instance):
+    """Check one record against its form, and say what stands wrong.
+
+    Hand in a form identifier and the record as a mapping of
+    field names to values. The answer True means the record
+    carries every field its form requires, carries no field
+    its form does not name, and stands under every rule its
+    form states. The answer False means the record does not
+    stand valid, and the reason never stands hidden behind
+    that False: call record_validation_failures with the
+    same form identifier and record, and it returns the
+    named failures, one per fault.
+
+    Each named failure states the field at fault, the rule
+    that field breaks, and the next step to take, in the
+    form: field, rule, next step, and the closing words
+    that no record stands validated. An operator holding a
+    False answer reads the field name first, fixes that
+    field by the next step the failure states, and checks
+    the record again. record_validation_failures returns
+    an empty list where the record stands valid.
+    """
+    return not _record_validation_failures(form_id, instance)
 
 
 def _validate_eventlog(instance):
@@ -3073,14 +3923,42 @@ def _validate_eventlog(instance):
 
 def run_is_reportable(form_id, instance):
     """A run whose record fails validation is not reportable. A failed
-    run is not reportable as a completed run."""
+    run is not reportable as a completed run.
+
+    For Form 1 the answer stands as a StatedJudgement carrying the
+    family completeness standing: over open markers it states the
+    open standing and names the open fields in place of an
+    unqualified True (R16-03)."""
     fid = _fid(form_id)
-    if not validate_record(fid, instance):
+    if fid == "1":
+        # Merge composition (Step 16 fix merge): Builder 2 built
+        # this Form 1 branch against validate_record as that door
+        # stood in its copy, the inner record judgement. Builder 1
+        # split that door, and its own hunk on this function reads
+        # the inner judgement through _validate_record_bool on the
+        # standing path below. This branch reads the same inner
+        # judgement, so a family record carrying its marked alias
+        # and presentation keys stands judged on the ground
+        # Builder 2 proved.
+        if not _validate_record_bool(fid, instance):
+            return StatedJudgement(
+                False, standing="not reportable: the record fails "
+                "validation")
+        judgement = family_supports_reportable_run(instance)
+        if not judgement:
+            return judgement
+        return StatedJudgement(
+            True, standing=judgement.standing,
+            open_fields=judgement.open_fields,
+            supplied_fields=judgement.supplied_fields,
+            diverged_fields=judgement.diverged_fields,
+            missing_fields=judgement.missing_fields,
+            placeholder_fields=judgement.placeholder_fields,
+            reportable_ready=judgement.reportable_ready)
+    if not _validate_record_bool(fid, instance):
         return False
     if isinstance(instance, dict) and _stored_text_equals(
             _stored_pairs_value(instance, "run_status"), "failed"):
-        return False
-    if fid == "1" and not family_supports_reportable_run(instance):
         return False
     return True
 
@@ -3568,10 +4446,54 @@ class _RecordForm:
         self.values = _guarded_copy(stored)
 
     def validate(self):
-        return validate_record(self.FORM_ID, self.values)
+        return _validate_record_bool(self.FORM_ID, self.values)
 
     def is_reportable(self):
         return run_is_reportable(self.FORM_ID, self.values)
+
+
+def _form_type_doc(name, form_id):
+    fields = ", ".join(_FORM_SPECS[form_id][1])
+    doc = (
+        name + ", Form " + form_id + ", owned by "
+        + str(_FORM_OWNERS.get(form_id)) + ". "
+        "A dict wrapper: an instance carries its record as a plain "
+        "dict in its values attribute, validate() judges the record "
+        "against Form " + form_id + ", and is_reportable() states "
+        "its reportable standing. Its fields are: " + fields + ". "
+        "Construction guidance stands at minimal_valid_instance "
+        "for a template of this form."
+    )
+    if form_id in FORM_FIELD_OWNERSHIP:
+        ownership = FORM_FIELD_OWNERSHIP[form_id]
+        doc += (
+            " Field ownership on this form: a user supplies "
+            + ", ".join(ownership["user_supplies"]) + ". "
+            "The system fills "
+            + (", ".join(ownership["system_fills"])
+               if ownership["system_fills"] else "no field") + ". "
+            "Fields a user must never fill: "
+            + (", ".join(ownership["never_fill"])
+               if ownership["never_fill"]
+               else "none on this form; this form carries no seed "
+                    "field") + ". "
+            "Named constructors stand at build_sweep_point for "
+            "Form 2 and build_run_record for Form 4, and "
+            "FORM_FIELD_OWNERSHIP states the ownership in full."
+        )
+    if form_id == "14":
+        doc += (
+            " Shape separation (R16-18): this Form 14 "
+            "DailyAggregates record shape, keyed by run_identifier, "
+            "simulated_day, and viewer_identifier, stands apart "
+            "from the Recorder daily aggregate row shape of MOD-10, "
+            "keyed by viewer_id beside run_id, record_identity, and "
+            "writer. Each shape stands judged under its own name: "
+            "this form under validate_record and "
+            "validate_form14_daily_aggregates_record, the Recorder "
+            "row under validate_recorder_daily_aggregate_rows."
+        )
+    return doc
 
 
 def _make_form_type(name, form_id):
@@ -3580,6 +4502,7 @@ def _make_form_type(name, form_id):
         "FIELDS": _FORM_SPECS[form_id][1],
         "OWNER": _FORM_OWNERS.get(form_id),
         "__module__": __name__,
+        "__doc__": _form_type_doc(name, form_id),
     })
 
 

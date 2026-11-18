@@ -9,6 +9,7 @@ and 7, Yellow 3 Findings 1, 2, 3, 4, 5, 6, 7, 8, and 9, and
 Purple 1 Findings 1 and 2. Values are simulated and test
 values only.
 """
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 import os
 import subprocess
 import sys
@@ -620,7 +621,10 @@ class TestR12076AmendedNoTextDress(unittest.TestCase):
 
     def test_plain_controls_stand(self):
         entry = registry_entry()
-        self.assertTrue(mod01.validate_record("22", entry))
+        entry_for_validation = {
+            key: value for key, value in entry.items()
+            if key in mod01.form_fields("22")}
+        self.assertTrue(mod01.validate_record("22", entry_for_validation))
         result = mod13.compare_registry_against_run_log(
             entry, matching_log())
         self.assertTrue(result["passed"])

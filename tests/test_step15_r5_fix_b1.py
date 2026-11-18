@@ -1,3 +1,4 @@
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 # Step 15, second run, fix wave 4, Builder 1 pins. MOD-01 only.
 # Rows R4-007, R4-012, R4-016 (MOD-01 limb), R4-019 and R4-024
 # of the Round 4 register.
@@ -419,7 +420,8 @@ class TestR4016MixedLeetReadingsOfFigureOne(unittest.TestCase):
 
     def test_benign_name_still_passes_at_four(self):
         good = form4_with(
-            "combined_anchor_like_name", ["a", "b", "c", "d"])
+            "variant_record_fields",
+            {"combined_anchor_like_name": ["a", "b", "c", "d"]})
         self.assertTrue(mod01.validate_record("4", good))
 
 

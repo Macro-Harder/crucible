@@ -14,6 +14,7 @@ container keys are read part by part, joined in order, and as
 a single part container. Control tests stand both ways beside
 each family. Values are simulated and test values only.
 """
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 import unittest
 
 from crucible import mod12
@@ -269,12 +270,14 @@ class TestR10040SealStoredPresence(unittest.TestCase):
     def test_defect_false_truth_completeness_item_seals(self):
         record = mod12.make_family_record()
         record["farm size steps"] = FalseText("present text")
+        record["farm_size_steps"] = FalseText("present text")
         sealed = mod12.seal_family_record(record)
         self.assertTrue(sealed["sealed"])
 
     def test_defect_false_truth_list_item_seals(self):
         record = mod12.make_family_record()
         record["farm size steps"] = FalseList(["present item"])
+        record["farm_size_steps"] = FalseList(["present item"])
         sealed = mod12.seal_family_record(record)
         self.assertTrue(sealed["sealed"])
 
@@ -287,6 +290,7 @@ class TestR10040SealStoredPresence(unittest.TestCase):
     def test_defect_raising_truth_completeness_item_seals(self):
         record = mod12.make_family_record()
         record["farm size steps"] = RaisingText("present text")
+        record["farm_size_steps"] = RaisingText("present text")
         sealed = mod12.seal_family_record(record)
         self.assertTrue(sealed["sealed"])
 
@@ -306,10 +310,11 @@ class TestR10040SealStoredPresence(unittest.TestCase):
         record["family_manifest_hash"] = TrueText("")
         sealed = mod12.seal_family_record(record)
         self.assertEqual(sealed["seal"]["version"], "version 1")
+        self.assertIsNone(sealed["seal"]["hash"])
         self.assertEqual(
-            sealed["seal"]["hash"],
-            "manifest hash supplied as a record value, "
-            "not computed")
+            sealed["seal"]["hash_standing"],
+            "no hash value stands on the record; "
+            "no hash stands computed by this seal")
 
     def test_defect_raising_truth_version_kept(self):
         record = mod12.make_family_record()
@@ -319,12 +324,12 @@ class TestR10040SealStoredPresence(unittest.TestCase):
 
     def test_control_plain_seal_keeps_stored_version_and_hash(self):
         record = mod12.make_family_record()
+        record["family_manifest_hash"] = "stored hash value"
         sealed = mod12.seal_family_record(record)
         self.assertEqual(sealed["seal"]["version"], "version 1")
         self.assertEqual(
             sealed["seal"]["hash"],
-            "manifest hash supplied as a record value, "
-            "not computed")
+            "stored hash value")
 
     def test_control_missing_item_refused_as_before(self):
         record = mod12.make_family_record()

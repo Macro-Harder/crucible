@@ -8,6 +8,7 @@ including the _freeze identity standings and the MOD-12 seal
 controls the Round 9 Builder 12 pins carry. Values are
 simulated and test values only.
 """
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 import unittest
 
 from crucible import mod12
@@ -85,16 +86,18 @@ class TestR9021SealVersionAndHashReadings(unittest.TestCase):
 
     def test_defect_reported_past_bound_hash_seals_stored(self):
         reported = list_chain(150)
+        stored_record = mod12.make_family_record()
+        stored_record["family_manifest_hash"] = "stored hash value"
         record = ReportingGetDict(
-            mod12.make_family_record(),
+            stored_record,
             {"family_manifest_hash": reported})
         sealed = mod12.seal_family_record(record)
         self.assertEqual(
             sealed["seal"]["hash"],
-            "manifest hash supplied as a record value, not computed")
+            "stored hash value")
         self.assertEqual(
             sealed["seal_hash"],
-            "manifest hash supplied as a record value, not computed")
+            "stored hash value")
         self.assertIsNot(sealed["seal"]["hash"], reported)
 
     def test_defect_reported_cyclic_version_seals_stored(self):
@@ -108,25 +111,29 @@ class TestR9021SealVersionAndHashReadings(unittest.TestCase):
 
     def test_defect_reported_cyclic_hash_seals_stored(self):
         reported = cyclic_list()
+        stored_record = mod12.make_family_record()
+        stored_record["family_manifest_hash"] = "stored hash value"
         record = ReportingGetDict(
-            mod12.make_family_record(),
+            stored_record,
             {"family_manifest_hash": reported})
         sealed = mod12.seal_family_record(record)
         self.assertEqual(
             sealed["seal_hash"],
-            "manifest hash supplied as a record value, not computed")
+            "stored hash value")
         self.assertIsNot(sealed["seal"]["hash"], reported)
 
     def test_defect_reported_text_version_seals_stored_text(self):
+        stored_record = mod12.make_family_record()
+        stored_record["family_manifest_hash"] = "stored hash value"
         record = ReportingGetDict(
-            mod12.make_family_record(),
+            stored_record,
             {"family_version": "REPORTED-VERSION",
              "family_manifest_hash": "REPORTED-HASH"})
         sealed = mod12.seal_family_record(record)
         self.assertEqual(sealed["seal"]["version"], "version 1")
         self.assertEqual(
             sealed["seal"]["hash"],
-            "manifest hash supplied as a record value, not computed")
+            "stored hash value")
 
     def test_defect_stored_version_value_copied_not_sealed_by_identity(self):
         stored = list_chain(50)
@@ -166,13 +173,15 @@ class TestR9022SealGuardBeforeHandedReadings(unittest.TestCase):
         self.assertIn("deeper than the stated bound", str(caught.exception))
 
     def test_defect_raising_get_complete_record_seals_from_stored(self):
-        record = RaisingGetDict(mod12.make_family_record())
+        stored_record = mod12.make_family_record()
+        stored_record["family_manifest_hash"] = "stored hash value"
+        record = RaisingGetDict(stored_record)
         sealed = mod12.seal_family_record(record)
         self.assertTrue(sealed["sealed"])
         self.assertEqual(sealed["seal"]["version"], "version 1")
         self.assertEqual(
             sealed["seal"]["hash"],
-            "manifest hash supplied as a record value, not computed")
+            "stored hash value")
 
     def test_defect_reported_completeness_on_empty_stored_refused_named(self):
         reported = {
@@ -209,12 +218,13 @@ class TestControlsStandingBothWays(unittest.TestCase):
 
     def test_control_plain_record_seals_with_stored_version_and_hash(self):
         record = mod12.make_family_record()
+        record["family_manifest_hash"] = "stored hash value"
         sealed = mod12.seal_family_record(record)
         self.assertTrue(sealed["sealed"])
         self.assertEqual(sealed["seal"]["version"], "version 1")
         self.assertEqual(
             sealed["seal"]["hash"],
-            "manifest hash supplied as a record value, not computed")
+            "stored hash value")
         self.assertEqual(sealed["seal_version"], sealed["seal"]["version"])
         self.assertEqual(sealed["seal_hash"], sealed["seal"]["hash"])
         self.assertEqual(

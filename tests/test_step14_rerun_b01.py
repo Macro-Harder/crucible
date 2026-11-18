@@ -6,6 +6,7 @@ reportability stay boolean. The barred names below stand built by
 joining parts or by letter escapes, so this file carries no joined
 spelling of its own.
 """
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 
 import unittest
 
@@ -96,20 +97,20 @@ class TestR5A602FieldNameInLetterDresses(unittest.TestCase):
 
 class TestLawfulNamesUnaffected(unittest.TestCase):
     def test_accented_lawful_name_passes(self):
-        instance = _form4(**{"caf\u00e9_label": "stated value"})
+        instance = _form4(variant_record_fields={"caf\u00e9_label": "stated value"})
         self.assertIs(mod01.validate_record("4", instance), True)
 
     def test_non_latin_lawful_name_passes(self):
-        instance = _form4(**{"\u043f\u0440\u0438\u043c\u0435\u0440": "x"})
+        instance = _form4(variant_record_fields={"\u043f\u0440\u0438\u043c\u0435\u0440": "x"})
         self.assertIs(mod01.validate_record("4", instance), True)
 
     def test_lawful_names_sharing_only_parts_pass(self):
-        instance = _form4(stake={"amount_of_work": 5,
+        instance = _form4(variant_record_fields={"amount_of_work": 5,
                                  "currency_of_record": "stated value"})
         self.assertIs(mod01.validate_record("4", instance), True)
 
     def test_digit_carrying_lawful_name_passes(self):
-        instance = _form4(**{"fie1d_note": "stated value"})
+        instance = _form4(variant_record_fields={"fie1d_note": "stated value"})
         self.assertIs(mod01.validate_record("4", instance), True)
 
 
@@ -118,11 +119,11 @@ class TestStandingControlsHold(unittest.TestCase):
         self.assertIs(mod01.validate_record("4", _form4()), True)
 
     def test_money_name_at_none_value_passes(self):
-        instance = _form4(**{_M + "value": None})
+        instance = _form4(variant_record_fields={_M + "value": None})
         self.assertIs(mod01.validate_record("4", instance), True)
 
     def test_amount_alone_passes(self):
-        instance = _form4(stake={"amount": 5})
+        instance = _form4(variant_record_fields={"amount": 5})
         self.assertIs(mod01.validate_record("4", instance), True)
 
     def test_exact_field_name_counts_hold(self):

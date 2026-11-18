@@ -796,6 +796,10 @@ def derivation_text_refusal(text):
             "ground": "not a text",
             "failure": "INVALID-TEXT",
             "gate": None,
+            "next_step": (
+                "Supply the derivation text as a text value and "
+                "present it again; no derivation stands validated "
+                "from a value that is not a text."),
         }
     lowered = str.lower(str.__str__(text))
     for barred in _BARRED_DERIVATION_TEXTS:
@@ -805,6 +809,11 @@ def derivation_text_refusal(text):
                 "ground": "barred derivation form: " + barred,
                 "failure": "BARRED-DERIVATION-FORM",
                 "gate": None,
+                "next_step": (
+                    "State the derivation in a form outside the "
+                    "barred derivation forms and present it again; "
+                    "a text in a barred form supplies no run, no "
+                    "replicate, and no battery input."),
                 "supplies_run": False,
                 "supplies_replicate": False,
                 "supplies_battery_input": False,

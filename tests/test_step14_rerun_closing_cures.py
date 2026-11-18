@@ -8,6 +8,7 @@ F-LE-R-02, and F-LE-R-03. The barred money name below stands
 built by joining parts, so this file carries no joined spelling
 of its own.
 """
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 import unittest
 
 from crucible import mod01, mod03, mod04, mod10, mod11, mod12, mod14
@@ -173,16 +174,16 @@ class TestResidualMoneyDresses(unittest.TestCase):
 
     def test_mod01_controls_hold(self):
         self.assertIs(mod01.validate_record(
-            "4", _form4(**{"caf\u00e9_label": "stated value"})), True)
+            "4", _form4(variant_record_fields={"caf\u00e9_label": "stated value"})), True)
         self.assertIs(mod01.validate_record(
-            "4", _form4(**{"\u043f\u0440\u0438\u043c\u0435\u0440": "x"})),
+            "4", _form4(variant_record_fields={"\u043f\u0440\u0438\u043c\u0435\u0440": "x"})),
             True)
         self.assertIs(mod01.validate_record(
-            "4", _form4(stake={"amount": 5})), True)
+            "4", _form4(variant_record_fields={"amount": 5})), True)
         self.assertIs(mod01.validate_record(
-            "4", _form4(**{_MONEY_PLAIN: None})), True)
+            "4", _form4(variant_record_fields={_MONEY_PLAIN: None})), True)
         self.assertIs(mod01.validate_record(
-            "4", _form4(stake={"amount_of_work": 5,
+            "4", _form4(variant_record_fields={"amount_of_work": 5,
                                "currency_of_record": "stated value"})),
             True)
 

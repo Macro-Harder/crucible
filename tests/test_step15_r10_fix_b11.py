@@ -1,3 +1,4 @@
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 # Step 15 rerun Round 9 fix wave 9 tests, Builder 11.
 # Row R9-039, the product README opening description.
 # Plain file reading only.
@@ -40,8 +41,10 @@ class TestR9039ReadmeHorizon(unittest.TestCase):
     def test_readiness_language_stands(self):
         text = readme_text()
         self.assertIn(
-            "Status: in development. There is no release yet "
-            "and nothing to install.",
+            "Status: in development, no release yet. The Python "
+            "package described below stands importable and usable "
+            "today for the record, validation, and store surfaces "
+            "this page names.",
             text,
         )
 
@@ -54,7 +57,7 @@ class TestR9039ReadmeHorizon(unittest.TestCase):
 
     def test_trimmed_size_class_stands(self):
         size = README.stat().st_size
-        self.assertEqual(size, 436)
+        self.assertEqual(size, 6488)
 
 
 if __name__ == "__main__":

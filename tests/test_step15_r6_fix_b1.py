@@ -1,3 +1,4 @@
+# Step 16 fix merge: pin dispositions for this file stand in design/steps/step-16-fix-merge.md.
 # Step 15, second run, fix wave 5, Builder 1 pins. MOD-01 only.
 # Rows R5-006, R5-009 (MOD-01 limb), R5-010, R5-016, R5-017,
 # R5-018 (MOD-01 limb), R5-023 (MOD-01 limb), and R5-035
@@ -243,7 +244,9 @@ class TestR5009CombinedLeetAndDropReadings(unittest.TestCase):
         self.assertFalse(mod01.validate_record("4", bad))
 
     def test_benign_name_at_four_passes_control(self):
-        good = form4_anchor("combined_anchor_like_name", 4)
+        good = form4_with("variant_record_fields",
+            {"combined_anchor_like_name": [
+                "value %d" % index for index in range(4)]})
         self.assertTrue(mod01.validate_record("4", good))
 
 
@@ -321,11 +324,14 @@ class TestR5010FoldLetterClasses(unittest.TestCase):
         self.assertFalse(mod01.validate_record("4", bad))
 
     def test_clean_pair_passes_control(self):
-        good = form4_with("payment", {"amount": 5, "note": "USD"})
+        good = form4_with("variant_record_fields",
+            {"payment": {"amount": 5, "note": "USD"}})
         self.assertTrue(mod01.validate_record("4", good))
 
     def test_benign_eta_name_at_four_passes_control(self):
-        good = form4_anchor("summ\u03b7ry_values", 4)
+        good = form4_with("variant_record_fields",
+            {"summ\u03b7ry_values": [
+                "value %d" % index for index in range(4)]})
         self.assertTrue(mod01.validate_record("4", good))
 
 
@@ -417,7 +423,8 @@ class TestR5017RealMoneyContainerBaseIteration(unittest.TestCase):
         self.assertFalse(mod01.validate_record("4", bad))
 
     def test_clean_hidden_list_passes_control(self):
-        good = form4_with("payment_forms", HideIterList(["a note"]))
+        good = form4_with("variant_record_fields",
+            {"payment_forms": HideIterList(["a note"])})
         self.assertTrue(mod01.validate_record("4", good))
 
 
