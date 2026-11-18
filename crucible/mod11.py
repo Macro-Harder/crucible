@@ -3863,9 +3863,11 @@ def validate_disclosure_form(form):
 
 
 # The named carriage keys of a made family record, in the
-# MOD-12 made record form, with the seal and edit carriage
-# keys of that module beside them (Step 16 fix wave 2, row
-# F2-01, ruling T16-23).
+# MOD-12 made record form (Step 16 fix wave 2, row F2-01,
+# ruling T16-23). The seal and edit keys of MOD-12 stand
+# beside them only in the form the product own seal and edit
+# acts write them, as _legitimate_wider_keys states (Step 16
+# fix wave 3, row F3-01, ruling T16-39).
 _FAMILY_CARRIAGE_KEYS = (
     "family_id",
     "claims",
@@ -3878,15 +3880,73 @@ _FAMILY_CARRIAGE_KEYS = (
     "form",
     "alias_keys",
     "completeness_presentation",
+)
+
+_FAMILY_SEAL_KEYS = (
     "seal",
     "seal_version",
     "seal_hash",
     "sweep_manifest",
+)
+
+_FAMILY_EDIT_KEYS = (
     "runs_under",
     "edited_after_seal",
     "identifier_changed",
     "runs_start_again",
 )
+
+
+def _legitimate_wider_keys(family_record):
+    """The seal and edit keys of one family record that stand
+    in the form the product own seal and edit acts write them
+    (Step 16 fix wave 3, row F3-01, ruling T16-39), in the same
+    settlement MOD-01 and MOD-12 state: the seal keys together
+    on a record standing sealed with the seal as a record
+    value; the edit keys together with each marker standing
+    as True and the runs under value standing as the family
+    identifier the record carries; or the runs under key alone
+    carrying that identifier with no edit marker beside it."""
+    if not isinstance(family_record, dict):
+        return set()
+    try:
+        present = set()
+        for key, _item in list(dict.items(family_record)):
+            text = _registry_stored_text(key)
+            if text is not None:
+                present.add(text)
+    except Exception:
+        return set()
+    legitimate = set()
+    if all(key in present for key in _FAMILY_SEAL_KEYS):
+        if _registry_stored_value(
+                family_record, "sealed") is True and isinstance(
+                _registry_stored_value(family_record, "seal"), dict):
+            legitimate.update(_FAMILY_SEAL_KEYS)
+    identifier_text = _registry_stored_text(
+        _registry_stored_value(family_record, "family_id"))
+    if identifier_text is None:
+        identifier_text = _registry_stored_text(
+            _registry_stored_value(family_record, "family_identifier"))
+    runs_text = _registry_stored_text(
+        _registry_stored_value(family_record, "runs_under"))
+    runs_matches = (
+        runs_text is not None and identifier_text is not None
+        and str.__eq__(runs_text, identifier_text))
+    if all(key in present for key in _FAMILY_EDIT_KEYS):
+        if _registry_stored_value(
+                family_record, "edited_after_seal") is True and (
+                _registry_stored_value(
+                    family_record, "identifier_changed") is True) and (
+                _registry_stored_value(
+                    family_record, "runs_start_again") is True) and (
+                runs_matches):
+            legitimate.update(_FAMILY_EDIT_KEYS)
+    elif "runs_under" in present and not any(
+            key in present for key in _FAMILY_EDIT_KEYS[1:]):
+        if runs_matches:
+            legitimate.add("runs_under")
+    return legitimate
 
 
 def _unnamed_family_fields(family_record):
@@ -3899,6 +3959,7 @@ def _unnamed_family_fields(family_record):
     allowed = set(mod01.form_fields("1"))
     allowed.update(mod01.COMPLETENESS_FIELDS)
     allowed.update(_FAMILY_CARRIAGE_KEYS)
+    allowed.update(_legitimate_wider_keys(family_record))
     unnamed = []
     for key, _item in list(dict.items(family_record)):
         text = _registry_stored_text(key)
@@ -3920,7 +3981,11 @@ def validate_family_record(family_record):
     outside the Form 1 fields, the completeness brief names,
     and the named carriage keys stands refused here, in place
     of passing on the inner judgement alone (Step 16 fix wave
-    2, row F2-01, ruling T16-23)."""
+    2, row F2-01, ruling T16-23). A record sealed by the product
+    own seal act or edited by the product own edit acts keeps
+    its standing here on the keys those acts write, in the form
+    they write them (Step 16 fix wave 3, row F3-01, ruling
+    T16-39)."""
     if not isinstance(family_record, dict):
         return False
     if _unnamed_family_fields(family_record):

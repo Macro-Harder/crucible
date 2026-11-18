@@ -53,11 +53,18 @@ _CONTROLLER_ALIAS_PAIRS = (
 # brief names, and these carriage keys stands unnamed, and the
 # family surfaces that read the MOD-01 judgement on a made
 # record refuse it by name, in place of reading the inner
-# judgement alone. The seal and edit carriage keys below stand
-# beside the made record keys at the surfaces that judge
-# sealed and edited records, and the controller bar keys
-# stand admitted at the validation surfaces that judge those
-# bars by name.
+# judgement alone. The seal and edit keys below stand beside
+# the made record keys only in the complete form the seal and
+# edit acts themselves write, as _legitimate_wider_keys
+# states (Step 16 fix wave 3, row F3-01, ruling T16-39): a
+# record that has never been sealed carrying any of them
+# stands refused and named at the seal, and a fresh record
+# carrying any of them in any other form stands refused and
+# named at the validation surfaces. The controller bar keys
+# below stand admitted at no family surface: they stand
+# refused and named at the seal and refused and named at
+# validation, while the gates that judge those bars by name
+# stand as they stood.
 FAMILY_CARRIAGE_KEYS = (
     "family_id",
     "claims",
@@ -91,22 +98,105 @@ _FAMILY_CONTROLLER_BAR_KEYS = (
 )
 
 
-def _unnamed_family_fields(record, controller_bars=False):
+def _stored_pairs_value(record, field):
+    """The value one family record stores under a field name,
+    found by scanning its stored pairs through base dict
+    operations, a field standing present only where a stored
+    key carries its name in stored text, never through a
+    reading the handed record supplies."""
+    if not isinstance(record, dict):
+        return None
+    for key, item in list(dict.items(record)):
+        if _key_stored_text(key) == field:
+            return item
+    return None
+
+
+def _legitimate_wider_keys(record, include_seal=True):
+    """The seal and edit keys of one family record that stand
+    in the form the product own seal and edit acts write them
+    (Step 16 fix wave 3, row F3-01, ruling T16-39). The seal
+    keys stand legitimate only together, on a record standing
+    sealed, with the seal itself standing as a record value.
+    The edit keys stand legitimate only together, with each
+    edit marker standing as True and the runs under value
+    standing as the family identifier the record carries, the
+    form the edit of a sealed record writes; the runs under
+    key alone stands legitimate where it carries that same
+    identifier and no edit marker stands beside it, the form
+    the edit of an unsealed record writes. Where include_seal
+    stands False, at the seal itself, the seal keys stand
+    legitimate nowhere, because no record handed to the seal
+    has yet been sealed by that act."""
+    if not isinstance(record, dict):
+        return set()
+    try:
+        present = set()
+        for key, _item in list(dict.items(record)):
+            text = _key_stored_text(key)
+            if text:
+                present.add(text)
+    except Exception:
+        return set()
+    legitimate = set()
+    seal_keys = _FAMILY_SEAL_EDIT_KEYS[:4]
+    edit_keys = _FAMILY_SEAL_EDIT_KEYS[4:]
+    if include_seal and all(key in present for key in seal_keys):
+        if _stored_pairs_value(record, "sealed") is True and isinstance(
+                _stored_pairs_value(record, "seal"), dict):
+            legitimate.update(seal_keys)
+    identifier_text = _stored_text(
+        _stored_pairs_value(record, "family_id"))
+    if identifier_text is None:
+        identifier_text = _stored_text(
+            _stored_pairs_value(record, "family_identifier"))
+    runs_text = _stored_text(
+        _stored_pairs_value(record, "runs_under"))
+    runs_matches = (
+        runs_text is not None and identifier_text is not None
+        and str.__eq__(runs_text, identifier_text))
+    if all(key in present for key in edit_keys):
+        if _stored_pairs_value(
+                record, "edited_after_seal") is True and (
+                _stored_pairs_value(
+                    record, "identifier_changed") is True) and (
+                _stored_pairs_value(
+                    record, "runs_start_again") is True) and (
+                runs_matches):
+            legitimate.update(edit_keys)
+    elif "runs_under" in present and not any(
+            key in present for key in edit_keys[1:]):
+        if runs_matches:
+            legitimate.add("runs_under")
+    return legitimate
+
+
+def _unnamed_family_fields(record, controller_bars=False,
+                           for_seal=False):
     """The stored keys of one family record standing outside
     the Form 1 fields, the completeness brief names, and the
     named carriage keys, each named by the text it stores.
     The keys stand read through base dict operations on the
     stored pairs, never through a reading the handed record
     supplies, in the form the seal already guards. A key
-    storing no text stands named by its safe string form."""
+    storing no text stands named by its safe string form.
+    The seal and edit keys stand outside the named carriage
+    keys except in the form the product own seal and edit
+    acts write them, as _legitimate_wider_keys states, and
+    the controller bar keys stand outside them at every
+    surface this helper serves, the seal and the validation
+    failures alike, so each one stands named where it stands
+    refused (Step 16 fix wave 3, row F3-01, ruling T16-39).
+    The controller_bars argument stands retained in the form
+    the validation surface has called it in; it admits
+    nothing."""
     if not isinstance(record, dict):
         return []
     allowed = set(_mod01.form_fields("1"))
     allowed.update(_mod01.COMPLETENESS_FIELDS)
     allowed.update(FAMILY_CARRIAGE_KEYS)
-    allowed.update(_FAMILY_SEAL_EDIT_KEYS)
-    if controller_bars:
-        allowed.update(_FAMILY_CONTROLLER_BAR_KEYS)
+    allowed.update(_legitimate_wider_keys(
+        record, include_seal=not for_seal))
     unnamed = []
     for key, _item in list(dict.items(record)):
         text = _key_stored_text(key)
@@ -177,9 +267,15 @@ def family_record_presentation(record):
     supply, missing, diverged, or standing as a placeholder
     value, and a completeness field standing as a placeholder
     value stands named as placeholder in the standing text
-    (Step 16 fix wave 2, row F2-04, ruling T16-30). The supply
-    itself stands charged to no fix and no value stands
-    invented here (OP-16).
+    (Step 16 fix wave 2, row F2-04, ruling T16-30). The
+    placeholder reading stands on the folded form of the
+    stored text, case and spacing folded, and the standing
+    text states the placeholder standing whenever any field
+    stands placeholder, in the mixed case of a placeholder
+    field beside an absent or open field as in the whole
+    placeholder case (Step 16 fix wave 3, row F3-03, ruling
+    T16-41). The supply itself stands charged to no fix and
+    no value stands invented here (OP-16).
     """
     if not isinstance(record, dict):
         return {
@@ -201,7 +297,8 @@ def family_record_presentation(record):
             text = _dress_text(item)
         except Exception:
             text = None
-        if text is not None and str.__eq__(text, "stated value"):
+        if text is not None and isinstance(text, str) and (
+                _mod01._stands_placeholder_text(text)):
             placeholder_fields.append(str.__str__(key))
     completeness_placeholder_fields = list(
         standing["placeholder_fields"])
@@ -241,6 +338,15 @@ def family_record_presentation(record):
         standing_text = (
             "not finished: the completeness standing stands as "
             + standing["standing"])
+    if completeness_placeholder_fields and (
+            "placeholder" not in standing_text):
+        standing_text = (
+            standing_text
+            + "; and the completeness fields named stand as "
+            "placeholder values, placeholder text in place of "
+            "supplied values, and no completeness field "
+            "standing as placeholder stands supplied: "
+            + ", ".join(completeness_placeholder_fields))
     return {
         "standing": standing_text,
         "awaiting_supply_fields": awaiting,
@@ -582,8 +688,23 @@ def seal_family_record(record):
     completeness items this controller names is refused in the
     named form and does not seal. At Step 16 row R16-17 the seal
     also stands no seal on a record the product own validation
-    rejects: a record failing MOD-01 validate_record for Form 1
-    is refused in the named form and does not seal. The seal
+    rejects on its inner judgement: a record failing the MOD-01
+    inner record judgement for Form 1 is refused in the named
+    form and does not seal. A record that has never been sealed
+    and carries any of the seal and edit keys the seal and edit
+    acts write (seal, seal_version, seal_hash, sweep_manifest,
+    runs_under, edited_after_seal, identifier_changed,
+    runs_start_again), or any other field standing outside the
+    form fields and the named carriage keys, stands refused and
+    named in the same form: those keys stand as carriage only
+    in the form a product act writes them, never as values
+    handed in before the act. A record standing in the
+    edited form the edit act writes after a seal, its edit
+    keys complete with their markers standing as True and its
+    runs under value standing as the new family identifier it
+    carries, may seal as the new family it stands as, and its
+    edit keys stand carried into the sealed record in that
+    form. The seal
     hash field states the hash as a hash: where a hash value
     stands recorded on the record it stands carried as the
     hash, and where no hash value stands, or the only value
@@ -620,18 +741,22 @@ def seal_family_record(record):
         raise NamedControllerFailure(
             "family record cannot seal, completeness items missing: "
             + ", ".join(missing))
-    # Step 16 fix wave 2, row F2-01, ruling T16-23: the seal check
-    # reads the inner judgement together with the named extra
-    # field layer of the public door, in carriage form: a stored
-    # field standing outside the Form 1 fields, the completeness
+    # Step 16 fix wave 2, row F2-01, ruling T16-23, as settled
+    # at Step 16 fix wave 3, row F3-01, ruling T16-39: the seal
+    # check reads the inner judgement together with the named
+    # extra field layer, in carriage form: a stored field
+    # standing outside the Form 1 fields, the completeness
     # brief names, and the named carriage keys stands refused
     # and named here, while a made record carrying only named
-    # carriage keys seals on the inner judgement as before. The
-    # seal docstring above names the public door, and under this
-    # cure it stands true: every record the public door refuses
-    # for Form 1 on the inner judgement or on an unnamed field
-    # stands refused at this seal.
-    unnamed = _unnamed_family_fields(record)
+    # carriage keys seals on the inner judgement as before.
+    # The seal and edit keys stand in that extra field layer in
+    # full at this act: a record that has never been sealed
+    # carrying any of them stands refused and named here, and
+    # only a record standing in the edited form the edit act
+    # writes carries its edit keys through this check, as the
+    # seal docstring above states. The docstring stands true of
+    # this act in that form.
+    unnamed = _unnamed_family_fields(record, for_seal=True)
     if isinstance(record, dict) and unnamed:
         raise NamedControllerFailure(
             "family record cannot seal, the record carries a "
@@ -814,7 +939,12 @@ def family_record_validation_failures(record):
     completeness field of the MOD-01 bar, and every missing
     completeness item this controller names, each named in the
     returned list. An empty list stands for a record carrying
-    every named field."""
+    every named field. Every wider key this door refuses on
+    stands named in its own entry: the eight seal and edit keys
+    in any form but the form the product own seal and edit acts
+    write them, and the four controller bar keys (ecology_point,
+    amendment_landed, data_dependent_top_up, look_register)
+    alike (Step 16 fix wave 3, row F3-01, ruling T16-39)."""
     if not isinstance(record, dict):
         return ["family record is not a record"]
     failures = []
@@ -886,7 +1016,11 @@ def validate_family_record(record):
     ecology point fixed before its amendment stands, and no data
     dependent top up resting on an empty look register. An empty
     record and a record the type layer rejects both fail here,
-    so the controller path and the reporter path agree."""
+    so the controller path and the reporter path agree. A record
+    sealed by the product own seal act, carrying the keys that
+    act writes, and an edited record produced by the product own
+    edit acts, validate here in that form (Step 16 fix wave 3,
+    row F3-01, ruling T16-39)."""
     if not isinstance(record, dict):
         return False
     if family_record_validation_failures(record):

@@ -679,6 +679,29 @@ def _stored_text(value):
     return ""
 
 
+def _stored_text_dress(value):
+    """The stored text of a handed value in every dress the
+    mod01 doors read: a text value through its stored
+    characters, a bytes, bytearray, or memoryview value
+    through its decoded stored bytes, and a single part
+    container (list, tuple, set, frozenset) through the
+    stored text of its one part, read through the base
+    class entries of the container. A value in any other
+    form, and a container holding no part or more than one
+    part, stores no single text here and reads as None, in
+    the same form the mod01 doors state."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
+    if isinstance(value, (list, tuple, set, frozenset)):
+        entries = _base_entries(value)
+        if len(entries) == 1:
+            return _stored_text_dress(entries[0][1])
+        return None
+    return None
+
+
 def _folded_readings(key):
     """The folded readings of one key, in the canonicalised form
     the Round 5 register states for the barred surfaces. The base
@@ -2419,12 +2442,19 @@ _PROTOTYPE_ORDER_FOLDED_READINGS = frozenset(
 def _stands_prototype_order(order):
     """Whether one scheduling order value reads as a barred
     prototype order: any folded reading of the value, its
-    stored text read through _stored_text and folded as
-    _folded_readings folds it, standing among the folded
-    readings of the two charged literals."""
+    stored text read through _stored_text_dress, the same
+    stored text reading the mod01 doors apply, container
+    dresses (list, tuple, set, frozenset) included, and
+    folded as _folded_readings folds it, standing among the
+    folded readings of the two charged literals. A value
+    whose dress stores no single text stands unbarred here,
+    as it stands unbarred at the mod01 doors."""
+    text = _stored_text_dress(order)
+    if text is None:
+        return False
     return any(
         reading in _PROTOTYPE_ORDER_FOLDED_READINGS
-        for reading in _folded_readings(order))
+        for reading in _folded_readings(text))
 
 
 EVENT_KINDS = (
@@ -2471,6 +2501,7 @@ def validate_run_scheduling_order(record):
     order (the brief literal value, brief Shape 1), or reads the
     shortened prototype literal, or reads a case or spacing
     variant of either literal under the standing folded reading,
+    in plain form or carried in a single part container dress,
     fails, per operation C-14 and open point OP-08.
     """
     if not isinstance(record, dict):

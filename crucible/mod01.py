@@ -3259,6 +3259,40 @@ class StatedJudgement:
         }
 
 
+def _folded_vocabulary_text(text):
+    """The folded form of one stored text for the placeholder
+    and open marker vocabulary readings (Step 16 fix wave 3,
+    row F3-03, ruling T16-41): letter case stands folded away
+    and spacing stands folded, leading and trailing spacing
+    disregarded and any run of spacing between words read as
+    the one space. No other character stands folded away: a
+    text that differs from a vocabulary form in any other
+    character, in its words, or in its word order does not
+    fold to that form."""
+    return " ".join(text.casefold().split())
+
+
+def _stands_placeholder_text(text):
+    """Whether one stored text stands as the placeholder text
+    under the folded reading: the folded form of the text
+    stands equal to the folded form of the placeholder text
+    "stated value", so the placeholder in case or spacing
+    dress stands read as the placeholder."""
+    return str.__eq__(
+        _folded_vocabulary_text(text), "stated value")
+
+
+def _stands_open_marker_text(text):
+    """Whether one stored text stands as an open marker under
+    OP-13 under the folded reading: the folded form of the
+    text opens with the folded marker prefix and carries the
+    OP-13 name in folded form, so a marker in case or spacing
+    dress stands read as a marker."""
+    folded = _folded_vocabulary_text(text)
+    return str.startswith(folded, OPEN_MARKER_PREFIX) and (
+        str.__contains__(folded, "op-13"))
+
+
 def _completeness_value_standing(value):
     """The standing of one completeness value, read through base
     class operations on what the value stores: an open marker
@@ -3267,7 +3301,11 @@ def _completeness_value_standing(value):
     placeholder text, an absent value, or a bare scalar. A bare
     number stands as no recorded completeness value at all: the
     TG-01.3 pin stands, a marker replaced by a bare number fails
-    the completeness bar."""
+    the completeness bar. The placeholder and open marker
+    readings stand on the folded form of the stored text, case
+    and spacing folded (fix wave 3, row F3-03, ruling T16-41),
+    so dressed placeholder text never reads supplied and a
+    dressed open marker never reads supplied."""
     if value is None:
         return "absent"
     if isinstance(value, (list, tuple, set, frozenset)):
@@ -3283,10 +3321,9 @@ def _completeness_value_standing(value):
     if text is not None:
         if not str.__len__(text):
             return "absent"
-        if str.startswith(text, OPEN_MARKER_PREFIX) and (
-                str.__contains__(text, "OP-13")):
+        if _stands_open_marker_text(text):
             return "open marker"
-        if str.__eq__(text, "stated value"):
+        if _stands_placeholder_text(text):
             return "placeholder"
         return "supplied"
     return "bare scalar"
@@ -3329,6 +3366,17 @@ def completeness_standing(record):
     complete template stands distinguished from a record carrying
     real values, with placeholder and marker values named as such
     (R16-03). No value stands invented by this reading (OP-16).
+
+    At the both spellings edge (Step 16 fix wave 3, row F3-05,
+    ruling T16-43), where one spelling of a pair stands alone,
+    the field stands named as not standing complete: a supplied
+    value standing on one spelling alone stands in
+    missing_fields, not in supplied_fields, and the standing
+    sentence names every field that stands incomplete for a
+    missing spelling, in the same joined form the sentence uses
+    for the other unmet fields. The judgements at that edge do
+    not change: the record stands incomplete on the completeness
+    limb for every judgement of the key set.
     """
     result = {
         "fields": [],
@@ -3369,6 +3417,9 @@ def completeness_standing(record):
         })
         if standing == "open marker":
             result["open_fields"].append(prose)
+        elif standing == "supplied" and not (
+                prose_present and slug_present):
+            result["missing_fields"].append(prose)
         elif standing == "supplied":
             result["supplied_fields"].append(prose)
         elif standing == "placeholder":
@@ -3400,7 +3451,9 @@ def completeness_standing(record):
             "all stand present in an open marker or supplied form: "
             + ", ".join(
                 entry["field"] for entry in result["fields"]
-                if entry["standing"] not in ("open marker", "supplied")))
+                if entry["standing"] not in ("open marker", "supplied")
+                or not (entry["brief_name_present"]
+                        and entry["form_name_present"])))
     elif result["open_fields"]:
         result["standing"] = (
             "completeness standing open: every completeness field "
@@ -3415,6 +3468,88 @@ def completeness_standing(record):
     return result
 
 
+# The seal and edit keys the product own seal and edit acts
+# write onto a family record (Step 16 fix wave 3, row F3-01,
+# ruling T16-39). These keys stand as named carriage at the
+# family doors only in the complete form those acts write, as
+# _family_legitimate_wider_keys states; a record carrying any
+# of them in any other form stands refused and named at the
+# family doors, as a never sealed record carrying any of them
+# stands refused and named at the seal.
+_FAMILY_SEAL_KEYS = (
+    "seal",
+    "seal_version",
+    "seal_hash",
+    "sweep_manifest",
+)
+
+_FAMILY_EDIT_KEYS = (
+    "runs_under",
+    "edited_after_seal",
+    "identifier_changed",
+    "runs_start_again",
+)
+
+
+def _family_legitimate_wider_keys(record, include_seal=True):
+    """The seal and edit keys of one family record that stand
+    in the form the product own seal and edit acts write them
+    (Step 16 fix wave 3, row F3-01, ruling T16-39). The seal
+    keys stand legitimate only together, on a record standing
+    sealed, with the seal itself standing as a record value.
+    The edit keys stand legitimate only together, with each
+    edit marker standing as True and the runs under value
+    standing as the family identifier the record carries, the
+    form the edit of a sealed record writes; the runs under
+    key alone stands legitimate where it carries that same
+    identifier and no edit marker stands beside it, the form
+    the edit of an unsealed record writes. Every other seal
+    or edit key standing on a record stands in no product act
+    form and stands legitimate nowhere."""
+    if not isinstance(record, dict):
+        return set()
+    try:
+        present = set()
+        for key in dict.keys(record):
+            stored = _stored_key_text(key)
+            if stored is None:
+                stored = _stored_text(key)
+            if stored is not None:
+                present.add(stored)
+    except Exception:
+        return set()
+    legitimate = set()
+    if include_seal and all(
+            key in present for key in _FAMILY_SEAL_KEYS):
+        if _stored_pairs_value(record, "sealed") is True and isinstance(
+                _stored_pairs_value(record, "seal"), dict):
+            legitimate.update(_FAMILY_SEAL_KEYS)
+    identifier_text = _stored_text(
+        _stored_pairs_value(record, "family_id"))
+    if identifier_text is None:
+        identifier_text = _stored_text(
+            _stored_pairs_value(record, "family_identifier"))
+    runs_text = _stored_text(
+        _stored_pairs_value(record, "runs_under"))
+    runs_matches = (
+        runs_text is not None and identifier_text is not None
+        and str.__eq__(runs_text, identifier_text))
+    if all(key in present for key in _FAMILY_EDIT_KEYS):
+        if _stored_pairs_value(
+                record, "edited_after_seal") is True and (
+                _stored_pairs_value(
+                    record, "identifier_changed") is True) and (
+                _stored_pairs_value(
+                    record, "runs_start_again") is True) and (
+                runs_matches):
+            legitimate.update(_FAMILY_EDIT_KEYS)
+    elif "runs_under" in present and not any(
+            key in present for key in _FAMILY_EDIT_KEYS[1:]):
+        if runs_matches:
+            legitimate.add("runs_under")
+    return legitimate
+
+
 def _family_door_refusals(record):
     """The refusals the family judgement door reaches beside the
     completeness bar (Step 16 fix wave 2, rows F2-01 and F2-03):
@@ -3425,11 +3560,16 @@ def _family_door_refusals(record):
     brief literal "prototype order" or the shortened literal
     "prototype" the product bar already refuses, read in the
     same form the inner validator reads it. No order value
-    stands invented or set here (OP-16)."""
+    stands invented or set here (OP-16). The seal and edit keys
+    stand beside the named carriage keys only in the form the
+    product own seal and edit acts write them, as
+    _family_legitimate_wider_keys states (Step 16 fix wave 3,
+    row F3-01, ruling T16-39)."""
     extra_fields = []
     allowed = set(form_fields("1"))
     allowed.update(COMPLETENESS_FIELDS)
     allowed.update(FAMILY_CARRIAGE_KEYS)
+    allowed.update(_family_legitimate_wider_keys(record))
     for key in dict.keys(record):
         stored = _stored_key_text(key)
         if stored is None:
@@ -3547,7 +3687,11 @@ def family_supports_reportable_run(record):
     standing outside the form fields and the named carriage keys
     of FAMILY_CARRIAGE_KEYS stands refused and named (row F2-01,
     ruling T16-23), a made record carrying only named carriage
-    keys keeping its standing, and the barred prototype order
+    keys keeping its standing, a record sealed by the product
+    own seal act or edited by the product own edit acts keeping
+    its standing on the seal and edit keys those acts write, in
+    the form they write them (row F3-01, ruling T16-39), and
+    the barred prototype order
     value stands refused, this judgement reaching the order bar
     as validate_record, run_is_reportable, the family failure
     list, the seal, and both MOD-04 checks already do (row
@@ -3917,6 +4061,174 @@ def _failure_sentence(field, rule, step):
         + ", and no record stands validated")
 
 
+def _diagnosed_failure_entries(form_id, instance):
+    """The general naming rule of the failure door (Step 16
+    fix wave 3, row F3-02, ruling T16-40).
+
+    Where the inner judgement refuses a record and no
+    dedicated entry above has named the fault, the fault
+    stands diagnosed against the inner judgement itself, by
+    field, as a general rule over the door failure
+    generation and not as an enumeration of fault classes:
+    a field stands at fault where correcting that field
+    alone, to the value the product own minimal valid
+    instance carries for it (or removing the field where
+    the minimal instance carries no such field), leaves a
+    record the inner judgement accepts. Where no single
+    correction answers, the differing fields stand corrected
+    together and each original value restored in turn: a
+    field whose original value can stand restored while the
+    record still validates stands cleared, and the fields
+    that remain stand at fault together. Every entry this
+    act returns names its field in the standing entry form,
+    states the rule for that field (the condition rule where
+    the field stands as a condition discriminator or a
+    conditional field, and otherwise the stated rule of the
+    form for that field), and states the next step. No entry
+    of this act carries a sentence that names no field."""
+    fid = _fid(form_id)
+    try:
+        if fid == "36":
+            _kind = _stored_text_dress(_stored_pairs_value(
+                instance, "entry_kind"))
+            reference = minimal_valid_instance(
+                fid,
+                entry_kind=_kind if _kind in (
+                    "ordinary", "agent", "supersession") else None)
+        else:
+            reference = minimal_valid_instance(fid)
+    except Exception:
+        reference = {}
+    candidates = []
+
+    def _add_candidate(name):
+        if name is not None and name not in candidates:
+            candidates.append(name)
+
+    for _field in form_fields(fid):
+        _add_candidate(_field)
+    for _condition in _conditions_for(fid):
+        _add_candidate(_condition["discriminator"])
+        _add_candidate(_condition["field"])
+    if fid == "1":
+        for _field in COMPLETENESS_FIELDS:
+            _add_candidate(_field)
+    for _key, _item in list(dict.items(instance)):
+        _add_candidate(_stored_key_text(_key))
+    base = dict(instance)
+
+    def _inner_ok(record):
+        try:
+            return _validate_record_inner(form_id, record)
+        except (RecordTraversalFailure, RecursionError):
+            return False
+
+    def _corrected(record, field):
+        trial = dict(record)
+        if field in reference:
+            trial[field] = copy.deepcopy(reference[field])
+        else:
+            trial.pop(field, None)
+        return trial
+
+    def _differs(field):
+        in_base = field in base
+        in_reference = field in reference
+        if in_base != in_reference:
+            return True
+        if not in_base:
+            return False
+        try:
+            return not _base_value_equals(
+                base[field], reference[field])
+        except Exception:
+            return True
+
+    differing = [
+        _field for _field in candidates if _differs(_field)]
+    fault_fields = []
+    # A single correction that leaves a record the inner
+    # judgement accepts proves its field the sole fault, so
+    # the search stops at the first such field: the fields
+    # whose handed standing differs from the minimal valid
+    # instance stand tried first, as a fault field stands
+    # among them wherever the fault is one of value, and the
+    # remaining candidates stand tried after them.
+    for _field in differing + [
+            _field for _field in candidates
+            if _field not in differing]:
+        if _inner_ok(_corrected(base, _field)):
+            fault_fields = [_field]
+            break
+    if not fault_fields:
+        corrected_all = base
+        for _field in differing:
+            corrected_all = _corrected(corrected_all, _field)
+        if differing and _inner_ok(corrected_all):
+            remaining = list(differing)
+            for _field in differing:
+                trial = dict(corrected_all)
+                if _field in base:
+                    trial[_field] = base[_field]
+                else:
+                    trial.pop(_field, None)
+                if _inner_ok(trial):
+                    corrected_all = trial
+                    remaining.remove(_field)
+            fault_fields = remaining
+        if not fault_fields and differing:
+            fault_fields = differing[:1]
+    if not fault_fields and candidates:
+        fault_fields = candidates[:1]
+    entries = []
+    conditions = _conditions_for(fid)
+    for _field in fault_fields:
+        _discriminator_of = None
+        _conditional_of = None
+        for _condition in conditions:
+            if _condition["discriminator"] == _field:
+                _discriminator_of = _condition
+            if _condition["field"] == _field:
+                _conditional_of = _condition
+        if _discriminator_of is not None:
+            entries.append(_failure_sentence(
+                _field,
+                "the field stands as the discriminator of a "
+                "stated condition on this form (" +
+                _discriminator_of["condition"] + "), and a "
+                "discriminator value stands only as a boolean "
+                "on the record, while the value the record "
+                "carries on this field stands as no boolean",
+                "hand the field " + _field + " as a boolean, "
+                "true or false, as the stated condition for "
+                "it reads"))
+        elif _conditional_of is not None:
+            entries.append(_failure_sentence(
+                _field,
+                "the field stands as a conditional field of a "
+                "stated condition on this form (" +
+                _conditional_of["condition"] + "), and the "
+                "value the record carries on this field "
+                "stands outside the stated form for it where "
+                "its condition stands judged with the record",
+                "hand the field " + _field + " in the form "
+                "the form states for it, or clear the "
+                "condition field " +
+                _conditional_of["discriminator"]
+                + " on the record"))
+        else:
+            entries.append(_failure_sentence(
+                _field,
+                "a stated rule of this form for this field "
+                "stands unmet by the value the record carries "
+                "on it",
+                "hand the field " + _field + " with a value "
+                "in the form the form states for it, in "
+                "form_fields and field_conditions for this "
+                "form"))
+    return entries
+
+
 def _record_validation_failures(form_id, instance):
     fid = _fid(form_id)
     if fid not in _FORM_SPECS:
@@ -4077,8 +4389,18 @@ def _record_validation_failures(form_id, instance):
             "scheduling_order_identifier")
         if _order_found:
             _order_text = _stored_text_dress(_order_value)
-            _barred = _order_text in (
-                "prototype order", "prototype")
+            # The naming reads the bar through the same folded
+            # reading the inner judgement applies (Step 16 fix
+            # wave 3, row F3-02, ruling T16-40): a case or
+            # spacing variant of the barred value stands barred
+            # in the inner judgement, so it draws this named bar
+            # entry here in the same form as the literal, and no
+            # barred variant falls to a lesser entry.
+            _barred = _order_text is not None and (
+                _folded_key_matches(
+                    _order_text, _folded_money_key("prototype order"))
+                or _folded_key_matches(
+                    _order_text, _folded_money_key("prototype")))
             if _barred and fid == "4":
                 _class_found, _class_value = present_value(
                     "run_class")
@@ -4104,7 +4426,29 @@ def _record_validation_failures(form_id, instance):
                 continue
             _prose_value = _stored_pairs_value(
                 instance, _prose, _STORED_MISSING)
-            if _prose_value is not _STORED_MISSING and not (
+            if _prose_value is _STORED_MISSING:
+                # The missing spelling limb (Step 16 fix wave 3,
+                # row F3-02, ruling T16-40): the inner judgement
+                # holds the pair as one field and refuses the
+                # record where one spelling stands absent, so
+                # the absence stands named here in the same
+                # entry form, naming the field and the missing
+                # spelling, and no such record falls to a lesser
+                # entry.
+                failures.append(_failure_sentence(
+                    _slug,
+                    "the two spellings of this completeness "
+                    "field stand as one field: the field stands "
+                    "under " + _slug + " while its other "
+                    "spelling " + _prose + " stands absent on "
+                    "the record, so the completeness pair "
+                    "stands with one spelling missing and no "
+                    "one value stands for the field",
+                    "supply the spelling " + _prose
+                    + " carrying the same value as " + _slug
+                    + " for this completeness field"))
+                continue
+            if not (
                     _values_agree(_slug_value, _prose_value)):
                 failures.append(_failure_sentence(
                     _slug,
@@ -4219,13 +4563,14 @@ def _record_validation_failures(form_id, instance):
             "form, with no part pointing back to a part around it"))
         return failures
     if not inner_ok and not failures:
-        failures.append(_failure_sentence(
-            form_name(fid) + " record",
-            "a stated rule of this form stands unmet by a value "
-            "on the record",
-            "check each value on the record against the stated "
-            "form for its field, in form_fields and "
-            "field_conditions for this form"))
+        # The general naming rule (Step 16 fix wave 3, row
+        # F3-02, ruling T16-40): a fault no dedicated entry
+        # above has named stands diagnosed by field against
+        # the inner judgement itself, so every entry this door
+        # returns names its field, and no fault at this door
+        # draws a sentence that names no field.
+        failures.extend(
+            _diagnosed_failure_entries(form_id, instance))
     return failures
 
 
@@ -4367,7 +4712,8 @@ def run_is_reportable(form_id, instance):
         if isinstance(instance, dict):
             _allowed_names = (
                 set(form_fields(fid)) | set(COMPLETENESS_FIELDS)
-                | set(_FAMILY_CARRIAGE_KEYS))
+                | set(_FAMILY_CARRIAGE_KEYS)
+                | _family_legitimate_wider_keys(instance))
 
             def _key_names_allowed(_key):
                 for _reading in (

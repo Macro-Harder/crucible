@@ -82,7 +82,7 @@ class TestF209MissingSpellingEdge(unittest.TestCase):
         self.assertEqual(entry["standing"], "supplied")
         self.assertFalse(entry["brief_name_present"])
         self.assertTrue(entry["form_name_present"])
-        self.assertIn("farm size steps", standing["supplied_fields"])
+        self.assertIn("farm size steps", standing["missing_fields"])
         self.assertFalse(standing["complete_on_completeness_limb"])
         self.assertFalse(standing["reportable_ready"])
         self.assertFalse(mod01.family_supports_reportable_run(record))
