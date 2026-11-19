@@ -252,7 +252,15 @@ class TestR20039TopUpSentence(unittest.TestCase):
 
     def test_control_top_up_answers(self):
         self.assertTrue(mod12.top_up_applies(0.5, 30))
-        self.assertFalse(mod12.top_up_applies(5.0, 30))
+        with self.assertRaises(
+                mod12.NamedControllerFailure) as caught:
+            mod12.top_up_applies(5.0, 30)
+        self.assertIn(
+            "top_up_applies stands refused",
+            str(caught.exception))
+        self.assertIn(
+            "outside the closed range from zero to one",
+            str(caught.exception))
 
 
 class TestR20040ClaimsFormSentence(unittest.TestCase):

@@ -309,8 +309,15 @@ class TestR19042StoredPairsReadings(unittest.TestCase):
 
 class TestR19049TopUpApplies(unittest.TestCase):
     def test_probability_storing_5_refused(self):
-        self.assertFalse(mod12.top_up_applies(
-            LyingFloatInBounds(5.0), 40))
+        with self.assertRaises(
+                mod12.NamedControllerFailure) as caught:
+            mod12.top_up_applies(LyingFloatInBounds(5.0), 40)
+        self.assertIn(
+            "top_up_applies stands refused",
+            str(caught.exception))
+        self.assertIn(
+            "outside the closed range from zero to one",
+            str(caught.exception))
 
     def test_count_storing_29_refused(self):
         self.assertFalse(mod12.top_up_applies(
@@ -323,7 +330,15 @@ class TestR19049TopUpApplies(unittest.TestCase):
         self.assertFalse(mod12.top_up_applies(0.5, 20))
 
     def test_plain_probability_outside_control(self):
-        self.assertFalse(mod12.top_up_applies(5.0, 40))
+        with self.assertRaises(
+                mod12.NamedControllerFailure) as caught:
+            mod12.top_up_applies(5.0, 40)
+        self.assertIn(
+            "top_up_applies stands refused",
+            str(caught.exception))
+        self.assertIn(
+            "outside the closed range from zero to one",
+            str(caught.exception))
 
     def test_text_probability_named_failure_control(self):
         with self.assertRaises(mod12.NamedControllerFailure):
