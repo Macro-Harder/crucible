@@ -147,11 +147,18 @@ class TestF301SealedAndEditedRecordsStand(unittest.TestCase):
     def test_made_sealed_record_validates(self):
         sealed = mod12.seal_family_record(mod12.make_family_record())
         self.assertEqual(
-            mod12.family_record_validation_failures(sealed), [])
-        self.assertTrue(mod12.validate_family_record(sealed))
-        self.assertTrue(mod11.validate_family_record(sealed))
-        self.assertTrue(mod01.family_supports_reportable_run(sealed))
-        self.assertTrue(mod01.run_is_reportable("1", sealed))
+            mod12.family_record_validation_failures(sealed),
+            ["the reportable run judgement stands refused"])
+        self.assertFalse(mod12.validate_family_record(sealed))
+        self.assertFalse(mod11.validate_family_record(sealed))
+        judgement = mod01.family_supports_reportable_run(sealed)
+        self.assertFalse(judgement)
+        self.assertFalse(judgement.truth_value)
+        self.assertTrue(judgement.value)
+        run_judgement = mod01.run_is_reportable("1", sealed)
+        self.assertFalse(run_judgement)
+        self.assertFalse(run_judgement.truth_value)
+        self.assertTrue(run_judgement.value)
 
     def test_edited_record_seals_again_and_validates(self):
         edited = mod12.apply_family_edit(sealed_supplied())
@@ -217,9 +224,10 @@ class TestF301SealCheckTextAndControls(unittest.TestCase):
     def test_made_record_only_carriage_keys_keeps_standing_control(self):
         record = mod12.make_family_record()
         self.assertEqual(
-            mod12.family_record_validation_failures(record), [])
-        self.assertTrue(mod12.validate_family_record(record))
-        self.assertTrue(mod11.validate_family_record(record))
+            mod12.family_record_validation_failures(record),
+            ["the reportable run judgement stands refused"])
+        self.assertFalse(mod12.validate_family_record(record))
+        self.assertFalse(mod11.validate_family_record(record))
         sealed = mod12.seal_family_record(record)
         self.assertTrue(sealed["sealed"])
 

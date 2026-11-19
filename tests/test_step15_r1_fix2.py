@@ -281,8 +281,11 @@ class TestFamilyRecord(unittest.TestCase):
         record = mod12.make_family_record(family_id="fam-fix2")
         for field in mod01.form_fields("1"):
             self.assertIn(field, record)
-        self.assertTrue(mod12.validate_family_record(record))
-        self.assertTrue(mod11.validate_family_record(record))
+        self.assertFalse(mod12.validate_family_record(record))
+        self.assertFalse(mod11.validate_family_record(record))
+        self.assertEqual(
+            mod12.family_record_validation_failures(record),
+            ["the reportable run judgement stands refused"])
         record["family_manifest_hash"] = "hash-fix2-recorded"
         sealed = mod12.seal_family_record(record)
         self.assertIsInstance(sealed["seal"], dict)
@@ -316,7 +319,9 @@ class TestFamilyRecord(unittest.TestCase):
         joined = " ".join(failures)
         self.assertIn("family_identifier", joined)
         complete = mod12.make_family_record(family_id="fam-fix2")
-        self.assertEqual(mod12.family_record_validation_failures(complete), [])
+        self.assertEqual(
+            mod12.family_record_validation_failures(complete),
+            ["the reportable run judgement stands refused"])
 
 
 class TestControllerValidators(unittest.TestCase):

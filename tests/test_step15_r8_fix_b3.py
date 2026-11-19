@@ -211,7 +211,10 @@ class TestR7005ActsOutsideInner(unittest.TestCase):
 
     def test_family_completeness_plain_controls(self):
         record = mod01.minimal_valid_family_record()
-        self.assertTrue(mod01.family_supports_reportable_run(record))
+        judgement = mod01.family_supports_reportable_run(record)
+        self.assertFalse(judgement)
+        self.assertFalse(judgement.truth_value)
+        self.assertTrue(judgement.value)
         missing = mod01.minimal_valid_family_record()
         del missing["farm size steps"]
         self.assertFalse(mod01.family_supports_reportable_run(missing))

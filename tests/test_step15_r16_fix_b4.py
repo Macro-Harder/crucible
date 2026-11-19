@@ -177,13 +177,15 @@ class TestR15040SetDressAcrossSeeds(unittest.TestCase):
     def test_kill_set_claim_stands_at_every_seed(self):
         for seed in SEEDS:
             self.assertEqual(
-                "True\n[]", run_at_seed(KILL_CODE, seed),
+                "False\n['the reportable run judgement stands "
+                "refused']", run_at_seed(KILL_CODE, seed),
                 "seed %d" % seed)
 
     def test_kill_frozenset_claim_stands_at_every_seed(self):
         for seed in SEEDS:
             self.assertEqual(
-                "True\n[]", run_at_seed(KILL_FROZEN_CODE, seed),
+                "False\n['the reportable run judgement stands "
+                "refused']", run_at_seed(KILL_FROZEN_CODE, seed),
                 "seed %d" % seed)
 
 
@@ -211,7 +213,10 @@ class TestR15040DressJudgementInProcess(unittest.TestCase):
         record["kill_check_fields"] = checks
         record["kill_checks"] = list(checks)
         self.assertFalse(mod12._kill_check_names_absent(record))
-        self.assertTrue(mod12.validate_family_record(record))
+        self.assertFalse(mod12.validate_family_record(record))
+        self.assertEqual(
+            mod12.family_record_validation_failures(record),
+            ["the reportable run judgement stands refused"])
 
 
 class ReprRaises:

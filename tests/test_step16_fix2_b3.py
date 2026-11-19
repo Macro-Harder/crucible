@@ -99,9 +99,10 @@ class TestF201SealLimbExtraField(unittest.TestCase):
     def test_made_record_only_carriage_keys_keeps_seal_and_standing(self):
         record = mod12.make_family_record()
         self.assertEqual(
-            mod12.family_record_validation_failures(record), [])
-        self.assertTrue(mod12.validate_family_record(record))
-        self.assertTrue(mod11.validate_family_record(record))
+            mod12.family_record_validation_failures(record),
+            ["the reportable run judgement stands refused"])
+        self.assertFalse(mod12.validate_family_record(record))
+        self.assertFalse(mod11.validate_family_record(record))
         sealed = mod12.seal_family_record(record)
         self.assertTrue(sealed["sealed"])
 

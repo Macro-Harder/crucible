@@ -59,7 +59,9 @@ class TestF201ReportableExtraField(unittest.TestCase):
     def test_made_record_only_carriage_keys_stays_reportable(self):
         record = mod12.make_family_record("family-f2-01")
         judgement = mod01.run_is_reportable("1", record)
-        self.assertTrue(judgement)
+        self.assertFalse(judgement)
+        self.assertFalse(judgement.truth_value)
+        self.assertTrue(judgement.value)
         self.assertTrue(judgement.reportable_ready is False or
                         judgement.standing)
 

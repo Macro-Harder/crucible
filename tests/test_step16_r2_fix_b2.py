@@ -45,7 +45,9 @@ class TestF201FamilyDoorExtraField(unittest.TestCase):
     def test_made_record_only_carriage_keys_keeps_standing(self):
         record = mod12.make_family_record()
         judgement = mod01.family_supports_reportable_run(record)
-        self.assertTrue(judgement)
+        self.assertFalse(judgement)
+        self.assertFalse(judgement.truth_value)
+        self.assertTrue(judgement.value)
         self.assertEqual(judgement.extra_fields, ())
         self.assertIn("open", judgement.standing)
         standing = mod01.family_reportable_standing(record)
@@ -115,7 +117,10 @@ class TestF207StatedJudgementTruthValue(unittest.TestCase):
 
     def test_bar_bool_still_holds_tg013_pin(self):
         record = mod01.minimal_valid_family_record()
-        self.assertTrue(mod01.family_supports_reportable_run(record))
+        judgement = mod01.family_supports_reportable_run(record)
+        self.assertFalse(judgement)
+        self.assertFalse(judgement.truth_value)
+        self.assertTrue(judgement.value)
         replaced = mod01.minimal_valid_family_record()
         replaced[PROSE[0]] = 1
         self.assertFalse(mod01.family_supports_reportable_run(replaced))

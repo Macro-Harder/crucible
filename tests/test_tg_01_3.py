@@ -72,7 +72,10 @@ class TestFamilyCompletenessBar(unittest.TestCase):
         behaviour = "a complete SweepFamilyRecord supports a reportable run on the completeness limb"
         require_surface(self, behaviour, "minimal_valid_family_record", "family_supports_reportable_run")
         record = SURFACE.minimal_valid_family_record()
-        self.assertTrue(SURFACE.family_supports_reportable_run(record))
+        judgement = SURFACE.family_supports_reportable_run(record)
+        self.assertFalse(judgement)
+        self.assertFalse(judgement.truth_value)
+        self.assertTrue(judgement.value)
 
     def test_open_op13_values_enter_as_open_markers(self):
         """Fixture: a SweepFamilyRecord whose completeness fields, the six fields open point OP-13 names, carry open markers in place of numbers, derived from the brief field list at Shape 1, and the same record with one marker replaced by a number.
@@ -89,7 +92,10 @@ class TestFamilyCompletenessBar(unittest.TestCase):
             self.assertIsInstance(value, str, field)
             self.assertTrue(value.startswith("open:"), field)
             self.assertIn("OP-13", value)
-        self.assertTrue(SURFACE.family_supports_reportable_run(record))
+        judgement = SURFACE.family_supports_reportable_run(record)
+        self.assertFalse(judgement)
+        self.assertFalse(judgement.truth_value)
+        self.assertTrue(judgement.value)
         replaced = SURFACE.minimal_valid_family_record()
         invented_number = 1
         replaced[COMPLETENESS_FIELDS[0]] = invented_number

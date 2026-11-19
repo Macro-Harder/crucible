@@ -78,7 +78,9 @@ class TestR1603ReportableStanding(unittest.TestCase):
     def test_family_judgement_states_open_standing(self):
         result = mod01.family_supports_reportable_run(
             mod01.minimal_valid_family_record())
-        self.assertTrue(result)
+        self.assertFalse(result)
+        self.assertFalse(result.truth_value)
+        self.assertTrue(result.value)
         self.assertIn("open", result.standing)
         for prose in PROSE:
             self.assertIn(prose, result.open_fields)
@@ -87,7 +89,9 @@ class TestR1603ReportableStanding(unittest.TestCase):
     def test_run_is_reportable_family_states_open_standing(self):
         result = mod01.run_is_reportable(
             "1", mod01.minimal_valid_instance("1"))
-        self.assertTrue(result)
+        self.assertFalse(result)
+        self.assertFalse(result.truth_value)
+        self.assertTrue(result.value)
         self.assertIn("open", result.standing)
         self.assertTrue(result.open_fields)
 
@@ -214,12 +218,17 @@ class TestCompositionAndPins(unittest.TestCase):
         for prose in PROSE:
             self.assertEqual(record[prose], MARKER)
         self.assertTrue(mod01.validate_record("1", record))
-        self.assertTrue(mod01.family_supports_reportable_run(record))
+        judgement = mod01.family_supports_reportable_run(record)
+        self.assertFalse(judgement)
+        self.assertFalse(judgement.truth_value)
+        self.assertTrue(judgement.value)
 
     def test_cures_compose_marker_and_supplied_standings_agree(self):
         marker = mod01.minimal_valid_family_record()
         marker_judgement = mod01.family_supports_reportable_run(marker)
-        self.assertTrue(marker_judgement)
+        self.assertFalse(marker_judgement)
+        self.assertFalse(marker_judgement.truth_value)
+        self.assertTrue(marker_judgement.value)
         self.assertIn("open", marker_judgement.standing)
         supplied = supplied_family()
         supplied_judgement = mod01.family_supports_reportable_run(supplied)

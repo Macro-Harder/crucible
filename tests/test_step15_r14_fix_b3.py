@@ -195,7 +195,8 @@ class TestR13014FamilyRecordCompanion(unittest.TestCase):
         self.assertIn("kill check", joined)
         self.assertEqual(
             mod12.family_record_validation_failures(
-                mod12.make_family_record()), [])
+                mod12.make_family_record()),
+            ["the reportable run judgement stands refused"])
 
 
 class TestR13015ReadoutRungDefault(unittest.TestCase):

@@ -60,7 +60,10 @@ class TestR14049FamilyDressReading(unittest.TestCase):
         plain = family(ecology_point="fixed")
         plain.pop("amendment_landed", None)
         self.assertFalse(mod12.validate_family_record(plain))
-        self.assertTrue(mod12.validate_family_record(family()))
+        self.assertFalse(mod12.validate_family_record(family()))
+        self.assertEqual(
+            mod12.family_record_validation_failures(family()),
+            ["the reportable run judgement stands refused"])
 
     def test_kill_claim_in_dress_stands_judged(self):
         for dress in (b"headline claim 1",
@@ -70,10 +73,11 @@ class TestR14049FamilyDressReading(unittest.TestCase):
             record = family()
             record["kill_check_fields"] = [{"claim": dress}]
             record["kill_checks"] = [{"claim": dress}]
-            self.assertTrue(
+            self.assertFalse(
                 mod12.validate_family_record(record), repr(dress))
             self.assertEqual(
-                mod12.family_record_validation_failures(record), [],
+                mod12.family_record_validation_failures(record),
+                ["the reportable run judgement stands refused"],
                 repr(dress))
 
     def test_standing_claims_in_bytes_dress_match_plain_check(self):
@@ -82,9 +86,10 @@ class TestR14049FamilyDressReading(unittest.TestCase):
         record["claims"] = [b"headline claim 1"]
         record["kill_check_fields"] = [{"claim": "headline claim 1"}]
         record["kill_checks"] = [{"claim": "headline claim 1"}]
-        self.assertTrue(mod12.validate_family_record(record))
+        self.assertFalse(mod12.validate_family_record(record))
         self.assertEqual(
-            mod12.family_record_validation_failures(record), [])
+            mod12.family_record_validation_failures(record),
+            ["the reportable run judgement stands refused"])
 
 
 class TestR14050FamilyKillEqualityReading(unittest.TestCase):
@@ -129,9 +134,10 @@ class TestR14051FamilyKillDictCarriage(unittest.TestCase):
         record = family()
         record["kill_checks"] = {"claim": "headline claim 1"}
         record["kill_check_fields"] = {"claim": "headline claim 1"}
-        self.assertTrue(mod12.validate_family_record(record))
+        self.assertFalse(mod12.validate_family_record(record))
         self.assertEqual(
-            mod12.family_record_validation_failures(record), [])
+            mod12.family_record_validation_failures(record),
+            ["the reportable run judgement stands refused"])
 
 
 class TestR14052ChoicePairTextFields(unittest.TestCase):

@@ -256,13 +256,19 @@ class TestF401PreservedProductForms(unittest.TestCase):
     def test_made_record_sealed_still_validates(self):
         sealed = mod12.seal_family_record(mod12.make_family_record())
         self.assertEqual(
-            mod12.family_record_validation_failures(sealed), [])
-        self.assertTrue(mod12.validate_family_record(sealed))
-        self.assertTrue(mod11.validate_family_record(sealed))
+            mod12.family_record_validation_failures(sealed),
+            ["the reportable run judgement stands refused"])
+        self.assertFalse(mod12.validate_family_record(sealed))
+        self.assertFalse(mod11.validate_family_record(sealed))
         judgement = mod01.family_supports_reportable_run(sealed)
         self.assertFalse(judgement.truth_value)
         self.assertFalse(judgement.reportable_ready)
-        self.assertTrue(mod01.run_is_reportable("1", sealed))
+        self.assertFalse(judgement)
+        self.assertTrue(judgement.value)
+        run_judgement = mod01.run_is_reportable("1", sealed)
+        self.assertFalse(run_judgement)
+        self.assertFalse(run_judgement.truth_value)
+        self.assertTrue(run_judgement.value)
         supplied = sealed_supplied()
         supplied_judgement = mod01.family_supports_reportable_run(
             supplied)

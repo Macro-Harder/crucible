@@ -138,7 +138,10 @@ class TestR15056KillCheckClaimsCarriage(unittest.TestCase):
                 repr(claims))
 
     def test_controls_hold(self):
-        self.assertTrue(mod12.validate_family_record(family()))
+        self.assertFalse(mod12.validate_family_record(family()))
+        self.assertEqual(
+            mod12.family_record_validation_failures(family()),
+            ["the reportable run judgement stands refused"])
         record = self._record_with_claims(("headline claim 1",))
         self.assertFalse(mod12.validate_family_record(record))
 

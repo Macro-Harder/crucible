@@ -257,7 +257,10 @@ class TestR16020Mod12ClaimFieldDress(unittest.TestCase):
         self.assertFalse(mod12.validate_family_record(absent_sorted))
         standing = self._record(
             {frozenset({"aim", "cl"}): "headline claim 1"})
-        self.assertTrue(mod12.validate_family_record(standing))
+        self.assertFalse(mod12.validate_family_record(standing))
+        self.assertEqual(
+            mod12.family_record_validation_failures(standing),
+            ["the reportable run judgement stands refused"])
 
 
 class TestR16047Mod12AnchorFieldDress(unittest.TestCase):

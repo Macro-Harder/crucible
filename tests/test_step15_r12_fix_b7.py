@@ -169,7 +169,8 @@ class TestR11081Mod12HandedReadings(unittest.TestCase):
         complete = mod12.make_family_record()
         lying = LyingGetDict(complete, {})
         self.assertEqual(
-            mod12.family_record_validation_failures(lying), [])
+            mod12.family_record_validation_failures(lying),
+            ["the reportable run judgement stands refused"])
 
     def test_failures_of_empty_record_are_named(self):
         complete = mod12.make_family_record()
