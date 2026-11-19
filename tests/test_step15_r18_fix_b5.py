@@ -224,7 +224,7 @@ class TestR17029(Base):
             text = str(caught.exception)
             self.assertIn("recorder store flush failure", text)
             self.assertIn("not written", text)
-            self.assertIn("prior store file stands whole", text)
+            self.assertIn("no store file stands at the store path", text)
             self.assertFalse(store.has_run_record("b5-ns1"))
             self.assertFalse(os.path.exists(path))
 

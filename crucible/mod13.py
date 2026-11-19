@@ -1720,9 +1720,22 @@ def witness_rerun(original, rule_set_version=None):
     under, read as a report of the difference between two rule
     sets and nothing more. The original result, the original run
     record, and the original witness standing stand untouched."""
-    stored_original = original if isinstance(
-        original, dict) else {}
+    if not isinstance(original, dict):
+        raise NamedReplicationFailure(
+            "witness rerun stands refused: no original record "
+            "stands handed in, a rerun stands as a new run "
+            "linked to an original record, and no rerun record "
+            "stands returned")
+    stored_original = original
     stored_run_id = _base_get(stored_original, "run_id")
+    if not isinstance(stored_run_id, str) or not str.__str__(
+            stored_run_id):
+        raise NamedReplicationFailure(
+            "witness rerun stands refused: the original "
+            "record names no run identifier in text form, a "
+            "rerun stands linked to the run identifier its "
+            "original names, and no rerun record stands "
+            "returned")
     rerun = {
         "run_id": _stored_string(stored_run_id) + "-rerun",
         "linked_to": stored_run_id,

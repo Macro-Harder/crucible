@@ -832,6 +832,37 @@ def seal_family_record(record):
     if _shape_exceeds_bounds(record):
         raise NamedControllerFailure(_shape_refusal(
             "record", record, "family record cannot seal"))
+    if not isinstance(record, dict):
+        raise NamedControllerFailure(
+            "family record cannot seal: the value handed in "
+            "stands in no record form (it stands in "
+            + type(record).__name__ + " form, not as a "
+            "record), and no seal stands on a value in no "
+            "record form; next step: hand a family record, "
+            "the record make_family_record builds, and call "
+            "the seal again")
+    if _stored_value_present(dict.get(record, "sealed")):
+        raise NamedControllerFailure(
+            "family record cannot seal: the record already "
+            "stands sealed, and no second seal stands written "
+            "on a sealed record; next step: start from the "
+            "unsealed family record to seal a family, or apply "
+            "a family edit to the sealed record, which starts "
+            "a new family, and seal the edited record")
+    if not any(
+            _stored_pairs_value(record, field) is not None
+            for field in (
+                "family_identifier", "family_id",
+                "headline_claims", "claims")):
+        raise NamedControllerFailure(
+            "family record cannot seal: the record stands in "
+            "no family record form: it carries no family "
+            "identifier and no headline claims, so it stands "
+            "as a record of another form or as an empty "
+            "record, not as a family record missing "
+            "completeness items; next step: hand a family "
+            "record, the record make_family_record builds, "
+            "and call the seal again")
     missing = [
         item for item in FAMILY_COMPLETENESS_ITEMS
         if not isinstance(record, dict)
@@ -1061,8 +1092,14 @@ def family_record_validation_failures(record):
     if not _mod01._validate_record_bool("1", record):
         failures.append("the MOD-01 record judgement stands refused")
     if not _mod01.family_supports_reportable_run(record):
+        standing = _mod01.family_reportable_standing(record)
         failures.append(
-            "the reportable run judgement stands refused")
+            "the reportable run judgement stands refused: "
+            + str(dict.get(standing, "standing"))
+            + "; next step: supply stated values for the "
+            "completeness fields the standing names, or "
+            "correct the fields it names, and check the "
+            "family record again")
     if _stored_value_present(dict.get(record, "sealed")) \
             and _stored_value_present(
                 dict.get(record, "edited_after_seal")):
@@ -3589,6 +3626,19 @@ def _gated_start(action, run_class=None, family_id=None):
     return refusal
 
 
+def _family_identifier_stands(value):
+    """Whether a handed family identifier stands in the one
+    identifier form of the start doors (FW-23): a text value
+    whose stored text carries identifier text, judged on the
+    text it stores through the base class string form. A
+    container, a number, a bytes form, no value, and a text
+    value carrying only whitespace each stand as no
+    identifier, judged missing at the start doors."""
+    if not isinstance(value, str):
+        return False
+    return str.__len__(str.strip(str.__str__(value))) > 0
+
+
 def start_run(run_class=None, family_id=None):
     """Start one run. Start inputs stand validated before the gate
     answer: a run class outside the four stated classes, a missing
@@ -3600,17 +3650,22 @@ def start_run(run_class=None, family_id=None):
     across MOD-02 and MOD-04, with its ground and its next step
     stated in words beside its codes and its sample statement
     inside the result."""
-    if not any(_text_eq(run_class, stated)
-               for stated in RUN_CLASSES):
-        stated_text = _stored_text(run_class)
+    if not (isinstance(run_class, str) and any(
+            str.__eq__(str.__str__(run_class), stated)
+            for stated in RUN_CLASSES)):
         return _input_failure(
             "start run", "run class missing or outside the stated "
             "classes (screening, confirmation, headline, and "
-            "validation): "
-            + (stated_text if stated_text is not None
-               else "not a text value"))
-    if not _stored_value_present(family_id):
-        return _input_failure("start run", "family identifier missing")
+            "validation): the class stands handed as "
+            + _safe_repr(run_class)
+            + ", and a run class stands as a text value naming "
+            "one of the stated classes")
+    if not _family_identifier_stands(family_id):
+        return _input_failure(
+            "start run", "family identifier missing or in no "
+            "identifier form: a family identifier stands as a "
+            "text value carrying identifier text, and the value "
+            "handed stands as " + _safe_repr(family_id))
     return _gated_start("start run", run_class=run_class, family_id=family_id)
 
 
@@ -3618,8 +3673,12 @@ def start_sweep(family_id=None):
     """Start one sweep. A missing family identifier returns a named
     input failure. Gated on DQ7-02 in the same form as a run
     start."""
-    if not _stored_value_present(family_id):
-        return _input_failure("start sweep", "family identifier missing")
+    if not _family_identifier_stands(family_id):
+        return _input_failure(
+            "start sweep", "family identifier missing or in no "
+            "identifier form: a family identifier stands as a "
+            "text value carrying identifier text, and the value "
+            "handed stands as " + _safe_repr(family_id))
     return _gated_start("start sweep", family_id=family_id)
 
 

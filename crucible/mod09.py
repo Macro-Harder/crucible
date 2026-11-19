@@ -762,9 +762,29 @@ def make_strategy(identifier, in_protocol_payoff=0,
     outside the simulated system. The parameter stands as a swept
     range, never as a declared value supplied by the evaluated
     party or by the strategy author.
+
+    The in protocol payoff stands refused in this module named
+    failure form where it stands in no finite numeric form, the
+    form the payoff doors of this module state. Where a handed
+    external profit range stands in no usable sequence form, the
+    record carries the substituted range [0] and states the
+    substitution on the record itself, in its standing sentence
+    and in its external_profit_range_substituted field. A range
+    handed as None stands as no range handed, and its [0] stands
+    as the stated default, unmarked.
     """
+    if not _stands_numeric(in_protocol_payoff) or (
+            isinstance(in_protocol_payoff, float)
+            and not math.isfinite(
+                _plain_number(in_protocol_payoff))):
+        raise NamedAttackerFailure(
+            "make_strategy stands refused: the in protocol payoff "
+            "stands in no finite numeric form: "
+            + _stored_form_repr(in_protocol_payoff))
     stored_range = _base_sequence(external_profit_range)
-    return {
+    substituted = (
+        external_profit_range is not None and not stored_range)
+    record = {
         "strategy_identifier": identifier,
         "in_protocol_payoff": in_protocol_payoff,
         "external_profit_range": stored_range if stored_range else [0],
@@ -775,6 +795,14 @@ def make_strategy(identifier, in_protocol_payoff=0,
             parameters if _stored_truthy(parameters) else {}),
         "units": UNITS,
     }
+    if substituted:
+        record["external_profit_range_substituted"] = True
+        record["external_profit_standing"] = (
+            "swept parameter, labelled assumption, " + UNITS
+            + "; the handed external profit range stood in no "
+            "usable form, and the range [0] stands substituted "
+            "for it")
+    return record
 
 
 def conditional_briber_strategy(in_protocol_payoff=0,

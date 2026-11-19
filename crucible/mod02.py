@@ -1146,8 +1146,56 @@ def gated_refusal(action):
     }
 
 
+def _derive_seed_input_ground(value):
+    """The ground a malformed derivation input stands refused
+    on at derive_seed (FW-25): the fields the input lacks, or
+    the form fault where it carries its fields in no stated
+    form, stated in words an operator can act on."""
+    if not isinstance(value, dict):
+        return (
+            "the derivation input stands in no record form: a "
+            "derivation input stands as a record carrying the "
+            "fields " + ", ".join(derivation_input_fields()))
+    missing = object()
+    absent = [
+        field for field in derivation_input_fields()
+        if _base_dict_get(value, field, missing) is missing]
+    if absent:
+        return (
+            "the derivation input carries no "
+            + ", ".join(absent)
+            + ": a derivation input carries the fields "
+            + ", ".join(derivation_input_fields()))
+    return (
+        "a derivation input field stands in no stated form: "
+        "the domain stands among the stated domains, the "
+        "derivation version stands as present text, and the "
+        "parameter values stand as a record of text values")
+
+
 def derive_seed(derivation_input=None, **_ignored):
-    """Derivation entry point. Gated: returns the gated refusal."""
+    """Derivation entry point. Gated: returns the gated refusal.
+
+    A derivation input handed in that stands in no complete
+    derivation input form returns a named input failure naming
+    the ground, before the gate answer, in the form the MOD-12
+    start doors state. No input and a complete input each
+    return the gated refusal. No seed stands drawn in any
+    case, and DQ7-02 stands not circumvented."""
+    if derivation_input is not None and not validate_derivation_input(
+            derivation_input):
+        ground = _derive_seed_input_ground(derivation_input)
+        return {
+            "status": "input failure",
+            "form": "named input failure",
+            "action": "derive seed",
+            "failure": "named input failure: " + ground,
+            "ground_in_words": ground,
+            "next_step": (
+                "Correct the named input and call derive seed "
+                "again; no seed stands drawn."),
+            "seed_drawn": False,
+        }
     return gated_refusal("derive seed")
 
 
@@ -1166,7 +1214,7 @@ def advance_stream_state(state=None, **_ignored):
     return gated_refusal("advance stream state")
 
 
-def request_generator(**_ignored):
+def request_generator(_request=None, **_ignored):
     """Generator supply entry point. Gated: returns the refusal."""
     return gated_refusal("supply generator")
 
@@ -1362,25 +1410,40 @@ def determinism_statement_permitted(battery_state=None,
     return False
 
 
+_POSITION_REFUSAL = (
+    "position stands in no stated form: a position stands "
+    "as a whole number at or above zero, as a plain number or "
+    "as a text of plain digits, and a value in no such form "
+    "carries no position")
+
+
 def _position_value(value):
     if isinstance(value, dict):
         value = _base_dict_get(value, "position", 0)
+    if isinstance(value, bool):
+        raise ValueError(_POSITION_REFUSAL)
     if isinstance(value, str):
-        return int(str.__str__(value))
+        text = str.__str__(value)
+        if text and all(
+                character in "0123456789" for character in text):
+            return int(text)
+        raise ValueError(_POSITION_REFUSAL)
     plain = _plain_number(value)
     if plain is not None:
+        if isinstance(plain, complex):
+            raise ValueError(_POSITION_REFUSAL)
         try:
-            return int(plain)
+            whole = int(plain)
         except Exception:
-            raise ValueError(
-                "position stands in no stated form: a position "
-                "stands as a plain number or as a text of plain "
-                "digits, and a value in no such form carries no "
-                "position") from None
-    raise ValueError(
-        "position stands in no stated form: a position stands "
-        "as a plain number or as a text of plain digits, and a "
-        "value in no such form carries no position")
+            raise ValueError(_POSITION_REFUSAL) from None
+        try:
+            apart = plain != whole
+        except Exception:
+            raise ValueError(_POSITION_REFUSAL) from None
+        if apart or whole < 0:
+            raise ValueError(_POSITION_REFUSAL)
+        return whole
+    raise ValueError(_POSITION_REFUSAL)
 
 
 def _held_sort_key(item):

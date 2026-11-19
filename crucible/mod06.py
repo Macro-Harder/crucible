@@ -20,6 +20,8 @@ module carries the field and states the gap, and invents no value.
 import itertools
 import copy
 import unicodedata
+from decimal import Decimal
+from fractions import Fraction
 
 from . import mod01
 
@@ -2974,6 +2976,50 @@ def contested_entries_for(item):
     return list(_CONTESTED.get(item, ()))
 
 
+def _cost_plain(value):
+    """The plain number a handed cost stores, or None where
+    the cost stands in no usable cost form: a boolean or a
+    value in no numeric form, or a number in no finite form.
+    The plain number stands built through base class readings,
+    never through a reading the handed value itself supplies,
+    and a plain integer stands finite by its form, so no float
+    reading stands attempted on it."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return int.__new__(int, int.__int__(value))
+    if isinstance(value, float):
+        plain = float.__new__(float, float.__float__(value))
+        if plain != plain or plain in (float("inf"), float("-inf")):
+            return None
+        return plain
+    if isinstance(value, Decimal):
+        plain = Decimal.__new__(Decimal, value)
+        if not plain.is_finite():
+            return None
+        return plain
+    if isinstance(value, Fraction):
+        return Fraction.__new__(Fraction, value)
+    return None
+
+
+def _accuracy_stands(accuracy):
+    """Whether a computed accuracy stands in finite numeric
+    form, judged on the form it stands in."""
+    if isinstance(accuracy, bool):
+        return False
+    if isinstance(accuracy, int):
+        return True
+    if isinstance(accuracy, float):
+        return accuracy == accuracy and accuracy not in (
+            float("inf"), float("-inf"))
+    if isinstance(accuracy, Decimal):
+        return accuracy.is_finite()
+    if isinstance(accuracy, Fraction):
+        return True
+    return False
+
+
 def run_instruction(name, variant="B-4", context=None):
     """Run one exercised instruction case as written, fixture F-21.
 
@@ -3041,14 +3087,35 @@ def _run_instruction_act(name, variant="B-4", context=None):
                 "open_request stands refused: "
                 + " and ".join(missing)
                 + " stands missing, and no request stands opened")
-        if true == 0:
+        stated_value = _cost_plain(stated)
+        true_value = _cost_plain(true)
+        if (stated_value is None or true_value is None
+                or stated_value < 0 or true_value < 0):
+            raise ValueError(
+                "open_request stands refused in named form: a cost "
+                "stands in no usable form, a cost stands as a number "
+                "at or above zero in finite form, and no request "
+                "stands opened")
+        if true_value == 0:
             raise ValueError("open_request stands refused in named form: the true cost stands at zero, so no accuracy form stands")
+        try:
+            accuracy = stated_value / true_value
+        except Exception:
+            raise ValueError(
+                "open_request stands refused in named form: the "
+                "accuracy form of the stated costs cannot stand "
+                "computed, and no request stands opened") from None
+        if not _accuracy_stands(accuracy):
+            raise ValueError(
+                "open_request stands refused in named form: the "
+                "accuracy form of the stated costs stands in no "
+                "finite form, and no request stands opened")
         result_payload["lien_sized_from"] = "self declared estimated cost"
-        result_payload["lien_size"] = stated
+        result_payload["lien_size"] = stated_value
         result_payload["estimated_cost"] = {
-            "value": stated,
+            "value": stated_value,
             "form": "labelled assumption, accuracy form: stated cost divided by true cost",
-            "accuracy": stated / true,
+            "accuracy": accuracy,
             "sensitivity_range": context.get("sensitivity_range", "about 0.1 to about 10 on a log spacing, range estimated"),
         }
         result_payload["additions"] = []
@@ -3112,9 +3179,9 @@ def pause_cap(variant="B-4", stated_value=None):
     stated in the same per variant field form, and its text
     ambiguity, total or extension, stands unresolved: no reading
     is chosen for B-3 here or by any test."""
-    if variant not in ("B-3", "B-4"):
+    if not _base_member(variant, ("B-3", "B-4")):
         raise ValueError("the pause cap stands refused in named form for an unknown variant: " + _sentence_text(variant))
-    if variant == "B-4":
+    if _base_str_eq(variant, "B-4"):
         return {
             "variant": "B-4",
             "per_variant_pause_value": dict(PAUSE_CAP_B4),

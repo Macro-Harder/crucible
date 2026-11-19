@@ -264,18 +264,25 @@ class LyingInt(int):
 
 class TestR3055ColdSocietyOperators(unittest.TestCase):
     def test_lying_multiplication(self):
-        result = mod03.cold_society_degree(
-            100, envelope=LyingFloat(2.0), gate_passing_share=3.0)
-        self.assertEqual(result, 6.0)
+        with self.assertRaises(mod03.NamedGeneratorFailure):
+            mod03.cold_society_degree(
+                100, envelope=LyingFloat(2.0), gate_passing_share=3.0)
+        self.assertEqual(mod03.cold_society_degree(
+            100, envelope=LyingFloat(2.0), gate_passing_share=0.5), 1.0)
 
     def test_lying_day_comparison(self):
-        result = mod03.cold_society_degree(
-            LyingInt(500), envelope=2.0, gate_passing_share=3.0)
-        self.assertEqual(result, 6.0)
+        with self.assertRaises(mod03.NamedGeneratorFailure):
+            mod03.cold_society_degree(
+                LyingInt(500), envelope=2.0, gate_passing_share=3.0)
+        self.assertEqual(mod03.cold_society_degree(
+            LyingInt(500), envelope=2.0, gate_passing_share=0.5), 1.0)
 
     def test_plain_controls(self):
+        with self.assertRaises(mod03.NamedGeneratorFailure):
+            mod03.cold_society_degree(
+                100, envelope=2.0, gate_passing_share=3.0)
         self.assertEqual(mod03.cold_society_degree(
-            100, envelope=2.0, gate_passing_share=3.0), 6.0)
+            100, envelope=2.0, gate_passing_share=0.5), 1.0)
         self.assertEqual(mod03.cold_society_degree(90), 0)
 
 

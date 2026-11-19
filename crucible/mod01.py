@@ -570,7 +570,33 @@ def _sentence_text(value):
 
 
 def _fid(form_id):
-    return _sentence_text(form_id)
+    """The stated form identifier a handed value carries, in
+    the one identifier form of this module (FW-23): a form
+    identifier stands as a text value, judged on the text it
+    stores through the base class string form, and a value in
+    any other form (a number, a bytes form, a container, or
+    no value) carries no form identifier, so every door of
+    this module judges the same handing the same way. A value
+    in no identifier form stands read as the empty identifier,
+    which names no form."""
+    if isinstance(form_id, str):
+        return str.__str__(form_id)
+    return ""
+
+
+def _unknown_form_refusal(act, form_id):
+    """The named refusal the form lookup doors deliver for an
+    identifier naming no form (FW-24): the refusal names the
+    identifier as handed, states that no form stands under
+    it, and states the next step, in the form the sibling
+    door minimal_valid_instance states."""
+    return ValueError(
+        act + " stands refused: form identifier "
+        + _safe_str(form_id)
+        + " names no form: no form stands under that "
+        "identifier; next step: hand a stated form identifier, "
+        "one of the identifiers FORM_IDS states, and no answer "
+        "stands returned at this door")
 
 
 def form_name(form_id):
@@ -580,8 +606,10 @@ def form_name(form_id):
     one ahead rule: read it through BRIEF_SHAPE_CROSS_REFERENCE
     or brief_shape_for_form, never by assuming the Form number
     and the brief Shape number agree."""
-    spec = _FORM_SPECS.get(_fid(form_id))
-    return spec[0] if spec else None
+    fid = _fid(form_id)
+    if fid not in _FORM_SPECS:
+        raise _unknown_form_refusal("form_name", form_id)
+    return _FORM_SPECS[fid][0]
 
 
 # The explicit brief Shape cross reference of the product
@@ -701,7 +729,8 @@ def brief_shape_for_form(form_id):
     Form carries no numbered brief Shape of its own."""
     entry = BRIEF_SHAPE_CROSS_REFERENCE.get(_fid(form_id))
     if entry is None:
-        return None
+        raise _unknown_form_refusal(
+            "brief_shape_for_form", form_id)
     return entry["brief_shape"]
 
 
@@ -713,6 +742,18 @@ def form_ids_for_brief_shape(shape):
     A shape naming no numbered brief Shape returns an empty
     tuple."""
     wanted = _fid(shape)
+    if wanted not in {
+            entry["brief_shape"]
+            for entry in BRIEF_SHAPE_CROSS_REFERENCE.values()
+            if entry["brief_shape"] is not None}:
+        raise ValueError(
+            "form_ids_for_brief_shape stands refused: brief "
+            "shape " + _safe_str(shape)
+            + " names no numbered brief Shape: no numbered "
+            "brief Shape stands under that identifier; next "
+            "step: hand a stated brief Shape number, one of "
+            "the numbered brief Shapes the cross reference "
+            "states, and no form list stands returned")
     return tuple(
         form_id
         for form_id, entry in BRIEF_SHAPE_CROSS_REFERENCE.items()
@@ -726,7 +767,7 @@ def form_fields(form_id):
     lists and no field beyond them."""
     spec = _FORM_SPECS.get(_fid(form_id))
     if spec is None:
-        return ()
+        raise _unknown_form_refusal("form_fields", form_id)
     return spec[1]
 
 
@@ -738,6 +779,9 @@ def required_fields(form_id):
     carrying it filled stands refused at validation (F2-08,
     ruling T16-32)."""
     fid = _fid(form_id)
+    if fid not in _FORM_SPECS:
+        raise _unknown_form_refusal(
+            "required_fields", form_id)
     fields = form_fields(fid)
     conditional = {c["field"] for c in _conditions_for(fid)}
     if fid == "36":
@@ -764,6 +808,9 @@ def _conditions_for(form_id):
 def field_conditions(form_id):
     """Stated conditions under which a conditional field is required,
     one dict per condition, each naming its field."""
+    if _fid(form_id) not in _FORM_SPECS:
+        raise _unknown_form_refusal(
+            "field_conditions", form_id)
     return tuple(dict(c) for c in _conditions_for(form_id))
 
 
@@ -3999,6 +4046,56 @@ def validation_standing(form_id, instance):
     return result
 
 
+_VALIDATE_WIDTH_BOUND = 10000
+
+
+def _record_width_past_bound(instance):
+    """Whether one record instance stands wider than the
+    stated validation width bound of 10000 entries (FW-16).
+    The width stands counted across every mapping entry and
+    every sequence or set item in the instance, through base
+    class readings only, each container counted once, and
+    the walk stops at the bound, so the judgement itself
+    stands bounded by the bound and never by the handed
+    width. A text or bytes value counts as the one entry
+    that carries it, never per character."""
+    total = 0
+    seen = set()
+    stack = [instance]
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, (dict, list, tuple, set, frozenset)):
+            continue
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, dict):
+            total += dict.__len__(node)
+            for key in dict.__iter__(node):
+                stack.append(key)
+                stack.append(dict.__getitem__(node, key))
+        else:
+            items = list(_base_iter(node))
+            total += len(items)
+            stack.extend(items)
+        if total > _VALIDATE_WIDTH_BOUND:
+            return True
+    return False
+
+
+def _width_failure_sentence():
+    return _failure_sentence(
+        "record width",
+        "the record carries more than the stated width bound "
+        "of 10000 entries, counting every mapping entry and "
+        "every sequence or set item the record carries, so "
+        "the record stands refused at validation before the "
+        "unbounded validation work stands done",
+        "hand a record carrying no more than the stated "
+        "width bound of 10000 entries, or split the record "
+        "and validate each part")
+
+
 def _validate_record_inner(form_id, instance):
     """Validate one record instance against its form.
 
@@ -4012,6 +4109,8 @@ def _validate_record_inner(form_id, instance):
     """
     fid = _fid(form_id)
     if fid not in _FORM_SPECS or not isinstance(instance, dict):
+        return False
+    if _record_width_past_bound(instance):
         return False
     # The required field presence act reads the stored keys of
     # the record through base dict operations: the pairs the
@@ -4522,6 +4621,8 @@ def _record_validation_failures(form_id, instance):
             "hand a stated form identifier, one of the identifiers "
             "in FORM_IDS, or check the identifier for a mistyped "
             "character")]
+    if _record_width_past_bound(instance):
+        return [_width_failure_sentence()]
     if not isinstance(instance, dict):
         return [_failure_sentence(
             "record",

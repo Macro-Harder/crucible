@@ -16,6 +16,7 @@ weekly container in arrival order.
 """
 import copy
 import itertools
+import math
 import re
 from decimal import Decimal
 from fractions import Fraction
@@ -2834,7 +2835,11 @@ def honest_loss_rate_h1(submitted, accepted_by_submission_period):
     in which it was submitted. So attributed, the subtraction
     equals the event count by construction and cannot fall below
     zero. The rate travels as a stored numerator and denominator
-    pair."""
+    pair. A count pair no population can carry stands refused in
+    the named whole number form: a negative count on either side,
+    an accepted count above the submitted count, or a submitted
+    count of zero, which carries no population a rate can stand
+    on. No clamp stands applied in silence to any such pair."""
     submitted_count = _whole_number_count(submitted)
     accepted_count = _whole_number_count(
         accepted_by_submission_period)
@@ -2844,12 +2849,19 @@ def honest_loss_rate_h1(submitted, accepted_by_submission_period):
             "and accepted counts stand in no whole number form, "
             "whole numbers stand required, and no loss rate "
             "stands computed") from None
-    numerator = submitted_count - accepted_count
-    if numerator < 0:
-        numerator = 0
+    if submitted_count <= 0 or accepted_count < 0 \
+            or accepted_count > submitted_count:
+        raise ValueError(
+            "honest_loss_rate_h1 stands refused: the submitted "
+            "and accepted counts stand as no population can "
+            "carry them, a negative count, an accepted count "
+            "above the submitted count, or a submitted count "
+            "of zero, whole numbers a population can carry "
+            "stand required, and no loss rate stands "
+            "computed") from None
     return {
         "form": "H1",
-        "numerator": numerator,
+        "numerator": submitted_count - accepted_count,
         "denominator": submitted_count,
     }
 
@@ -2864,6 +2876,21 @@ def top_up_applies(winning_probability):
             "probability stands in no number form, a plain "
             "number stands required, and no top up judgement "
             "stands returned") from None
+    if isinstance(plain_probability, float) and not math.isfinite(
+            plain_probability):
+        raise ValueError(
+            "top_up_applies stands refused: the winning "
+            "probability stands in no finite form, a "
+            "probability stands as a finite number from zero "
+            "to one, and no top up judgement stands "
+            "returned") from None
+    if plain_probability < 0 or plain_probability > 1:
+        raise ValueError(
+            "top_up_applies stands refused: the winning "
+            "probability stands outside the closed range "
+            "from zero to one, a probability stands inside "
+            "that range, and no top up judgement stands "
+            "returned") from None
     return 0.1 <= plain_probability <= 0.9
 
 
@@ -2878,6 +2905,12 @@ def point_standing(replicate_count):
             "stands in no whole number form, a whole number "
             "stands required, and no point standing stands "
             "returned") from None
+    if count < 0:
+        raise ValueError(
+            "point_standing stands refused: the replicate "
+            "count stands negative, a count stands as a whole "
+            "number at or above zero, and no point standing "
+            "stands returned") from None
     return {
         "replicates": count,
         "standing": "at floor" if count >= 30 else "below floor",
@@ -2896,6 +2929,12 @@ def classify_run_outcome(run_length_in_days, regime_class):
             "in days stands in no whole number form, a whole "
             "number stands required, and no outcome stands "
             "classified") from None
+    if run_days < 0:
+        raise ValueError(
+            "classify_run_outcome stands refused: the run "
+            "length in days stands negative, a run length "
+            "stands as a whole number of days at or above "
+            "zero, and no outcome stands classified") from None
     if run_days < 30:
         return {
             "outcome": "horizon insufficient",
@@ -2913,8 +2952,14 @@ def transition_figure(replicates):
     exactly one recorded outcome by the horizon: a first terminal
     regime named by its class, or right censoring at the horizon.
     Competing regime exits stand counted as competing events and
-    never as censoring. The denominator rule stands stated in the
-    result."""
+    never as censoring. Each replicate stands counted once: a
+    replicate handed more than once, the same record in the same
+    stored form, contributes one outcome, judged on the content
+    form of the record. Over no replicates the figure states no
+    share: the right censored share stands as the undelivered
+    standing, unknown, that the sibling doors of this estate
+    state over no population, and no denominator stands invented
+    for it. The denominator rule stands stated in the result."""
     if not isinstance(replicates, (list, tuple, set, frozenset)):
         raise ValueError(
             "transition_figure stands refused: the replicates "
@@ -2929,11 +2974,18 @@ def transition_figure(replicates):
                 "stands in no record form, a replicate stands as "
                 "a record, and no transition figure stands "
                 "computed")
-    total = len(stored_replicates)
+    counted_replicates = []
+    seen_forms = []
+    for replicate in stored_replicates:
+        form = _form_repr(replicate)
+        if form not in seen_forms:
+            seen_forms.append(form)
+            counted_replicates.append(replicate)
+    total = len(counted_replicates)
     counts = {}
     competing = 0
     censored = 0
-    for replicate in stored_replicates:
+    for replicate in counted_replicates:
         if dict.get(replicate, "competing_exit") if isinstance(replicate, dict) else replicate.get("competing_exit"):
             competing += 1
             continue
@@ -2950,7 +3002,7 @@ def transition_figure(replicates):
                     "a regime name stands required, and no "
                     "transition figure stands computed") from None
             counts[regime] = counts.get(regime, 0) + 1
-    denominator = total if total else 1
+    denominator = total
     incidence = {
         regime: {"count": count, "denominator": total,
                  "share": count / denominator}
@@ -2959,14 +3011,14 @@ def transition_figure(replicates):
     return {
         "denominator": total,
         "denominator_rule": (
-            "computed over all replicates started at the point; "
-            "competing regime exits counted as competing events "
-            "and never as censoring"),
+            "computed over all replicates started at the point, "
+            "each replicate counted once; competing regime exits "
+            "counted as competing events and never as censoring"),
         "cumulative_incidence": incidence,
         "competing_events": competing,
         "right_censored": {
             "count": censored, "denominator": total,
-            "share": censored / denominator,
+            "share": (censored / denominator) if total else "unknown",
         },
         "outcomes_per_replicate": 1,
     }
@@ -3724,7 +3776,13 @@ def make_weekly_container(week, units):
     stands validated against the standing unit identifier form
     before any count stands taken, and an item that does not
     stand in that form stands refused in named form, so no count
-    stands stated over unvalidated contents."""
+    stands stated over unvalidated contents. The population
+    stands judged as a set of identities: a unit identifier
+    handed more than once stands in the container once, in its
+    first arrival position, judged on the stored text of the
+    identifier, so a repeat consumes no place inside the cap and
+    stands nowhere among the held units, in the same identity
+    reading the weekly count states."""
     ordered = _stored_unit_list(units)
     for item in ordered:
         if not _unit_identifier_stands(item):
@@ -3737,8 +3795,15 @@ def make_weekly_container(week, units):
                 "a held item stands in no unit identifier form, "
                 "and no count stands taken over unvalidated "
                 "contents: " + rendered)
-    inside = ordered[:WEEKLY_CAP]
-    held = ordered[WEEKLY_CAP:]
+    distinct = []
+    seen_texts = []
+    for item in ordered:
+        text = str.__str__(item)
+        if text not in seen_texts:
+            seen_texts.append(text)
+            distinct.append(item)
+    inside = distinct[:WEEKLY_CAP]
+    held = distinct[WEEKLY_CAP:]
     outside_cells = sum(
         int(unit.get("outside_unit_cells") or 0)
         for unit in inside if isinstance(unit, dict))

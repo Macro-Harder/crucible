@@ -2260,7 +2260,13 @@ def construct_farm(member_ids, farm_size=None, edges=None):
     of _member_order_key before any grouping, so the same member
     content gives the same grouping and the same counts at every
     hash seed. Members handed in an ordered container stand
-    grouped in the order handed.
+    grouped in the order handed. The population stands judged
+    as a set of identities: a member handed more than once,
+    judged on the stored member key the membership judgement
+    itself stands on, stands grouped once, in its first arrival
+    position, so the membership lists state the same population
+    the farm membership carriage keys, one farm standing per
+    member.
     """
     if member_ids is None:
         members = []
@@ -2268,6 +2274,18 @@ def construct_farm(member_ids, farm_size=None, edges=None):
         members = list(_base_iter(member_ids))
         if isinstance(member_ids, (set, frozenset)):
             members = sorted(members, key=_member_order_key)
+    distinct_members = []
+    seen_keys = {}
+    for member in members:
+        key = _stored_member_key(member)
+        try:
+            present = key in seen_keys
+        except Exception:
+            present = False
+        if not present:
+            seen_keys[key] = True
+            distinct_members.append(member)
+    members = distinct_members
     farm_size = _guard_farm_size(farm_size, "farm rejected")
     if not farm_size:
         farms = []
@@ -2836,7 +2854,12 @@ def cold_society_degree(day, envelope=None, gate_passing_share=None):
     Days inside the first 90 return 0. A later day returns the
     envelope value multiplied by the gate passing share where both
     stand supplied, and otherwise returns the gated standing with
-    no degree stated.
+    no degree stated. A stated day before day zero stands refused
+    in the named failure form. An envelope below zero, a gate
+    passing share below zero or above one, and an operand standing
+    as a non finite number each stand refused in the named failure
+    form, so no returned figure stands outside the bounds this
+    statement carries.
     """
     if isinstance(day, bool) or not isinstance(day, int):
         raise NamedGeneratorFailure(
@@ -2848,7 +2871,14 @@ def cold_society_degree(day, envelope=None, gate_passing_share=None):
     # which dispatches to a conversion reading a subclass
     # instance supplies, in the cured form of row R11-066 at
     # MOD-02 for plain conversion readings.
-    if int.__le__(int.__int__(day), COLD_SOCIETY_FIRST_DAYS):
+    plain_day = int.__int__(day)
+    if int.__lt__(plain_day, 0):
+        raise NamedGeneratorFailure(
+            "cold society degree rejected: the stated day is a "
+            "negative count of days, a day before the society "
+            "stands, and no degree stands returned for it: "
+            + _refusal_repr(day))
+    if int.__le__(plain_day, COLD_SOCIETY_FIRST_DAYS):
         return 0
     for operand, naming in ((envelope, "envelope"),
                             (gate_passing_share, "gate passing share")):
@@ -2859,6 +2889,29 @@ def cold_society_degree(day, envelope=None, gate_passing_share=None):
                 "cold society degree rejected: the stated "
                 + naming + " is not a number in its stated "
                 "form: " + _refusal_repr(operand))
+    for operand, naming, upper in (
+            (envelope, "envelope", None),
+            (gate_passing_share, "gate passing share", 1)):
+        if operand is None:
+            continue
+        plain_operand = (
+            float.__float__(operand) if isinstance(operand, float)
+            else int.__int__(operand))
+        if isinstance(plain_operand, float) and (
+                plain_operand != plain_operand
+                or plain_operand in (float("inf"), float("-inf"))):
+            raise NamedGeneratorFailure(
+                "cold society degree rejected: the stated "
+                + naming + " is not a finite number, and no "
+                "degree stands returned on it: "
+                + _refusal_repr(operand))
+        if plain_operand < 0 or (
+                upper is not None and plain_operand > upper):
+            raise NamedGeneratorFailure(
+                "cold society degree rejected: the stated "
+                + naming + " stands outside the bounds the "
+                "figure states, and no degree stands returned "
+                "on it: " + _refusal_repr(operand))
     if envelope is None or gate_passing_share is None:
         return {
             "degree": None,

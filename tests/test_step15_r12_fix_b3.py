@@ -131,7 +131,10 @@ class TestR11010PlainDeepcopySites(Base):
         handed = manifest(payload=leaf)
         self.assertIs(mod10.resume_from_checkpoint(handed)["payload"], leaf)
         orphan = manifest(run="run-none", payload=leaf)
-        self.assertIs(mod10.resume_from_checkpoint(orphan)["payload"], leaf)
+        with self.assertRaises(ValueError) as caught:
+            mod10.resume_from_checkpoint(orphan)
+        self.assertIn(
+            "checkpoint integrity refusal", str(caught.exception))
 
     def test_append_annotation_both_values(self):
         leaf = LyingLeaf()

@@ -118,10 +118,12 @@ class TestTG134(unittest.TestCase):
         require_surface(self, "TG-13.4", "one recorded outcome per replicate started at a control point, cumulative incidence over all started replicates, denominator rule stated on the report")
         m = _surface_module
         replicates = (
-            [{"first_terminal_regime": "attacker winning"}] * 6
-            + [{"first_terminal_regime": "defender holding"}] * 2
-            + [{"first_terminal_regime": None}] * 1
-            + [{"competing_exit": True}] * 1
+            [{"first_terminal_regime": "attacker winning",
+              "replicate": i} for i in range(6)]
+            + [{"first_terminal_regime": "defender holding",
+                "replicate": 6 + i} for i in range(2)]
+            + [{"first_terminal_regime": None, "replicate": 8}]
+            + [{"competing_exit": True, "replicate": 9}]
         )
         figure = m.transition_figure(replicates)
         self.assertEqual(figure["denominator"], 10)

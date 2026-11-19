@@ -335,11 +335,13 @@ class TestR18052BoundingHeadline(unittest.TestCase):
 class TestR18053TopUpApplies(unittest.TestCase):
 
     def test_lying_probability_judged_on_stored_value(self):
-        self.assertFalse(mod11.top_up_applies(LieCmp(5.0)))
+        with self.assertRaises(ValueError):
+            mod11.top_up_applies(LieCmp(5.0))
         self.assertFalse(mod11.top_up_applies(LieCmp(0.05)))
 
     def test_controls(self):
-        self.assertFalse(mod11.top_up_applies(5.0))
+        with self.assertRaises(ValueError):
+            mod11.top_up_applies(5.0)
         self.assertFalse(mod11.top_up_applies(0.05))
         self.assertTrue(mod11.top_up_applies(0.5))
         self.assertTrue(mod11.top_up_applies(0.1))

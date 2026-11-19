@@ -223,15 +223,14 @@ class TestR17040SafeHelperStatements(unittest.TestCase):
 
 class TestR17042Mod13StoredString(unittest.TestCase):
     def test_witness_rerun_str_raising_identifier(self):
-        result = mod13.witness_rerun({"run_id": StrRaiser()})
-        self.assertTrue(result["run_id"].endswith("-rerun"))
-        self.assertIn("StrRaiser()", result["run_id"])
+        with self.assertRaises(mod13.NamedReplicationFailure):
+            mod13.witness_rerun({"run_id": StrRaiser()})
 
     def test_witness_rerun_plain_controls_stand(self):
         self.assertEqual(
             mod13.witness_rerun({"run_id": "run-1"})["run_id"], "run-1-rerun")
-        self.assertEqual(
-            mod13.witness_rerun({"run_id": 42})["run_id"], "42-rerun")
+        with self.assertRaises(mod13.NamedReplicationFailure):
+            mod13.witness_rerun({"run_id": 42})
 
 
 class TestR17043Mod13UseStands(unittest.TestCase):

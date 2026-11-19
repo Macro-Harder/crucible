@@ -182,8 +182,10 @@ class TestR2035PlainSentenceReadableWords(unittest.TestCase):
 class TestR2054TransitionHorizonPosition(unittest.TestCase):
     def _unit(self, sentence, horizon=60):
         replicates = (
-            [{"first_terminal_regime": "attacker winning"}] * 5
-            + [{"first_terminal_regime": None}] * 5)
+            [{"first_terminal_regime": "attacker winning",
+              "replicate": i} for i in range(5)]
+            + [{"first_terminal_regime": None,
+                "replicate": 5 + i} for i in range(5)])
         figure = mod11.transition_figure(replicates)
         figure["horizon"] = horizon
         return {

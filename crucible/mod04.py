@@ -2690,10 +2690,16 @@ def delivery_completeness(events, deliveries):
         delivered_event = dict.get(entry, "event")
         if not isinstance(delivered_event, dict):
             continue
-        delivered_kinds.append(dict.get(delivered_event, "kind"))
+        delivered_kind = dict.get(delivered_event, "kind")
+        if delivered_kind in PROCESSING_TYPES:
+            continue
+        delivered_kinds.append(delivered_kind)
     expected = [
         dict.get(event, "kind") if isinstance(event, dict) else None
         for event in events
+        if not (
+            isinstance(event, dict)
+            and dict.get(event, "kind") in PROCESSING_TYPES)
     ]
     return sorted(map(str, delivered_kinds)) == sorted(map(str, expected))
 

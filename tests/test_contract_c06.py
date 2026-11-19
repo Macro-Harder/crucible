@@ -44,6 +44,7 @@ class TestContractC06(unittest.TestCase):
         self.assertEqual(checkpoint, before)
         self.assertNotIn("annotation_record", checkpoint)
         self.assertEqual(mod10.annotation_link_at_checkpoint(appended), "link-c06")
+        mod10.retain_checkpoint(checkpoint)
         resumed = mod10.resume_from_checkpoint(checkpoint)
         self.assertEqual(mod10.annotation_link_at_checkpoint(resumed), mod10.annotation_link_at_checkpoint(checkpoint))
 

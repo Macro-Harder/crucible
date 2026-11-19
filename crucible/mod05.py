@@ -255,6 +255,23 @@ def _freeze(value, _memo=None):
 # Work credit and proportions, Shape 14
 # ---------------------------------------------------------------------------
 
+def _proportion_part_ground(part):
+    """The ground on which a proportion part stands outside
+    the form validate_proportion states, or None where the
+    part stands inside it: a part in no numeric form, or a
+    part in no finite form. A plain integer too large for a
+    float reading stands in no finite form on this reading,
+    as validate_proportion answers it."""
+    if isinstance(part, bool) or not isinstance(part, (int, float)):
+        return "stands in no numeric form"
+    try:
+        if not math.isfinite(_base_number(part)):
+            return "stands in no finite form"
+    except (OverflowError, ValueError):
+        return "stands in no finite form"
+    return None
+
+
 def proportion_record(numerator, denominator):
     """A proportion stored only with its numerator and denominator
     stored apart. A proportion without its parts is refused."""
@@ -269,6 +286,32 @@ def proportion_record(numerator, denominator):
             + " and ".join(missing) + " stands missing, a proportion "
             "is stored only with its numerator and denominator "
             "stored apart, and no proportion stands stored")
+    for part_name, part in (
+            ("numerator", numerator),
+            ("denominator", denominator)):
+        ground = _proportion_part_ground(part)
+        if ground is not None:
+            raise ValueError(
+                "proportion_record stands refused: the "
+                + part_name + " " + ground + ", a proportion "
+                "is stored only with its numerator and "
+                "denominator stored apart in the form "
+                "validate_proportion states, and no proportion "
+                "stands stored")
+    if _base_number(denominator) <= 0:
+        raise ValueError(
+            "proportion_record stands refused: the denominator "
+            "stands at or below zero, a proportion is stored "
+            "only with its numerator and denominator stored "
+            "apart in the form validate_proportion states, "
+            "and no proportion stands stored")
+    if _base_number(numerator) < 0:
+        raise ValueError(
+            "proportion_record stands refused: the numerator "
+            "stands below zero, a proportion is stored only "
+            "with its numerator and denominator stored apart "
+            "in the form validate_proportion states, and no "
+            "proportion stands stored")
     return {"numerator": numerator, "denominator": denominator}
 
 
@@ -290,7 +333,10 @@ def validate_proportion(record):
     for part in (numerator, denominator):
         if isinstance(part, bool) or not isinstance(part, (int, float)):
             return False
-        if not math.isfinite(_base_number(part)):
+        try:
+            if not math.isfinite(_base_number(part)):
+                return False
+        except (OverflowError, ValueError):
             return False
     numerator = _base_number(numerator)
     denominator = _base_number(denominator)
@@ -301,9 +347,15 @@ def validate_proportion(record):
         if isinstance(quotient, bool) or not isinstance(quotient, (int, float)):
             return False
         quotient = _base_number(quotient)
-        if not math.isfinite(quotient):
+        try:
+            if not math.isfinite(quotient):
+                return False
+        except (OverflowError, ValueError):
             return False
-        if abs(quotient - numerator / denominator) > 1e-12:
+        try:
+            if abs(quotient - numerator / denominator) > 1e-12:
+                return False
+        except (OverflowError, ValueError):
             return False
     return True
 
@@ -316,23 +368,61 @@ def work_credit(events):
     of the primary order parameter come from this one event set, and
     each proportion stands stored as its numerator and denominator
     apart, per Shape 14.
+
+    A handing in container form stands read on its stored
+    elements. A genuine iterator handing, a generator among
+    them, carries no stored form apart from its iteration,
+    so it stands read whole by that one reading and computed
+    from the events it yields. A text handing, a bytes
+    handing, and a record handing stand in no list form and
+    stand refused in the named form below, as a handing in
+    no iterable form stands refused. A handed object in no
+    container form and no iterator form stores no elements
+    and stands computed over no elements, in the stored form
+    doctrine the landed tests pin. same_event_set stands
+    True only over the events actually read on one of these
+    standings, and no handing stands silently emptied.
     """
     if isinstance(events, (list, tuple, set, frozenset)):
         events = _stored_list(events)
+    elif isinstance(events, (str, bytes, bytearray, memoryview, dict)):
+        raise ValueError(
+            "work_credit stands refused: the events stand in no "
+            "list form, a list of work events stands required, "
+            "and no work credit stands computed") from None
     else:
         try:
-            iter(events)
+            handed_iterator = iter(events)
         except Exception:
             raise ValueError(
                 "work_credit stands refused: the events stand in no "
                 "list form, a list of work events stands required, "
                 "and no work credit stands computed") from None
-        events = []
+        if handed_iterator is events:
+            try:
+                events = list(handed_iterator)
+            except Exception:
+                raise ValueError(
+                    "work_credit stands refused: the events stand "
+                    "in no list form, a list of work events stands "
+                    "required, and no work credit stands "
+                    "computed") from None
+        else:
+            events = []
     per_agent = {}
     for event in events:
         agent = _get(event, "agent_identifier", "agent")
         if agent is None:
             raise ValueError("a work event carries no agent identifier")
+        try:
+            hash(agent)
+        except Exception:
+            raise ValueError(
+                "work_credit stands refused: a work event "
+                "names its agent in no identity form, an agent "
+                "identifier stands as a value that can stand "
+                "judged as an identity, and no work credit "
+                "stands computed") from None
         bucket = per_agent.setdefault(agent, {"submitted": 0, "accepted": 0})
         bucket["submitted"] += 1
         if _get(event, "accepted", default=False):
@@ -412,6 +502,22 @@ def vouch(voucher, vouchee, stake, creation_day=0, lifetime=None,
     return edge
 
 
+def _member_sort_key(member):
+    """The sort key of one component member, judged on stored
+    readings alone: a text form member on its stored text, a
+    number on the number it stores, a boolean apart from every
+    number on its stated value, and any other form on its safe
+    representation, so members of mixed forms stand ordered
+    without a comparison reading the handed members supply."""
+    if isinstance(member, bool):
+        return ("", 2, int.__int__(member))
+    if isinstance(member, (str, bytes, bytearray, memoryview)):
+        return (_stored_text(member), 0, _stored_text(member))
+    if isinstance(member, (int, float)):
+        return ("", 1, member)
+    return ("", 3, _safe_repr(member))
+
+
 def _mutual_pairs(edges):
     directed = set()
     for edge in edges:
@@ -419,11 +525,30 @@ def _mutual_pairs(edges):
     pairs = set()
     for a, b in directed:
         if (b, a) in directed:
-            pairs.add(tuple(sorted((a, b))))
+            pairs.add(tuple(sorted((a, b), key=_member_sort_key)))
     return pairs
 
 
 def _components(edges):
+    for entry in edges:
+        voucher = _get(entry, "voucher")
+        vouchee = _get(entry, "vouchee")
+        if voucher is None or vouchee is None:
+            raise ValueError(
+                "component stands refused: an edge entry stands "
+                "in no edge record form, an edge entry stands as "
+                "a record naming its voucher and its vouchee, "
+                "and no component stands computed")
+        try:
+            hash(voucher)
+            hash(vouchee)
+        except Exception:
+            raise ValueError(
+                "component stands refused: an edge entry names "
+                "a member in no identity form, a member stands "
+                "as a value that can stand judged as an "
+                "identity, and no component stands computed"
+                ) from None
     pairs = _mutual_pairs(edges)
     parent = {}
 
@@ -444,21 +569,26 @@ def _components(edges):
     groups = {}
     for member in members:
         groups.setdefault(find(member), []).append(member)
+    edges_by_root = {}
+    for edge in edges:
+        voucher = _get(edge, "voucher")
+        vouchee = _get(edge, "vouchee")
+        if voucher in members and vouchee in members:
+            root = find(voucher)
+            if root == find(vouchee):
+                edges_by_root.setdefault(root, []).append(edge)
     result = []
-    for group_members in groups.values():
-        group_members = sorted(group_members)
-        member_set = set(group_members)
-        group_edges = [
-            edge for edge in edges
-            if _get(edge, "voucher") in member_set and _get(edge, "vouchee") in member_set
-        ]
+    for root, group_members in groups.items():
+        group_members = sorted(group_members, key=_member_sort_key)
+        group_edges = edges_by_root.get(root, [])
         result.append({
             "members": group_members,
             "edge_count": len(group_edges),
             "stake_total": sum(_get(edge, "stake", default=0) or 0 for edge in group_edges),
             "edges": _freeze(group_edges),
         })
-    result.sort(key=lambda item: item["members"])
+    result.sort(
+        key=lambda item: [_member_sort_key(member) for member in item["members"]])
     return result
 
 
@@ -483,6 +613,14 @@ def component_cap_check(edges, cap_edges):
     """The component cap counts edges, not stake weight: a component
     passes the cap only where its edge count is at or under the cap,
     whatever its stake total."""
+    if not _stands_numeric(cap_edges) or (
+            isinstance(cap_edges, float)
+            and not math.isfinite(cap_edges)):
+        raise ValueError(
+            "component_cap_check stands refused: the cap "
+            "stands in no finite numeric form, a cap stands "
+            "as a finite number of edges, and no component "
+            "stands judged against it")
     for group in _components(_stored_list(edges)):
         if group["edge_count"] > cap_edges:
             return False
@@ -647,6 +785,20 @@ def _stands_numeric(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _stands_count(value):
+    """Whether a value stands as a count the comparison score
+    can read: a numeric form, bool excluded, standing finite
+    and at or above zero. A plain integer stands finite by
+    its form, so no float conversion stands attempted on it,
+    and an integer subclass stands judged on its base
+    integer reading."""
+    if not _stands_numeric(value):
+        return False
+    if isinstance(value, float):
+        return math.isfinite(value) and value >= 0
+    return int.__int__(value) >= 0
+
+
 def aggregate_reputation(inputs):
     """The recommended candidate behind the aggregation interface,
     in comparison form only. It produces one reputation score for an
@@ -685,6 +837,12 @@ def aggregate_reputation(inputs):
                 + " field stands in no numeric form, the comparison "
                 "score reads that field as a count, and no score "
                 "stands returned")
+        if stated is not None and not _stands_count(_get(inputs, *names)):
+            raise ValueError(
+                "aggregate_reputation stands refused: the " + stated
+                + " field stands in non finite or negative form, "
+                "the comparison score reads that field as a count, "
+                "and no score stands returned")
     vouches_name = _stated_name(inputs, "vouches_received", "received_vouches")
     if vouches_name is not None:
         received_value = _get(inputs, "vouches_received", "received_vouches")
@@ -710,6 +868,14 @@ def aggregate_reputation(inputs):
                         + vouches_name + " field stands in no numeric "
                         "form, the comparison score reads that field as "
                         "a count, and no score stands returned")
+                if stake is not None and not _stands_count(stake):
+                    raise ValueError(
+                        "aggregate_reputation stands refused: the stake "
+                        "field of a score bearing entry of the "
+                        + vouches_name + " field stands in non finite "
+                        "or negative form, the comparison score reads "
+                        "that field as a count, and no score stands "
+                        "returned")
     agent = _get(inputs, "agent_identifier", "agent")
     accepted = _get(inputs, "accepted_work", "accepted", default=0) or 0
     penalties = _get(inputs, "penalties", "penalty_count", default=0) or 0
@@ -810,14 +976,43 @@ def band_membership(score, bands, evaluation_order=None):
             "require the evaluation order the record states as a "
             "recommendation and not as ruled, and no band stands "
             "returned")
+    if not _stands_numeric(score) or (
+            isinstance(score, float) and not math.isfinite(score)):
+        raise ValueError(
+            "band_membership stands refused: the score "
+            "stands in no finite numeric form, a score stands "
+            "as a finite number, and no band stands returned")
     chosen = None
     chosen_minimum = None
+    bands_seen = 0
     for name, minimum in bands:
+        bands_seen += 1
+        if not _stands_numeric(minimum) or (
+                isinstance(minimum, float)
+                and not math.isfinite(minimum)):
+            raise ValueError(
+                "band_membership stands refused: a band "
+                "minimum stands in no finite numeric form, a "
+                "band minimum stands as a finite number, and "
+                "no band stands returned")
         if score >= minimum and (chosen_minimum is None or minimum > chosen_minimum):
             chosen = name
             chosen_minimum = minimum
+    if chosen is not None:
+        band_standing = (
+            "the score reaches the stated minimum of the "
+            "band returned")
+    elif bands_seen == 0:
+        band_standing = (
+            "no bands stand stated, and no band stands "
+            "returned")
+    else:
+        band_standing = (
+            "the score reaches no stated band minimum, and "
+            "no band stands returned")
     return {
         "band": chosen,
+        "band_standing": band_standing,
         "score": score,
         "score_source": "aggregation interface, comparison form only",
         "evaluation_order": _freeze(order_record),
@@ -990,22 +1185,60 @@ def boundary_neighbourhood(scores, boundary, distance_slices):
     units, that crosses the boundary from below. Distances and the
     neighbourhood size stand open, fixed in the family record
     before runs; this function pins the counts, not a distance."""
+    if not _stands_numeric(boundary) or (
+            isinstance(boundary, float)
+            and not math.isfinite(boundary)):
+        raise ValueError(
+            "boundary_neighbourhood stands refused: the "
+            "boundary stands in no finite numeric form, a "
+            "boundary stands as a finite number, and no "
+            "neighbourhood stands returned")
     counts = {}
     for label in distance_slices:
+        try:
+            hash(label)
+        except Exception:
+            raise ValueError(
+                "boundary_neighbourhood stands refused: a "
+                "distance slice stands in no identity form, "
+                "a distance slice stands as a value that can "
+                "stand judged as an identity, and no "
+                "neighbourhood stands returned") from None
         counts[label] = 0
     crossings = 0
     cheapest = None
     for entry in scores:
         label = _get(entry, "distance_slice")
+        if label is not None:
+            try:
+                hash(label)
+            except Exception:
+                raise ValueError(
+                    "boundary_neighbourhood stands refused: "
+                    "an entry names its distance slice in no "
+                    "identity form, a distance slice stands "
+                    "as a value that can stand judged as an "
+                    "identity, and no neighbourhood stands "
+                    "returned") from None
         if label in counts:
             counts[label] += 1
         if _get(entry, "crossed", default=False):
             crossings += 1
         score = _get(entry, "score")
-        if score is not None and score < boundary:
-            movement = boundary - score
-            if cheapest is None or movement < cheapest:
-                cheapest = movement
+        if score is not None:
+            if not _stands_numeric(score) or (
+                    isinstance(score, float)
+                    and not math.isfinite(score)):
+                raise ValueError(
+                    "boundary_neighbourhood stands refused: "
+                    "an entry carries a score standing in no "
+                    "finite numeric form, a score stands as "
+                    "a finite number, and no neighbourhood "
+                    "stands returned")
+            if score < boundary:
+                movement = boundary - score
+                if cheapest is None or movement < cheapest:
+                    cheapest = movement
     return {
         "boundary": boundary,
         "counts_per_distance_slice": counts,
@@ -1054,13 +1287,68 @@ def validate_band_transition_result(result):
 
 def gate_passing_share(eligible, passing, epoch=None):
     """The gate passing share computed per epoch by this core, as a
-    proportion stored with its numerator and denominator apart."""
+    proportion stored with its numerator and denominator apart.
+
+    The handings stand in one of two forms. In count form,
+    both handings stand as plain counts, the eligible count
+    and the passing count, and the share stands as the
+    passing count over the eligible count, with an eligible
+    count of zero standing as the unknown share. In identity
+    form, both handings stand as containers of identities,
+    and the eligible side stands judged as a population of
+    identities: one identity handed in more than once
+    stands counted once, as the passing side already stands
+    read as a set. A mixed handing, one side a count and the
+    other a set, and a count below zero stand refused in
+    named form."""
+    eligible_is_count = (
+        isinstance(eligible, int)
+        and not isinstance(eligible, bool))
+    passing_is_count = (
+        isinstance(passing, int)
+        and not isinstance(passing, bool))
+    if eligible_is_count or passing_is_count:
+        if not (eligible_is_count and passing_is_count):
+            raise ValueError(
+                "gate_passing_share stands refused: the eligible "
+                "and passing handings stand in mixed form, the "
+                "share stands computed from two counts or from "
+                "two identity sets, and no share stands returned")
+        if eligible < 0 or passing < 0:
+            raise ValueError(
+                "gate_passing_share stands refused: a count "
+                "handing stands below zero, a count stands read "
+                "as a population count, and no share stands "
+                "returned")
+        if eligible == 0:
+            return UNKNOWN_SHARE
+        share = proportion_record(passing, eligible)
+        share["epoch"] = epoch
+        share["computed_by"] = "MOD-05 Parley Core"
+        return share
     eligible = _stored_list(eligible)
     if not eligible:
         return UNKNOWN_SHARE
-    passing_set = set(_stored_list(passing))
-    numerator = sum(1 for item in eligible if item in passing_set)
-    share = proportion_record(numerator, len(eligible))
+    passing = _stored_list(passing)
+    for member in eligible + passing:
+        try:
+            hash(member)
+        except Exception:
+            raise ValueError(
+                "gate_passing_share stands refused: a member "
+                "of the eligible or passing handing stands in "
+                "no identity form, a member stands as a value "
+                "that can stand judged as an identity, and no "
+                "share stands computed") from None
+    passing_set = set(passing)
+    population = []
+    seen = set()
+    for item in eligible:
+        if item not in seen:
+            seen.add(item)
+            population.append(item)
+    numerator = sum(1 for item in population if item in passing_set)
+    share = proportion_record(numerator, len(population))
     share["epoch"] = epoch
     share["computed_by"] = "MOD-05 Parley Core"
     return share
@@ -3112,6 +3400,17 @@ def excluded_class_counts(cases):
     counts = {name: 0 for name in EXCLUDED_CLASSES}
     for case in cases:
         name = _get(case, "excluded_class")
+        if name is not None:
+            try:
+                hash(name)
+            except Exception:
+                raise ValueError(
+                    "excluded_class_counts stands refused: a "
+                    "case names its excluded class in no "
+                    "identity form, an excluded class stands "
+                    "as a value that can stand judged as an "
+                    "identity, and no counts stand "
+                    "returned") from None
         if name in counts:
             counts[name] += 1
     total = len(cases)

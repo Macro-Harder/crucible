@@ -2073,6 +2073,13 @@ def accept_detection_input(record):
             )
         if isinstance(feature_value_raw, int):
             feature_value = int.__int__(feature_value_raw)
+            if feature_value >= 10 ** 4300 or feature_value <= -(
+                    10 ** 4300):
+                raise NamedDetectionFailure(
+                    "delivery rejected: a feature value the "
+                    "rules cannot consume stands in the "
+                    "record: " + feature_name
+                )
         else:
             feature_value = float.__float__(feature_value_raw)
         if isinstance(feature_value, float) and not math.isfinite(
@@ -3080,6 +3087,21 @@ def author_sealed_class(sealed_set, kind, identifier,
             "sealed set rejected: the three separations stand "
             "unnamed in full"
         )
+    authored_value = _base_get(sealed_set, "authored")
+    if isinstance(authored_value, (list, tuple, set, frozenset)):
+        authored_entries = list(_base_iter(authored_value))
+    else:
+        authored_entries = []
+    for existing in authored_entries:
+        if not isinstance(existing, dict):
+            continue
+        if _stored_key_matches(
+                _base_get(existing, "identifier"), identifier):
+            raise NamedDetectionFailure(
+                "sealed set rejected: authored identifier "
+                "stands already authored: "
+                + _sentence_text(identifier)
+            )
     entry = {
         "kind": kind,
         "identifier": identifier,
