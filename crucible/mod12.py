@@ -14,6 +14,7 @@ no sweep run starts here.
 """
 
 import itertools
+import math
 import unicodedata
 from decimal import Decimal
 from fractions import Fraction
@@ -3368,6 +3369,21 @@ def top_up_applies(winning_probability, replicates_after_top_up):
             "top up rule inputs are not numbers: "
             + _sentence_form(
                 (winning_probability, replicates_after_top_up)))
+    if isinstance(plain_probability, float) and not math.isfinite(
+            plain_probability):
+        raise NamedControllerFailure(
+            "top_up_applies stands refused: the winning "
+            "probability stands in no finite form, a "
+            "probability stands as a finite number from zero "
+            "to one, and no top up judgement stands "
+            "returned")
+    if plain_probability < 0 or plain_probability > 1:
+        raise NamedControllerFailure(
+            "top_up_applies stands refused: the winning "
+            "probability stands outside the closed range "
+            "from zero to one, a probability stands inside "
+            "that range, and no top up judgement stands "
+            "returned")
     return bool(
         0.1 < plain_probability < 0.9
         and plain_replicates >= 30
