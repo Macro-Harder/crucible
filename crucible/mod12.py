@@ -2909,6 +2909,62 @@ def _sentence_stored_repr(value):
     return _sentence_form(value)
 
 
+_RUN_NUMERIC_FIELD_MINIMA = (
+    ("population_size", 1),
+    ("run_length_in_days", 1),
+    ("replicate_index", 0),
+)
+
+
+def _run_numeric_field_judged(field, value):
+    """Whether one numeric field value of a run record stands
+    in its stated form (FW4-04), in the same judged form the
+    mod01 doors state: a whole number at or above the stated
+    minimum of its field, read on its stored form, or the
+    placeholder template standing the product own built
+    record carries. A boolean, a non finite or fractional
+    number, a negative count, and any text beside the
+    placeholder standing stand in no judged form."""
+    minimum = dict(_RUN_NUMERIC_FIELD_MINIMA)[field]
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return int.__ge__(value, minimum)
+    if isinstance(value, float):
+        if value != value:
+            return False
+        if value == float("inf") or value == float("-inf"):
+            return False
+        return float.is_integer(value) and value >= minimum
+    if isinstance(value, str):
+        stored = _stored_text(value)
+        if stored is None:
+            return False
+        folded = " ".join(stored.casefold().split())
+        return str.__eq__(folded, "stated value")
+    return False
+
+
+def _run_numeric_failure(run):
+    """The failure sentence of the first numeric field of a
+    run record standing in no judged form, or None where
+    every stated numeric field stands judged or absent."""
+    for field, minimum in _RUN_NUMERIC_FIELD_MINIMA:
+        value = _run_field(run, field)
+        if value is not None and not _run_numeric_field_judged(
+                field, value):
+            return (
+                field + " stands in no judged form: the "
+                "field stands as a whole number at or above "
+                + str(minimum) + " on this form, or at the "
+                "placeholder template standing, and the value "
+                "the record carries on it stands in no judged "
+                "form; next step: supply the field " + field
+                + " as a whole number at or above "
+                + str(minimum))
+    return None
+
+
 def run_record_validation_failures(run):
     if not isinstance(run, dict) or dict.__len__(run) == 0:
         return [
@@ -2947,6 +3003,9 @@ def run_record_validation_failures(run):
         return [
             "a barred money pair stands in the record: an amount "
             "and currency pair (barred money value)"]
+    numeric_failure = _run_numeric_failure(run)
+    if numeric_failure is not None:
+        return [numeric_failure]
     for key, values in dict.items(run):
         if not _anchor_values_field_matches(key):
             continue
@@ -2970,7 +3029,9 @@ def validate_run_record(run):
     with no stated class or no stated seed domain fails, a
     screening run promoted into a confirmation role by
     relabelling fails, and a reporting run, headline or
-    confirmation, on the screening domain fails. A record
+    confirmation, on the screening domain fails. A numeric
+    field of the record, population_size, run_length_in_days,
+    or replicate_index, standing in no judged form fails. A record
     carrying a barred money field at any depth fails, and a
     record whose anchor scenario values stand at a count other
     than the three stated values fails."""
@@ -2995,6 +3056,8 @@ def validate_run_record(run):
     if _shape_exceeds_bounds(run):
         return False
     if _carries_barred_money_value(run):
+        return False
+    if _run_numeric_failure(run) is not None:
         return False
     for key, values in dict.items(run):
         if not _anchor_values_field_matches(key):

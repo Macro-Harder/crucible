@@ -829,13 +829,42 @@ def _screen_pilot_key(key, _seen=None, _depth=0):
 _PILOT_ARTEFACT_DEPTH_BOUND = 100
 
 
+def _pilot_int_digits(value):
+    """The decimal digits of a plain integer, built in digit
+    chunks from the plain integer itself through base integer
+    operations, in the chunk built form the store writer of
+    mod10 uses at the same handing, so an integer standing
+    beyond the interpreter integer string conversion limit
+    stands rendered in its plain form whole and no bare
+    interpreter digit limit sentence escapes at the pilot
+    artefact door (FW4-02)."""
+    remaining = int.__int__(value)
+    sign = ""
+    if remaining < 0:
+        sign = "-"
+        remaining = -remaining
+    chunks = []
+    while remaining:
+        remaining, chunk = divmod(remaining, 10 ** 9)
+        chunks.append(chunk)
+    if not chunks:
+        return "0"
+    parts = [str(chunks[-1])]
+    for chunk in reversed(chunks[:-1]):
+        parts.append(str(chunk).rjust(9, "0"))
+    return sign + "".join(parts)
+
+
 def _pilot_path_part(value):
     if isinstance(value, str):
         return str.__str__(value)
     if isinstance(value, bool):
         return bool.__str__(value)
     if isinstance(value, int):
-        return int.__str__(value)
+        try:
+            return int.__str__(value)
+        except ValueError:
+            return _pilot_int_digits(value)
     if isinstance(value, float):
         return float.__str__(value)
     if isinstance(value, bytes):

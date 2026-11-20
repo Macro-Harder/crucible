@@ -260,11 +260,16 @@ def _proportion_part_ground(part):
     """The ground on which a proportion part stands outside
     the form validate_proportion states, or None where the
     part stands inside it: a part in no numeric form, or a
-    part in no finite form. A plain integer too large for a
-    float reading stands in no finite form on this reading,
-    as validate_proportion answers it."""
+    float part in no finite form. A plain integer stands
+    finite by its form at any size, so no float conversion
+    stands attempted on it (FW4-02): a huge plain integer
+    part stands served whole, in the form _stands_count of
+    this module states for counts, and no refusal states a
+    finite form ground for a plain integer."""
     if isinstance(part, bool) or not isinstance(part, (int, float)):
         return "stands in no numeric form"
+    if isinstance(part, int):
+        return None
     try:
         if not math.isfinite(_base_number(part)):
             return "stands in no finite form"
@@ -334,6 +339,8 @@ def validate_proportion(record):
     for part in (numerator, denominator):
         if isinstance(part, bool) or not isinstance(part, (int, float)):
             return False
+        if isinstance(part, int):
+            continue
         try:
             if not math.isfinite(_base_number(part)):
                 return False
@@ -353,6 +360,12 @@ def validate_proportion(record):
                 return False
         except (OverflowError, ValueError):
             return False
+        if isinstance(numerator, int) and isinstance(denominator, int) \
+                and isinstance(quotient, float):
+            if abs(Fraction(quotient) - Fraction(
+                    numerator, denominator)) > Fraction(1, 10 ** 12):
+                return False
+            return True
         try:
             if abs(quotient - numerator / denominator) > 1e-12:
                 return False
@@ -1073,10 +1086,29 @@ def band_membership(score, bands, evaluation_order=None):
             "stands in no finite numeric form, a score stands "
             "as a finite number, and no band stands returned")
     score_plain = _base_number(score)
+    if isinstance(bands, (str, bytes, bytearray, memoryview, dict)) \
+            or not isinstance(bands, (list, tuple, set, frozenset)):
+        raise ValueError(
+            "band_membership stands refused: the bands "
+            "handing stands in no band entry form, the bands "
+            "stand stated as (band name, minimum score) "
+            "pairs, and no band stands returned")
+    band_entries = _stored_list(bands)
+    for entry in band_entries:
+        if isinstance(entry, (str, bytes, bytearray, memoryview, dict)) \
+                or not isinstance(entry, (list, tuple)) \
+                or len(entry) != 2:
+            raise ValueError(
+                "band_membership stands refused: a band "
+                "entry stands in no (band name, minimum "
+                "score) pair form, a band entry stands as a "
+                "pair of a band name and a minimum score, "
+                "and no band stands returned")
     chosen = None
     chosen_minimum = None
     bands_seen = 0
-    for name, minimum in bands:
+    for entry in band_entries:
+        name, minimum = _stored_list(entry)
         bands_seen += 1
         if not _stands_numeric(minimum) or (
                 isinstance(minimum, float)

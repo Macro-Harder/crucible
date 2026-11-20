@@ -41,6 +41,13 @@ import unicodedata
 from decimal import Decimal
 from fractions import Fraction
 
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+README named entry point of this module can refuse a missing
+or extra argument handing in the named form of this module
+instead of escaping as bare interpreter text at the call
+itself (FW4-11, in the form the FW3-54 cure states)."""
+
 __all__ = [
     "AC1_STATE_HASH_FIELDS",
     "CALIBRATION_FIELD_VALUE",
@@ -556,6 +563,23 @@ def _safe_str(value):
         return object.__repr__(value)
 
 
+def _bounded_echo(rendered):
+    """Bound one rendered handed value for a refusal sentence
+    (FW4-10): a rendering standing at 120 characters or fewer
+    stands whole; a longer rendering stands as its first 120
+    characters beside a length statement naming the standing
+    length of the handed value and the 120 character bound, so
+    no refusal message grows with the handing past that bound
+    and the ground of the refusal stands readable at its head."""
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
+
+
 def _sentence_text(value):
     """Render a handed value for a sentence or a lookup on the
     text it stores: a text form through its base class string
@@ -770,8 +794,24 @@ def form_ids_for_brief_shape(shape):
     Shape, as BRIEF_SHAPE_CROSS_REFERENCE states them. Brief
     Shape 8 answers with two Forms, ("8", "9"); every other
     numbered brief Shape from 1 to 17 answers with one Form.
-    A shape naming no numbered brief Shape returns an empty
-    tuple."""
+    A shape naming no numbered brief Shape stands refused in
+    the named form: the refusal states that the shape names
+    no numbered brief Shape and states the next step, and no
+    form list stands returned. A shape handed in a non text
+    form stands refused on the handing form ground, naming
+    the form handed and the text standing of a brief shape
+    identifier."""
+    class_name = _identifier_non_text_class(shape)
+    if class_name is not None:
+        raise ValueError(
+            "form_ids_for_brief_shape stands refused: brief "
+            "shape identifier " + _safe_str(shape)
+            + " stands handed in a non text form, the "
+            + class_name
+            + " form, where a brief shape identifier stands "
+            "as text; next step: hand the identifier as text, "
+            "one of the numbered brief Shapes the cross "
+            "reference states, and no form list stands returned")
     wanted = _fid(shape)
     if wanted not in {
             entry["brief_shape"]
@@ -882,7 +922,23 @@ def _placeholder(field):
     return "stated value"
 
 
-def minimal_valid_instance(form_id, entry_kind=None, condition_holds=None):
+def _refuse_argument_handing(door, expected, missing, extra):
+    """Refuse a missing or extra argument handing at a README
+    named entry point of this module, in named form: the door,
+    the ground, and the next step stand stated, and no answer
+    of the door stands returned."""
+    if missing:
+        ground = ("a handing stands missing among " + expected)
+    else:
+        ground = ("an argument stands handed in beyond " + expected)
+    raise ValueError(
+        door + " stands refused: this door stands handed "
+        + expected + ", " + ground + "; next step: hand "
+        + expected + " and call the door again, and no answer "
+        "stands returned at this door")
+
+
+def minimal_valid_instance(form_id=_ARGUMENT_NOT_HANDED, entry_kind=None, condition_holds=None, *extra_args, **extra_kwargs):
     """A minimally valid instance of a form, as a plain dict.
 
     Form 36 takes entry_kind, one of ordinary, agent, or supersession.
@@ -893,13 +949,36 @@ def minimal_valid_instance(form_id, entry_kind=None, condition_holds=None):
     An identifier naming no form stands refused in a named failure:
     the failure names the handed identifier, states that no form
     stands under it, and states the next step, and no instance
-    stands built.
+    stands built. An identifier handed in a non text form stands
+    refused on the handing form ground instead: the failure names
+    the form handed in and states that a form identifier stands
+    as text.
     """
+    if form_id is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "minimal_valid_instance",
+            "the form identifier", True, False)
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "minimal_valid_instance",
+            "the form identifier", False, True)
+
     fid = _fid(form_id)
     if fid not in _FORM_SPECS:
+        class_name = _identifier_non_text_class(form_id)
+        if class_name is not None:
+            raise ValueError(
+                "minimal_valid_instance stands refused: form "
+                "identifier " + _bounded_echo(_safe_str(form_id))
+                + " stands handed in a non text form, the "
+                + class_name
+                + " form, where a form identifier stands as "
+                "text; next step: hand the identifier as text, "
+                "one of the identifiers FORM_IDS states, and "
+                "no instance stands built")
         raise ValueError(
             "minimal_valid_instance stands refused: form identifier "
-            + _safe_str(form_id)
+            + _bounded_echo(_safe_str(form_id))
             + " names no form: no form stands under that identifier; "
             "next step: hand a stated form identifier, one of the "
             "identifiers FORM_IDS states, and no instance stands built")
@@ -957,9 +1036,15 @@ def _minimal_joint_outcome_vector():
     return instance
 
 
-def minimal_valid_family_record():
+def minimal_valid_family_record(*extra_args, **extra_kwargs):
     """A SweepFamilyRecord carrying every completeness field, with the
-    OP-13 values carried as open markers."""
+    OP-13 values carried as open markers. An argument handed to
+    this act, which takes none, stands refused in the named form
+    of this module (FW4-11)."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "minimal_valid_family_record",
+            "no argument at all", False, True)
     record = {}
     for field in required_fields("1"):
         record[field] = _placeholder(field)
@@ -5248,14 +5333,20 @@ def _validate_record_bool(form_id, instance):
         return False
 
 
-def validate_record(form_id, instance):
+def validate_record(form_id=_ARGUMENT_NOT_HANDED, instance=_ARGUMENT_NOT_HANDED, *extra_args, **extra_kwargs):
     """Check one record against its form, and say what stands wrong.
 
     Hand in a form identifier and the record as a mapping of
     field names to values. The answer True means the record
     carries every field its form requires, carries no field
     its form does not name, and stands under every rule its
-    form states. The answer False means the record does not
+    form states. One stated alias exception stands at Form
+    1: the six completeness fields of the SweepFamilyRecord
+    may stand carried under their spaced brief spellings
+    beside the Form 1 field names, and a record carrying a
+    completeness field under its spaced spelling carries
+    that field under an alias the form names, not a field
+    its form does not name. The answer False means the record does not
     stand valid, and the reason never stands hidden behind
     that False: call record_validation_failures with the
     same form identifier and record, and it returns the
@@ -5270,6 +5361,15 @@ def validate_record(form_id, instance):
     the record again. record_validation_failures returns
     an empty list where the record stands valid.
     """
+    if form_id is _ARGUMENT_NOT_HANDED or instance is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "validate_record",
+            "the form identifier and the record", True, False)
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "validate_record",
+            "the form identifier and the record", False, True)
+
     return not _record_validation_failures(form_id, instance)
 
 

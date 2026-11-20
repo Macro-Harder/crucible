@@ -24,7 +24,7 @@ Each module also stands imported by its own path, for example `from crucible imp
 
 ## Where the forms live
 
-The record forms live in mod01, Types and validation. `crucible.mod01.FORM_TYPES` maps each form identifier to its named form class, `form_fields` and `required_fields` state the fields of a form, and `minimal_valid_instance` returns a formally complete template of a form as a plain dict. Named construction guidance stands at `build_sweep_point` for Form 2 and `build_run_record` for Form 4, with field ownership stated in `FORM_FIELD_OWNERSHIP`: which fields a user supplies, which fields the system fills, and which fields, the seed fields on Form 4, a user must never fill.
+The record forms live in mod01, Types and validation. `crucible.mod01.FORM_TYPES` maps each form identifier to its named form class, `form_fields` and `required_fields` state the fields of a form, and `minimal_valid_instance` returns a formally complete template of a form as a plain dict. At Form 1 the template carries the six completeness fields under their spaced brief spellings beside the Form 1 field names: those spaced keys stand as aliases of the fields the form names, the stated alias exception at Form 1, and a record carrying a completeness field under its spaced spelling stands within its form at validation. Named construction guidance stands at `build_sweep_point` for Form 2 and `build_run_record` for Form 4, with field ownership stated in `FORM_FIELD_OWNERSHIP`: which fields a user supplies, which fields the system fills, and which fields, the seed fields on Form 4, a user must never fill.
 
 ## Record forms: brief Shape and product Form numbering
 
@@ -51,6 +51,8 @@ The design brief numbers its record shapes (brief Shapes 1 to 17), and the produ
 | Shape 16 | Form 17 | AnchorScenarioRecord |
 | Shape 17 | Form 18 | InterpretationLogEntry |
 
+The Form 5 record and the derivation input stand as different shapes. The record form table above names Form 5 as the SeedDerivationInput record of mod01, and mod02 states its derivation input under its own field names: a Form 5 record carries derivation_version_string where the derivation input carries derivation_version, and recorded_root_seed where the derivation input carries root_seed_reference; the remaining fields, domain, scenario_identifier, run_identifier, stream_class_identifier, and parameter_values, carry the same names in both shapes. A Form 5 record therefore stands not handed to mod02.derive_seed as it stands: build the derivation input in the derivation act field names, through mod02.make_derivation_input, and hand that value in.
+
 Forms carrying no numbered brief Shape of their own: Form 13A (CheckpointState) stands beside Form 13 in the checkpoint layer; Form 19 (DetectionInput) stands defined inside the Shape 7 passage; Forms 20 and 21 (AnnotationRecord and AnnotationCheckRecord) stand defined in the Shape 16 passage; Forms 22 to 37 are layer three forms with no numbered brief Shape.
 
 ## The DQ7-02 gate
@@ -59,7 +61,7 @@ Executable runs stand gated on DQ7-02. No adoption record for the DQ7-02 gate st
 
 ## Surface guide
 
-The package carries fifteen modules, mod01 to mod14 and mod16, exporting 660 names in total on the summed basis, the sum of the fifteen module export lists.
+The package carries fifteen modules, mod01 to mod14 and mod16, exporting 660 names in total on the summed basis, the sum of the fifteen module export lists. On validation, the guide states the pair plainly: validate_record answers True or False, and record_validation_failures in the same module states the reasons for a failing validation.
 
 | Module | Purpose |
 |---|---|
@@ -81,7 +83,7 @@ The package carries fifteen modules, mod01 to mod14 and mod16, exporting 660 nam
 
 ### User entry points
 
-The intended user entry points stand as: `mod01.validate_record`, `mod01.minimal_valid_instance`, `mod01.minimal_valid_family_record`, `mod01.build_sweep_point`, `mod01.build_run_record`, and the `FORM_TYPES` classes for records; `mod10.new_store`, `mod10.retain_run_record`, and `mod10.read_run_record` for the store; and the refusal returning acts of mod12 for any attempt to start a run. The top level package re-exports the mod01 surface.
+The intended user entry points stand as: `mod01.validate_record`, `mod01.record_validation_failures` (the act that states the reasons for a failing validation, naming each field, its ground, and its next step, so a False from validate_record stands followed to its ground), `mod01.minimal_valid_instance`, `mod01.minimal_valid_family_record`, `mod01.build_sweep_point`, `mod01.build_run_record`, and the `FORM_TYPES` classes for records; `mod10.new_store`, `mod10.retain_run_record`, and `mod10.read_run_record` for the store; and the refusal returning acts of mod12 for any attempt to start a run. The top level package re-exports the mod01 surface.
 
 ### Internal surface
 

@@ -127,6 +127,7 @@ class TestFW324HeadlineBuildFromRun(unittest.TestCase):
     RUN_ID = "run-fw324-resolves"
 
     def setUp(self):
+        mod10.reset_stores()
         mod10.retain_run_record({
             "run_id": self.RUN_ID,
             "run_identifier": self.RUN_ID,

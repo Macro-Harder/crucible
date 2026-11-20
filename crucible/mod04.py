@@ -489,7 +489,7 @@ class DeliveryPoint:
         return entry
 
     def deliver_running(self, payload):
-        raise GatedRun(_gated_message("running delivery"))
+        raise GatedRun(_gated_message("a running delivery"))
 
 
 class RuleCoreDeliveryPoint(DeliveryPoint):
@@ -2384,7 +2384,7 @@ class TickEngine:
         return self.run(*args, **kwargs)
 
     def run(self, *args, **kwargs):
-        raise GatedRun(_gated_message("executable runs", kwargs))
+        raise GatedRun(_gated_message("an executable run", kwargs))
 
 
 def run(*args, **kwargs):

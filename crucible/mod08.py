@@ -1909,6 +1909,23 @@ def _sentence_text(value):
     return _safe_str(value)
 
 
+def _bounded_echo(rendered):
+    """Bound one rendered handed value for a refusal sentence
+    (FW4-10): a rendering standing at 120 characters or fewer
+    stands whole; a longer rendering stands as its first 120
+    characters beside a length statement naming the standing
+    length of the handed value and the 120 character bound, so
+    no refusal message grows with the handing past that bound
+    and the ground of the refusal stands readable at its head."""
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
+
+
 def _sentence_repr(value):
     """Render a handed value for a refusal sentence in repr
     form on the text it stores, where the value stands in a
@@ -3076,7 +3093,7 @@ def author_sealed_class(sealed_set, kind, identifier,
                 "sleeper class", "honest challenge variant"))):
         raise NamedDetectionFailure(
             "sealed set rejected: authored kind stands unnamed: "
-            + _sentence_text(kind)
+            + _bounded_echo(_sentence_text(kind))
         )
     if isinstance(separations, (list, tuple, set, frozenset)):
         named = tuple(_base_iter(separations))
@@ -3100,7 +3117,7 @@ def author_sealed_class(sealed_set, kind, identifier,
             raise NamedDetectionFailure(
                 "sealed set rejected: authored identifier "
                 "stands already authored: "
-                + _sentence_text(identifier)
+                + _bounded_echo(_sentence_text(identifier))
             )
     entry = {
         "kind": kind,

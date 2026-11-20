@@ -303,11 +303,22 @@ def _failure_render(value):
     repr where the vocabulary text stands empty, so an identifier
     handed in as a list, as None, or as the empty text stands
     rendered in the sentence instead of standing blank, and a
-    store kind handed in as None stands rendered as None."""
+    store kind handed in as None stands rendered as None. A
+    rendering standing past 120 characters stands bounded in
+    the FW4-10 form: its first 120 characters beside a length
+    statement naming the standing length and the bound."""
     text = _vocabulary_text(value)
     if text:
-        return text
-    return _stored_repr(value)
+        rendered = text
+    else:
+        rendered = _stored_repr(value)
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
 
 class LookupFailure(KeyError):
     """A named failure for a record that does not resolve in one
@@ -331,6 +342,16 @@ class LookupFailure(KeyError):
                 ONE_LOOKUP_FAILURE_NAME + ": " + _failure_render(run_id)
                 + " for record kind " + _failure_render(record_kind))
         super().__init__(text)
+
+    def __str__(self):
+        """The plain printed form of the failure (FW4-12): the
+        telling stands as its sentence, without the quoting the
+        KeyError string form wraps around its argument, so an
+        operator pasting the telling into a report or a log
+        carries the sentence itself."""
+        if self.args:
+            return str(self.args[0])
+        return ""
 
 
 # The canonicalised fold, in the one stated form the Round 5
@@ -2565,20 +2586,44 @@ class _StoreHold:
         return False
 
 
+STORE_FILE_FAILURE_NAME = "one store file open failure"
+
+
+def _missing_record_failure(run_id, record_kind=None):
+    """The LookupFailure telling at a missing record (FW4-12):
+    the plain telling of the lookup failure, carrying a next
+    step clause in the form the sibling store file telling
+    states, naming the check of the identifier and where a
+    retained identifier stands found."""
+    failure = LookupFailure(run_id, record_kind=record_kind)
+    if failure.args:
+        failure.args = (
+            failure.args[0]
+            + "; next step: check the run identifier handed in, "
+            "and read under an identifier that stands retained "
+            "in this store, where a retained identifier stands "
+            "found through the store index",)
+    return failure
+
+
 def _store_file_failure(path, ground=None):
     """The named store file failure of this module, in the
     standing form: the failure record carries the store path,
     and the sentence names the path, that the file could not
-    be read as a store, and the ground where one stands."""
+    be read as a store, and the ground where one stands. The
+    failure carries a name of its own act (FW4-13), the store
+    open failure name, distinct from the missing record lookup
+    name, so a store open fault and a missing record stand
+    told apart by the name the telling offers first."""
     failure = LookupFailure(path)
     failure.failure = {
-        "name": ONE_LOOKUP_FAILURE_NAME,
+        "name": STORE_FILE_FAILURE_NAME,
         "run_status": "failed",
         "complete": False,
         "store_path": path,
     }
     text = (
-        ONE_LOOKUP_FAILURE_NAME
+        STORE_FILE_FAILURE_NAME
         + ": the store file at " + str(path)
         + " could not be read as a store")
     if ground:
@@ -2746,6 +2791,25 @@ def _store_integrity_signal(records, kind_text):
         _STORE_INTEGRITY_KEY, message, hashlib.sha256).hexdigest()
 
 
+def _guarded_integrity_signal(path, records, kind_text):
+    """The integrity signal over one records list, computed
+    under the store file guard (FW4-01): a failure inside the
+    signal computation, a serializer failure among them, stands
+    delivered in the named store file failure form of this
+    module, stating the ground, and no raw serializer error
+    escapes the reload path."""
+    try:
+        return _store_integrity_signal(records, kind_text)
+    except Exception as exc:
+        raise _store_file_failure(
+            path,
+            "the store file integrity signal stands not "
+            "computed, on the ground the store serializer "
+            "raised: " + _safe_str(exc)
+            + ", and no record stands served from a signal "
+            "this product did not compute") from exc
+
+
 def _store_integrity_digest(records):
     """The pre cure unkeyed digest form, kept as a name only:
     it stands as no signal of this product and no load path
@@ -2865,7 +2929,8 @@ def _guarded_store_records(path, kind_text, fast=False):
                 "no record stands served from a file whose "
                 "signal a hand could strike whole")
         signal = data["integrity"]
-        expected = _store_integrity_signal(stored_records, kind_text)
+        expected = _guarded_integrity_signal(
+            path, stored_records, kind_text)
         if not isinstance(signal, str) or not hmac.compare_digest(
                 str.__str__(signal), expected):
             raise _store_file_failure(
@@ -2928,7 +2993,8 @@ def _guarded_store_records(path, kind_text, fast=False):
                 "no record stands served from a file whose "
                 "signal a hand could strike whole")
         signal = data["integrity"]
-        expected = _store_integrity_signal(stored_records, kind_text)
+        expected = _guarded_integrity_signal(
+            path, stored_records, kind_text)
         if not isinstance(signal, str) or not hmac.compare_digest(
                 str.__str__(signal), expected):
             raise _store_file_failure(
@@ -2978,11 +3044,26 @@ def _loaded_record_ground(record, seen):
 def _flush_failure_text(action, exc, path):
     """The flush refusal text, stating the file standing as it
     stands: a prior store file whole where one stands at the
-    store path, and no store file where none stands."""
+    store path, and no store file where none stands. At a path
+    inside a directory that does not stand (FW4-14), the
+    sentence states the handed store path, the directory
+    ground, and the next step that the directory must stand
+    first, and names no temp sibling path."""
     if path and os.path.exists(path):
         standing = "the prior store file stands whole"
     else:
         standing = "no store file stands at the store path"
+    if path:
+        directory = os.path.dirname(str(path)) or "."
+        if not os.path.isdir(directory):
+            return (
+                "recorder store flush failure: " + action
+                + ", and " + standing
+                + ": the store file at " + str(path)
+                + " stands inside a directory that does not "
+                "stand; next step: the directory must stand "
+                "first, and the store file can stand written "
+                "only where its directory stands")
     return (
         "recorder store flush failure: " + action
         + ", and " + standing + ": " + _safe_str(exc))
@@ -3215,6 +3296,21 @@ class RecorderStore:
                 + "; a store kind stands among sweep, pilot, and "
                 "live, and no store stands created")
         self.store_kind = kind_text
+        if path is not None:
+            # A path handing in no path form (FW4-07): no store
+            # stands created on a path the product cannot state.
+            if isinstance(path, os.PathLike):
+                path = os.fspath(path)
+            if not isinstance(path, str):
+                raise _store_file_failure(
+                    path,
+                    "the path stands in no path form: a store "
+                    "path stands as text, and the handing stands "
+                    "in the form " + _form_label(path)
+                    + "; next step: hand the path of a store "
+                    "file, or a file path inside an existing "
+                    "directory at which a store file can stand "
+                    "created")
         self.path = path
         self._records = {}
         self._index = []
@@ -3223,6 +3319,7 @@ class RecorderStore:
         self._file_lock = _store_file_lock(path) if path else None
         self._file_seen = False
         self._file_stamp = None
+        self._flush_fragments = {}
         if path and os.path.isdir(path):
             raise _store_file_failure(
                 path,
@@ -3325,58 +3422,132 @@ class RecorderStore:
         self._by_text = {
             str.__str__(rid): str.__str__(rid)
             for rid in index if isinstance(rid, str)}
+        self._flush_fragments = {}
+
+    def _record_fragments(self, record):
+        """The written fragment and the canonical fragment of one
+        record, computed once for the standing record object and
+        held in the flush fragment cache keyed by that object.
+        The store standing holds a safe copy taken at retention,
+        and no store door hands that copy out, so a standing
+        record object stands unchanged while it stands retained,
+        and its fragments stand as computed. A record the store
+        takes in at a reload stands as a new object and takes a
+        new computation in its first flush act after the reload,
+        the cache standing cleared at every reload."""
+        entry = self._flush_fragments.get(id(record))
+        if entry is not None and entry[0] is record:
+            return entry[1], entry[2]
+        fragment = _serialize_store_text(record)
+        canonical = json.loads(fragment, parse_int=_json_int)
+        canonical_fragment = _serialize_store_text(canonical)
+        self._flush_fragments[id(record)] = (
+            record, fragment, canonical_fragment)
+        return fragment, canonical_fragment
+
+    def _store_file_text(self, records):
+        """The sealed store file text for one records standing,
+        in the standing sealed format whole: one payload carrying
+        the members store_kind, records, and integrity in their
+        standing forms, the integrity signal the keyed signal
+        over the records in their canonical written form. The
+        text stands built from the per record fragments of
+        _record_fragments, joined in standing order, so the
+        serialization work of one flush stands governed by the
+        records the act itself changed and not by the whole
+        standing: a record already fragmented for this instance
+        takes no new serialization. The passes that remain over
+        the whole standing stand as byte passes at library speed,
+        the join of the fragments, the keyed signal over the
+        joined canonical text, and the file write itself, which
+        the sealed single payload format carries. The bytes
+        stand identical to the whole payload serialization of
+        the same standing, member for member."""
+        fragments = []
+        canonical_fragments = []
+        for record in records:
+            fragment, canonical_fragment = self._record_fragments(
+                record)
+            fragments.append(fragment)
+            canonical_fragments.append(canonical_fragment)
+        records_text = "[" + ", ".join(fragments) + "]"
+        body = (
+            '{"records": ['
+            + ", ".join(canonical_fragments) + "]}").encode("utf-8")
+        message = (
+            b"crucible store signal v2\x00"
+            + self.store_kind.encode("utf-8") + b"\x00" + body)
+        signal = hmac.new(
+            _STORE_INTEGRITY_KEY, message, hashlib.sha256).hexdigest()
+        return (
+            '{"integrity": ' + json.dumps(signal)
+            + ', "records": ' + records_text
+            + ', "store_kind": ' + json.dumps(self.store_kind) + "}")
 
     def _flush(self, merge_disk=True, remove_forms=()):
         if not self.path:
             return
-        merged = {}
-        order = []
-        disk_records = []
-        if merge_disk and os.path.exists(self.path):
-            if (self._file_stamp is not None
-                    and _file_stamp(self.path) == self._file_stamp):
-                # The file standing stands unchanged since this
-                # instance last stood on it, so the records the
-                # file carries stand already in this instance
-                # standing, apart from the changes this act itself
-                # carries in its records and its removal forms,
-                # which the merge below applies. No second load of
-                # the file stands taken in this act.
-                disk_records = []
-            else:
-                disk_records = _guarded_store_records(
-                    self.path, self.store_kind, fast=True)
-            for record in disk_records:
-                rid = dict.get(record, "run_id") or dict.get(
-                    record, "run_identifier")
-                if rid is None:
-                    continue
-                if any(_base_value_eq(rid, gone)
-                       for gone in remove_forms):
-                    continue
-                if _stored_key_match(merged, rid) is None:
+        records = None
+        if (merge_disk and not remove_forms
+                and self._file_stamp is not None
+                and os.path.exists(self.path)
+                and _file_stamp(self.path) == self._file_stamp
+                and len(self._records) == len(self._index)):
+            # The file standing stands unchanged since this
+            # instance last stood on it, judged by the file
+            # stamp, so the merged standing stands as this
+            # instance standing in its index order whole, the
+            # standing the merge below builds from the same
+            # records where the disk side carries no record and
+            # no removal form stands handed. The flush takes
+            # that standing directly, with no merge scan over
+            # the records already retained.
+            records = [
+                dict.__getitem__(self._records, rid)
+                for rid in self._index]
+        if records is None:
+            merged = {}
+            order = []
+            disk_records = []
+            if merge_disk and os.path.exists(self.path):
+                if (self._file_stamp is not None
+                        and _file_stamp(self.path) == self._file_stamp):
+                    # The file standing stands unchanged since this
+                    # instance last stood on it, so the records the
+                    # file carries stand already in this instance
+                    # standing, apart from the changes this act itself
+                    # carries in its records and its removal forms,
+                    # which the merge below applies. No second load of
+                    # the file stands taken in this act.
+                    disk_records = []
+                else:
+                    disk_records = _guarded_store_records(
+                        self.path, self.store_kind, fast=True)
+                for record in disk_records:
+                    rid = dict.get(record, "run_id") or dict.get(
+                        record, "run_identifier")
+                    if rid is None:
+                        continue
+                    if any(_base_value_eq(rid, gone)
+                           for gone in remove_forms):
+                        continue
+                    if _stored_key_match(merged, rid) is None:
+                        merged[rid] = record
+                        order.append(rid)
+            for rid in list(self._index):
+                record = dict.__getitem__(self._records, rid)
+                existing = _stored_key_match(merged, rid)
+                if existing is None:
                     merged[rid] = record
                     order.append(rid)
-        for rid in list(self._index):
-            record = dict.__getitem__(self._records, rid)
-            existing = _stored_key_match(merged, rid)
-            if existing is None:
-                merged[rid] = record
-                order.append(rid)
-            else:
-                merged[existing] = record
-        for rid in list(dict.keys(self._records)):
-            if _stored_key_match(merged, rid) is None:
-                merged[rid] = dict.__getitem__(self._records, rid)
-                order.append(rid)
-        records = [merged[rid] for rid in order]
-        payload = {
-            "store_kind": self.store_kind,
-            "records": records,
-            "integrity": _store_integrity_signal(
-                records, self.store_kind),
-        }
-        text = _serialize_store_text(payload)
+                else:
+                    merged[existing] = record
+            for rid in list(dict.keys(self._records)):
+                if _stored_key_match(merged, rid) is None:
+                    merged[rid] = dict.__getitem__(self._records, rid)
+                    order.append(rid)
+            records = [merged[rid] for rid in order]
+        text = self._store_file_text(records)
         tmp_path = (
             self.path + ".tmp-" + str(os.getpid())
             + "-" + str(id(self)))
@@ -3471,7 +3642,20 @@ class RecorderStore:
                 raise
             if self.path:
                 self._file_stamp = None
-                self._reload_from_disk()
+                try:
+                    self._reload_from_disk()
+                except Exception:
+                    # The reload stands under the same failure
+                    # that broke the flush (FW4-01): it stands
+                    # delivered in its named form at its own
+                    # acts, and here it must not mask the flush
+                    # failure this handler delivers. The prior
+                    # standing stands restored by hand instead.
+                    if rid in self._records:
+                        del self._records[rid]
+                    if rid in self._index:
+                        self._index.remove(rid)
+                    self._by_text.pop(rid, None)
             else:
                 del self._records[rid]
                 self._index.remove(rid)
@@ -3493,16 +3677,17 @@ class RecorderStore:
             if isinstance(run_id, str):
                 stored_key = self._by_text.get(str.__str__(run_id))
                 if stored_key is None:
-                    raise LookupFailure(run_id, record_kind=self.store_kind)
+                    raise _missing_record_failure(
+                        run_id, self.store_kind)
                 return _safe_copy(dict.__getitem__(self._records, stored_key))
             try:
                 hash(run_id)
             except Exception as exc:
-                raise LookupFailure(
-                    run_id, record_kind=self.store_kind) from exc
+                raise _missing_record_failure(
+                    run_id, self.store_kind) from exc
             stored_key = _stored_key_match(self._records, run_id)
             if stored_key is None:
-                raise LookupFailure(run_id, record_kind=self.store_kind)
+                raise _missing_record_failure(run_id, self.store_kind)
             return _safe_copy(dict.__getitem__(self._records, stored_key))
 
     def has_run_record(self, run_id):
@@ -3577,9 +3762,39 @@ _REJECTED_CHECKPOINT_WRITES = []
 _REJECTED_CHECKPOINT_WRITES_CAP = 10000
 
 
-def new_store(store_kind="sweep", path=None):
+
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+README named entry point of this module can refuse a missing
+or extra argument handing in the named form of this module
+instead of escaping as bare interpreter text at the call
+itself (FW4-11, in the form the FW3-54 cure states)."""
+
+
+def _refuse_argument_handing(door, expected, missing):
+    """Refuse a missing or extra argument handing at a README
+    named entry point of this module, in named form: the door,
+    the ground, and the next step stand stated."""
+    if missing:
+        ground = "a handing stands missing among " + expected
+    else:
+        ground = "an argument stands handed in beyond " + expected
+    raise ValueError(
+        door + " stands refused: this door stands handed "
+        + expected + ", " + ground + "; next step: hand "
+        + expected + " and call the door again, and no answer "
+        "stands returned at this door")
+
+
+def new_store(store_kind="sweep", path=None, *extra_args,
+              **extra_kwargs):
     """Return a fresh store for one kind, carrying no record any
-    earlier act retained."""
+    earlier act retained. An argument handed in beyond the store
+    kind and the path stands refused in the named form of this
+    module (FW4-11)."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "new_store", "the store kind and the path", False)
     return RecorderStore(store_kind=store_kind, path=path)
 
 
@@ -3629,23 +3844,39 @@ def _canonical_store_kind(store_kind):
         + "; a store kind stands among sweep, pilot, and live")
 
 
-def retain_run_record(record, store_kind="sweep"):
+def retain_run_record(record=_ARGUMENT_NOT_HANDED, store_kind="sweep", *extra_args, **extra_kwargs):
     """Retain one run record in the store of one kind.
 
     Arguments: record, a dict carrying a run identifier under run_id or run_identifier; store_kind, one of sweep, pilot, or live, standing as sweep where none stands handed in.
     Returns: a copy of the record as retained.
     Failure: a named ValueError from the store retention act, stating the ground and that no record stands retained, for an identity less record, a second record for the same run, a record carrying a real money field, or a store flush failure; an unknown store kind stands refused in named form before any retention stands attempted.
     """
+    if record is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "retain_run_record",
+            "the record and the store kind", True)
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "retain_run_record",
+            "the record and the store kind", False)
     return _STORES[_canonical_store_kind(store_kind)].retain_run_record(record)
 
 
-def read_run_record(run_id, store_kind="sweep"):
+def read_run_record(run_id=_ARGUMENT_NOT_HANDED, store_kind="sweep", *extra_args, **extra_kwargs):
     """Read the one run record retained under a run identifier.
 
     Arguments: run_id, the run identifier in text form; store_kind, one of sweep, pilot, or live, standing as sweep where none stands handed in.
     Returns: a copy of the retained record. Reading never writes and never fabricates a record to fill an absence.
     Failure: LookupFailure, the named lookup failure of this module, stands raised where no record stands retained under the identifier handed in.
     """
+    if run_id is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "read_run_record",
+            "the run identifier and the store kind", True)
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "read_run_record",
+            "the run identifier and the store kind", False)
     return _STORES[_canonical_store_kind(store_kind)].read_run_record(run_id)
 
 
@@ -4627,6 +4858,47 @@ def build_joint_outcome_vector(components=None, divergence_companion=None):
     return record
 
 
+def _gate_epoch_shape_ground(epoch):
+    """The shape ground on which one handed epoch stands
+    outside the form the gate epoch key computation can
+    judge, or None where the epoch stands inside that form:
+    the epoch carries a cycle, or the epoch stands deeper
+    than the retention bound of 100 the retention doors
+    state. The walk is iterative over dict, list, tuple,
+    set, and frozenset parts, read through base class
+    operations, in the posture _guard_retention_shape
+    states, so a cyclic or over deep epoch stands judged
+    here and never as a bare RecursionError in the key
+    computation that follows (FW4-08)."""
+    done = {}
+    path = set()
+    stack = [(epoch, 0, False)]
+    while stack:
+        node, depth, exiting = stack.pop()
+        if exiting:
+            path.discard(id(node))
+            if id(node) not in done or depth > done[id(node)]:
+                done[id(node)] = depth
+            continue
+        if not isinstance(node, (dict, list, tuple, set, frozenset)):
+            continue
+        if id(node) in path:
+            return "cyclic"
+        if depth > 100:
+            return "depth"
+        if id(node) in done and done[id(node)] >= depth:
+            continue
+        path.add(id(node))
+        stack.append((node, depth, True))
+        if isinstance(node, dict):
+            children = list(dict.keys(node)) + list(dict.values(node))
+        else:
+            children = list(_base_iter(node))
+        for child in children:
+            stack.append((child, depth + 1, False))
+    return None
+
+
 def _gate_epoch_key(epoch):
     """The slot key of one epoch: a text epoch stands under its
     own text, and every other epoch form stands under its
@@ -4666,7 +4938,11 @@ def record_gate_passing_share(run_id, epoch, share, simulated_day=None):
     judged in the stated share form the delivery share judge
     states at _delivery_share_stands, on its stored form, and
     a share in no stated share form stands refused in named
-    form before any recording (FW3-16)."""
+    form before any recording (FW3-16). The epoch stands
+    judged for cycle and depth before its key computation,
+    and a cyclic or over deep epoch stands refused in the
+    same named form, stating the ground and that no share
+    stands returned (FW4-08)."""
     if run_id is None:
         raise ValueError(
             "identity less gate passing share record: no run "
@@ -4689,6 +4965,20 @@ def record_gate_passing_share(run_id, epoch, share, simulated_day=None):
             "or as a proportion record carrying a non negative "
             "numerator and a positive denominator in the "
             "stated share form")
+    epoch_ground = _gate_epoch_shape_ground(epoch)
+    if epoch_ground == "cyclic":
+        raise ValueError(
+            "gate passing share in named form: the epoch handed "
+            "for the gate passing share stands in a cyclic form, "
+            "and no share stands returned; next step: hand an "
+            "epoch carrying no cycle")
+    if epoch_ground == "depth":
+        raise ValueError(
+            "gate passing share in named form: the epoch handed "
+            "for the gate passing share stands deeper than the "
+            "retention bound of 100, and no share stands "
+            "returned; next step: hand an epoch standing within "
+            "the depth bound of 100")
     shares = _GATE_SHARES.setdefault(run_id, {})
     key = _gate_epoch_key(epoch)
     shares[key] = {"share": _safe_copy(share), "simulated_day": simulated_day}

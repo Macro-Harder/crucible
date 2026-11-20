@@ -783,6 +783,12 @@ def make_strategy(identifier, in_protocol_payoff=0,
     range, never as a declared value supplied by the evaluated
     party or by the strategy author.
 
+    An identifier handing in no identifier form, None, a non
+    text handing, an empty text, or a whitespace only text,
+    stands refused in this module named failure form, in the
+    identity form the MOD-10 retention door states, and no
+    strategy stands built on such a handing.
+
     The in protocol payoff stands refused in this module named
     failure form where it stands in no finite numeric form, the
     form the payoff doors of this module state. Where a handed
@@ -795,6 +801,28 @@ def make_strategy(identifier, in_protocol_payoff=0,
     handed as None stands as no range handed, and its [0] stands
     as the stated default, unmarked.
     """
+    if identifier is None:
+        raise NamedAttackerFailure(
+            "make_strategy stands refused: identity less record: "
+            "no strategy identifier stands on the handing, and "
+            "no strategy stands built")
+    if not isinstance(identifier, str):
+        raise NamedAttackerFailure(
+            "make_strategy stands refused: identity less record: "
+            "the strategy identifier stands in no identifier "
+            "form: a strategy identifier in text form stands "
+            "required, and no strategy stands built")
+    if str.__len__(identifier) == 0:
+        raise NamedAttackerFailure(
+            "make_strategy stands refused: identity less record: "
+            "no strategy identifier stands on the handing, and "
+            "no strategy stands built")
+    if str.__len__(str.strip(identifier)) == 0:
+        raise NamedAttackerFailure(
+            "make_strategy stands refused: identity less record: "
+            "the strategy identifier stands as whitespace only, "
+            "which stands as no identifier, and no strategy "
+            "stands built")
     if not _stands_numeric(in_protocol_payoff) or (
             isinstance(in_protocol_payoff, float)
             and not math.isfinite(
@@ -802,7 +830,7 @@ def make_strategy(identifier, in_protocol_payoff=0,
         raise NamedAttackerFailure(
             "make_strategy stands refused: the in protocol payoff "
             "stands in no finite numeric form: "
-            + _stored_form_repr(in_protocol_payoff))
+            + _bounded_stored_repr(in_protocol_payoff))
     stored_range = _base_sequence(external_profit_range)
     members_usable = bool(stored_range) and all(
         _stands_numeric(member) and _stands_finite(member)
@@ -882,22 +910,22 @@ def attacker_payoff(strategy=_ARGUMENT_NOT_HANDED,
         raise NamedAttackerFailure(
             "attacker payoff rejected: the in protocol payoff "
             "stands in no numeric form: "
-            + _stored_form_repr(in_protocol)
+            + _bounded_stored_repr(in_protocol)
         )
     if isinstance(external_profit_value, bool) or not isinstance(
             external_profit_value, (int, float)):
         raise NamedAttackerFailure(
             "attacker payoff rejected: the external profit value "
             "stands in no numeric form: "
-            + _stored_form_repr(external_profit_value)
+            + _bounded_stored_repr(external_profit_value)
         )
     if not _stands_finite(in_protocol) or not _stands_finite(
             external_profit_value):
         raise NamedAttackerFailure(
             "attacker payoff rejected: a payoff part stands in no "
             "finite numeric form: in protocol "
-            + _stored_form_repr(in_protocol) + ", external "
-            + _stored_form_repr(external_profit_value)
+            + _bounded_stored_repr(in_protocol) + ", external "
+            + _bounded_stored_repr(external_profit_value)
         )
     return _plain_number(in_protocol) + _plain_number(
         external_profit_value)
@@ -912,6 +940,31 @@ def _stored_form_repr(value):
     its stored form and no reading it supplies can misname it
     or raise out of the sentence."""
     return _catalogue_repr(value)
+
+
+def _bounded_echo(rendered):
+    """Bound one rendered handed value for a refusal sentence
+    (FW4-10): a rendering standing at 120 characters or fewer
+    stands whole; a longer rendering stands as its first 120
+    characters beside a length statement naming the standing
+    length of the handed value and the 120 character bound, so
+    no refusal message grows with the handing past that bound
+    and the ground of the refusal stands readable at its head."""
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
+
+def _bounded_stored_repr(value):
+    """Render a handed value for a refusal sentence in bounded
+    form (FW4-10): the stored form rendering of this module,
+    bounded as _bounded_echo states, so no refusal message at
+    the bond search, attacker payoff, or strategy doors grows
+    with the handing past the stated bound."""
+    return _bounded_echo(_stored_form_repr(value))
 
 
 def _safe_repr(value):
@@ -1487,7 +1540,7 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
         if not isinstance(candidate, dict):
             raise NamedAttackerFailure(
                 "bond parameter search rejected: a candidate stands "
-                "in no record form: " + _stored_form_repr(candidate)
+                "in no record form: " + _bounded_stored_repr(candidate)
             )
         params = _base_dict_get(
             candidate, "parameter_set", candidate)
@@ -1501,7 +1554,7 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
                 raise NamedAttackerFailure(
                     "bond parameter search rejected: a candidate "
                     "carries a harm or a cost in no numeric form: "
-                    + _stored_form_repr(candidate)
+                    + _bounded_stored_repr(candidate)
                 )
             if cost is None or _plain_number(cost) == 0 or (
                     harm is None):
@@ -1521,7 +1574,7 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
             raise NamedAttackerFailure(
                 "bond parameter search rejected: a griefing factor "
                 "stands in no finite numeric form: "
-                + _stored_form_repr(factor)
+                + _bounded_stored_repr(factor)
             )
         scored.append({
             "parameter_set": _stored_copy(params),

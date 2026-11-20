@@ -1203,7 +1203,19 @@ def derive_seed(derivation_input=None, **_extra):
     return the gated refusal. An extra keyword handing stands
     named on the refusal in the form _name_extra_handings
     states, and stands not taken. No seed stands drawn in any
-    case, and DQ7-02 stands not circumvented."""
+    case, and DQ7-02 stands not circumvented.
+
+    The Form 5 record of mod01 and the derivation input of
+    this act stand as different shapes. The Form 5 record
+    carries derivation_version_string where this act reads
+    derivation_version, and recorded_root_seed where this act
+    reads root_seed_reference; the remaining fields, domain,
+    scenario_identifier, run_identifier,
+    stream_class_identifier, and parameter_values, carry the
+    same names in both shapes. A Form 5 record handed in as
+    it stands therefore meets the input failure above; build
+    the derivation input through make_derivation_input, in
+    the field names this act reads."""
     if derivation_input is not None and not validate_derivation_input(
             derivation_input):
         ground = _derive_seed_input_ground(derivation_input)

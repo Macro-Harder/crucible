@@ -887,6 +887,23 @@ def _sentence_text(value):
     return _refusal_text(value)
 
 
+def _bounded_echo(rendered):
+    """Bound one rendered handed value for a refusal sentence
+    (FW4-10): a rendering standing at 120 characters or fewer
+    stands whole; a longer rendering stands as its first 120
+    characters beside a length statement naming the standing
+    length of the handed value and the 120 character bound, so
+    no refusal message grows with the handing past that bound
+    and the ground of the refusal stands readable at its head."""
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
+
+
 def _undirected_copy(value, _memo=None):
     """Copy a checked payload through base class readings only.
 
@@ -3200,7 +3217,7 @@ def pause_cap(variant="B-4", stated_value=None):
     ambiguity, total or extension, stands unresolved: no reading
     is chosen for B-3 here or by any test."""
     if not _base_member(variant, ("B-3", "B-4")):
-        raise ValueError("the pause cap stands refused in named form for an unknown variant: " + _sentence_text(variant))
+        raise ValueError("the pause cap stands refused in named form for an unknown variant: " + _bounded_echo(_sentence_text(variant)))
     if _base_str_eq(variant, "B-4"):
         return {
             "variant": "B-4",
