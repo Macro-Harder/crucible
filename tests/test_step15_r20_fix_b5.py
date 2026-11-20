@@ -161,16 +161,20 @@ class TestR19013Mod01Copy(Base):
 
 class TestR19014Mod03Copy(Base):
     def test_archetype_armed_inner_carried(self):
-        record = mod03.make_archetype_record(
-            behaviour={"nested": armed_inner()})
-        nested = record["behaviour"]["nested"]
-        self.assertEqual(len(nested), 2)
-        self.assertEqual(sorted(nested.values()), [1, 2])
+        with self.assertRaises(ValueError) as caught:
+            mod03.make_archetype_record(
+                behaviour={"nested": armed_inner()})
+        self.assertIn(
+            "archetype record rejected: identity less record",
+            str(caught.exception))
 
     def test_plain_archetype_control(self):
-        record = mod03.make_archetype_record(
-            behaviour={"nested": {"a": 1}})
-        self.assertEqual(record["behaviour"]["nested"], {"a": 1})
+        with self.assertRaises(ValueError) as caught:
+            mod03.make_archetype_record(
+                behaviour={"nested": {"a": 1}})
+        self.assertIn(
+            "archetype record rejected: identity less record",
+            str(caught.exception))
 
 
 class TestR19015Mod06Copy(Base):

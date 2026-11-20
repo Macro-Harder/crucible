@@ -247,9 +247,11 @@ class TestTA68CatalogueHonesty(unittest.TestCase):
             mod03.archetype_catalogue(records)
 
     def test_missing_identifier_fails_by_name(self):
-        records = [mod03.make_archetype_record(archetype_id=None)]
-        with self.assertRaises(ValueError):
-            mod03.archetype_catalogue(records)
+        with self.assertRaises(ValueError) as caught:
+            mod03.make_archetype_record(archetype_id=None)
+        self.assertIn(
+            "archetype record rejected: identity less record",
+            str(caught.exception))
 
     def test_sound_catalogue_unchanged(self):
         records = [mod03.make_archetype_record(archetype_id="honest")]

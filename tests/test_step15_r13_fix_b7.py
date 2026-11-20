@@ -273,9 +273,13 @@ class TestR12052StoredName(unittest.TestCase):
                          record["parameter_values"])
         for rendered in record["parameter_values"]:
             self.assertFalse(rendered.startswith("ghostkey="))
-        encoded = mod02.encode_candidate_input(
-            {GhostStrKey(): "val"})
-        self.assertNotIn("ghostkey", encoded)
+        with self.assertRaises(ValueError) as caught:
+            mod02.encode_candidate_input(
+                {GhostStrKey(): "val"})
+        self.assertIn("in no field name form",
+                      str(caught.exception))
+        self.assertIn("no encoding stands returned",
+                      str(caught.exception))
 
     def test_plain_integer_key_renders_its_digits(self):
         record = mod02.derivation_input_record(

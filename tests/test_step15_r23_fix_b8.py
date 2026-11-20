@@ -139,7 +139,12 @@ class TestBeyondLimitConsumingLoci(unittest.TestCase):
 
     def test_distinguishing_aggregate_day_refusal_delivered(self):
         text = aggregate_refusal_text("r23-b8-a1", BIG)
-        self.assertIn("at day " + BIG_DIGITS, text)
+        self.assertIn("at day " + BIG_DIGITS[:120], text)
+        self.assertIn(
+            "[bounded rendering: the handed value stands at "
+            "5001 characters and stands rendered to its first "
+            "120 characters only]", text)
+        self.assertNotIn(BIG_DIGITS, text)
         self.assertIn("non numeric form", text)
         self.assertNotIn("Exceeds the limit", text)
 
