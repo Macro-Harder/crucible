@@ -283,14 +283,33 @@ def _retirement_list_shape_ground(fixture):
     return None
 
 
-def retirement_verdicts(fixture):
+def retirement_verdicts(fixture=_ARGUMENT_NOT_HANDED,
+                        *extra_args, **extra_kwargs):
     """Return the per check verdicts of the retirement test for a
     fixture, over all fifteen checks T-01 to T-15 in the version of
     the report format paper pinned in the family record. A list
     fixture stands judged for cycle and depth before the act,
     and a cyclic or over deep list stands refused in the named
     form of this door, stating the ground and that no verdict
-    stands returned (FW5-11)."""
+    stands returned (FW5-11). A handing missing its fixture
+    stands refused in the named form of this module, stating
+    the door, the ground, and the next step (FW6-03). A handing
+    carrying an argument beyond the fixture, in keyword form,
+    stands refused in the same named form (FW7-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "retirement_verdicts stands refused: this door "
+            "stands handed the fixture, an argument stands "
+            "handed in beyond the fixture, and no verdict "
+            "stands returned; next step: hand the fixture and "
+            "call the door again")
+    if fixture is _ARGUMENT_NOT_HANDED:
+        raise ValueError(
+            "retirement_verdicts stands refused: this door "
+            "stands handed the fixture, a handing stands "
+            "missing among the fixture, and no verdict stands "
+            "returned; next step: hand the fixture and call "
+            "the door again")
     if isinstance(fixture, list):
         shape_ground = _retirement_list_shape_ground(fixture)
         if shape_ground == "cyclic":
@@ -317,10 +336,29 @@ def retirement_verdicts(fixture):
         "verdicts and no tally stand returned")
 
 
-def retirement_tally(fixture):
+def retirement_tally(fixture=_ARGUMENT_NOT_HANDED,
+                     *extra_args, **extra_kwargs):
     """Return the retirement tally of one fixture as its own
     record. The F-01 tally and the EX-01 tally stand apart and
-    stand never merged."""
+    stand never merged. A handing missing its fixture stands
+    refused in the named form of this module, stating the
+    door, the ground, and the next step (FW6-03). A handing
+    carrying an argument beyond the fixture, in keyword form,
+    stands refused in the same named form (FW7-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "retirement_tally stands refused: this door "
+            "stands handed the fixture, an argument stands "
+            "handed in beyond the fixture, and no tally stands "
+            "returned; next step: hand the fixture and call "
+            "the door again")
+    if fixture is _ARGUMENT_NOT_HANDED:
+        raise ValueError(
+            "retirement_tally stands refused: this door "
+            "stands handed the fixture, a handing stands "
+            "missing among the fixture, and no tally stands "
+            "returned; next step: hand the fixture and call "
+            "the door again")
     tally = _tally(retirement_verdicts(fixture))
     tally["fixture"] = fixture
     if _verdict_text_stands(fixture, "F-01"):
@@ -698,7 +736,8 @@ def _registry_amended_failures(entry):
 
 def judge_registry_entry(entry=_ARGUMENT_NOT_HANDED,
                          compiler=_ARGUMENT_NOT_HANDED,
-                         checker=_ARGUMENT_NOT_HANDED, run_log=None):
+                         checker=_ARGUMENT_NOT_HANDED, run_log=None,
+                         *extra_args, **extra_kwargs):
     """Judge one SweepFamilyRegistry entry by phase, as the
     Reporter acting as family registrar: the before runs fields
     for lateness, the after runs fields for completeness, the
@@ -730,6 +769,14 @@ def judge_registry_entry(entry=_ARGUMENT_NOT_HANDED,
     read from the entry claim_identifier field, or its claim_id
     field where that stands, so a saved or handed on result
     stands tied to its claim from the result itself."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "judge_registry_entry stands refused: an entry "
+            "stands judged with its entry, its compiler, and "
+            "its checker handed in, an argument stands handed "
+            "in beyond the run log, and no entry stands "
+            "judged; next step: hand the entry, the compiler, "
+            "and the checker and call the door again")
     if (entry is _ARGUMENT_NOT_HANDED
             or compiler is _ARGUMENT_NOT_HANDED
             or checker is _ARGUMENT_NOT_HANDED):
@@ -803,7 +850,8 @@ def _bounded_echo(rendered):
             "120 characters only]")
 
 
-def make_headline_unit(values=_ARGUMENT_NOT_HANDED):
+def make_headline_unit(values=_ARGUMENT_NOT_HANDED,
+                       *extra_args, **extra_kwargs):
     """Build one HeadlineResultUnit in the fixed Shape 15 field
     order. The unit is a closed unit: every field required, no
     field beyond the fourteen, quotable whole or not at all.
@@ -812,7 +860,18 @@ def make_headline_unit(values=_ARGUMENT_NOT_HANDED):
     protocol a part supplies is ever invoked at the build. A
     handing missing its values stands refused in the named
     form of this module, stating the door, the ground, and the
-    next step (FW5-10)."""
+    next step (FW5-10). A handing carrying an argument beyond
+    the stated handings of this door, in keyword form or in
+    positional form, stands refused in the same named form
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "make_headline_unit stands refused: this door "
+            "stands handed the values, an argument stands "
+            "handed in beyond the values, and no unit stands "
+            "built; next step: hand the values, a field "
+            "mapping of the closed unit, and call the door "
+            "again")
     if values is _ARGUMENT_NOT_HANDED:
         raise ValueError(
             "make_headline_unit stands refused: this door "
@@ -2769,14 +2828,30 @@ def _headline_unit_refusal(unit):
         "validate as a quotable unit whole, and no unit stands quoted")
 
 
-def quote_headline_unit(unit):
+def quote_headline_unit(unit=_ARGUMENT_NOT_HANDED,
+                        *extra_args, **extra_kwargs):
     """Quote a headline unit whole. A unit that does not validate
     is not quoted at all. The quotation copies the validated unit
     through base class readings only, never through a copy
     protocol a part of the unit overrides. A standing memoryview
     part stands quoted as a memoryview over fresh bytes holding
     the content it carries, so quotation of a standing unit
-    never fails in the copy act itself."""
+    never fails in the copy act itself. A call handing no unit
+    stands refused in the named form of this module (FW6-03).
+    A handing carrying an argument beyond the unit, in keyword
+    form, stands refused in the same named form (FW7-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "quote_headline_unit stands refused: this door stands handed "
+            "the unit, an argument stands handed in beyond the unit, and no "
+            "unit stands quoted; next step: hand the unit and call the "
+            "door again")
+    if unit is _ARGUMENT_NOT_HANDED:
+        raise ValueError(
+            "quote_headline_unit stands refused: this door stands handed "
+            "the unit, a handing stands missing among the unit, and no "
+            "unit stands quoted; next step: hand the unit and call the "
+            "door again")
     if not validate_headline_unit(unit):
         raise ValueError(_headline_unit_refusal(unit))
     return _quoted_copy(unit)
@@ -2961,17 +3036,29 @@ def _plain_number_value(value):
 
 def honest_loss_rate_h1(submitted=_ARGUMENT_NOT_HANDED,
                         accepted_by_submission_period=(
-                            _ARGUMENT_NOT_HANDED)):
+                            _ARGUMENT_NOT_HANDED),
+                        *extra_args, **extra_kwargs):
     """The honest loss rate in the decided H1 form: the period
     subtraction, with each accepted unit attributed to the period
     in which it was submitted. So attributed, the subtraction
     equals the event count by construction and cannot fall below
     zero. The rate travels as a stored numerator and denominator
-    pair. A count pair no population can carry stands refused in
+    pair. A handing carrying an argument beyond the stated
+    handings of this door, in keyword form or in positional
+    form, stands refused in the named form of this module,
+    stating the door, the ground, and the next step (FW8-01). A count pair no population can carry stands refused in
     the named whole number form: a negative count on either side,
     an accepted count above the submitted count, or a submitted
     count of zero, which carries no population a rate can stand
     on. No clamp stands applied in silence to any such pair."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "honest_loss_rate_h1 stands refused: the submitted "
+            "and accepted counts stand handed in, an argument "
+            "stands handed in beyond the accepted count, and "
+            "no loss rate stands computed; next step: hand the "
+            "submitted and accepted counts and call the door "
+            "again") from None
     if (submitted is _ARGUMENT_NOT_HANDED
             or accepted_by_submission_period
             is _ARGUMENT_NOT_HANDED):
@@ -3058,11 +3145,21 @@ def point_standing(replicate_count):
 
 
 def classify_run_outcome(run_length_in_days=_ARGUMENT_NOT_HANDED,
-                         regime_class=_ARGUMENT_NOT_HANDED):
+                         regime_class=_ARGUMENT_NOT_HANDED,
+                         *extra_args, **extra_kwargs):
     """Classify one run outcome. A run shorter than 30 simulated
     days is not classifiable as attacker winning under the final
     30 day rule: its outcome stands recorded as horizon
     insufficient and contributes to no transition figure."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "classify_run_outcome stands refused: an outcome "
+            "stands classified with its run length in days "
+            "and its regime class handed in, an argument "
+            "stands handed in beyond the regime class, and no "
+            "outcome stands classified; next step: hand the "
+            "run length in days and the regime class and call "
+            "the door again") from None
     if (run_length_in_days is _ARGUMENT_NOT_HANDED
             or regime_class is _ARGUMENT_NOT_HANDED):
         raise ValueError(
@@ -3582,7 +3679,8 @@ def share_report_stands(inputs, share):
 def build_headline_unit_from_run(run_id=_ARGUMENT_NOT_HANDED,
                                  values=_ARGUMENT_NOT_HANDED,
                                  store_kind="sweep",
-                                 family_record=None):
+                                 family_record=None,
+                                 *extra_args, **extra_kwargs):
     """Build one headline unit from the retained records of one
     run, resolving the run record in one lookup through the
     Recorder store reading path. Where the record does not
@@ -3590,7 +3688,19 @@ def build_headline_unit_from_run(run_id=_ARGUMENT_NOT_HANDED,
     as a named failure and recorded in the family record where
     one stands handed in. A handing missing its run identifier
     or its values stands refused in the named form of this
-    module, before any lookup stands attempted."""
+    module, before any lookup stands attempted. A handing
+    carrying an argument beyond the stated handings of this
+    door, in keyword form or in positional form, stands
+    refused in the same named form (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "build_headline_unit_from_run stands refused: a "
+            "unit stands built from a run with its run "
+            "identifier and its values handed in, an argument "
+            "stands handed in beyond the family record, and "
+            "no unit stands built; next step: hand the run "
+            "identifier and the values and call the door "
+            "again")
     if (run_id is _ARGUMENT_NOT_HANDED
             or values is _ARGUMENT_NOT_HANDED):
         raise ValueError(
@@ -3736,7 +3846,8 @@ def _stored_identifier_form(value, _depth=0, _seen=None):
 
 
 def weekly_count(summary_records=_ARGUMENT_NOT_HANDED,
-                 week=_ARGUMENT_NOT_HANDED):
+                 week=_ARGUMENT_NOT_HANDED,
+                 *extra_args, **extra_kwargs):
     """Compute the weekly headline reading load from the stored
     summary records alone: distinct headline unit identifiers
     whose witness records fall in the week, one unit counting
@@ -3775,6 +3886,14 @@ def weekly_count(summary_records=_ARGUMENT_NOT_HANDED,
     counted through a set keyed on the stored form of the
     identifier, so the scan stands linear in the identifiers
     counted."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "weekly_count stands refused: this door stands "
+            "handed the summary records and the week, an "
+            "argument stands handed in beyond the week, and "
+            "no weekly count stands computed; next step: hand "
+            "the summary records and the week and call the "
+            "door again")
     if (summary_records is _ARGUMENT_NOT_HANDED
             or week is _ARGUMENT_NOT_HANDED):
         raise ValueError(
@@ -4127,12 +4246,27 @@ def next_weekly_container(week, previous_container, new_units):
 
 def claim_enters_family(family_record=_ARGUMENT_NOT_HANDED,
                         claim=_ARGUMENT_NOT_HANDED,
-                        results_seen=_ARGUMENT_NOT_HANDED):
+                        results_seen=_ARGUMENT_NOT_HANDED,
+                        *extra_args, **extra_kwargs):
     """Return True only where a claim may enter a family: the
     family stands fixed before runs, and no claim enters the
     family after results are seen. A handing missing any of
     its family record, its claim, or its results seen standing
-    answers False, the judged form of this act."""
+    answers False, the judged form of this act. A handing
+    carrying an argument beyond the stated handings of this
+    door, in keyword form or in positional form, stands
+    refused in the named form of this module, stating the
+    door, the ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "claim_enters_family stands refused: a claim "
+            "stands judged for entry with its family record, "
+            "its claim, and its results seen standing handed "
+            "in, an argument stands handed in beyond the "
+            "results seen standing, and no claim stands "
+            "judged; next step: hand the family record, the "
+            "claim, and the results seen standing and call "
+            "the door again")
     if (family_record is _ARGUMENT_NOT_HANDED
             or claim is _ARGUMENT_NOT_HANDED
             or results_seen is _ARGUMENT_NOT_HANDED):

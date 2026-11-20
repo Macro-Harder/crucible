@@ -2865,13 +2865,24 @@ def _barred_payload_item(payload):
     return found[0] if found else "a barred value"
 
 
-def escrow_result(kind=_ARGUMENT_NOT_HANDED, variant="B-4", payload=None, contract_state=None):
+def escrow_result(kind=_ARGUMENT_NOT_HANDED, variant="B-4", payload=None, contract_state=None,
+                  *extra_args, **extra_kwargs):
     """One escrow bearing result. Every such result carries the
     core only qualifier reading true, the K1 and L2 state carriage
     Shape 9 requires, and the verification limit statement. A
     handing missing its kind stands refused in the named form
     of this module, stating the door, the ground, and the next
-    step (FW5-10)."""
+    step (FW5-10). A handing carrying an argument beyond the
+    stated handings of this door, in keyword form or in
+    positional form, stands refused in the same named form
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "escrow_result stands refused: an escrow result "
+            "stands built with its kind handed in, an argument "
+            "stands handed in beyond the kind, and no escrow "
+            "result stands returned; next step: hand the kind "
+            "and call the door again")
     if kind is _ARGUMENT_NOT_HANDED:
         raise ValueError(
             "escrow_result stands refused: an escrow result "
@@ -2907,10 +2918,11 @@ def escrow_result(kind=_ARGUMENT_NOT_HANDED, variant="B-4", payload=None, contra
     }
 
 
-def escrow_contract_state(contract_identifier, variant="B-4", lien_state="no lien in force",
+def escrow_contract_state(contract_identifier=_ARGUMENT_NOT_HANDED, variant="B-4", lien_state="no lien in force",
                           pause_state=None, lost_contact_clause_on=False,
                           pair_identifiers=None, standard_or_profile_identifier=None,
-                          estimated_cost_value=None, pause_cap_value=None, window_n=None):
+                          estimated_cost_value=None, pause_cap_value=None, window_n=None,
+                          *extra_args, **extra_kwargs):
     """An EscrowContractState in Shape 9 and Form 10 form, carrying
     every Form 10 field group: the pair identifiers, the standard
     or profile identifier, the estimated cost value, the pause
@@ -2919,7 +2931,28 @@ def escrow_contract_state(contract_identifier, variant="B-4", lien_state="no lie
     value N recorded as used. The variant and the lien state stand
     validated against their closed sets. The K1 and L2 state stands
     carried as a field whose value set stands unstated at
-    OP-21 G-10, and no value is invented for it."""
+    OP-21 G-10, and no value is invented for it. A handing missing
+    its contract identifier stands refused in the named form of
+    this module, stating the door, the ground, and the next step
+    (FW6-03). A handing carrying an argument beyond the stated
+    handings of this door, in keyword form, stands refused in
+    the same named form (FW7-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "escrow_contract_state stands refused: an escrow "
+            "contract state stands built with its contract "
+            "identifier handed in, an argument stands handed "
+            "in beyond the contract identifier, and no escrow "
+            "contract state stands returned; next step: hand "
+            "the contract identifier and call the door again")
+    if contract_identifier is _ARGUMENT_NOT_HANDED:
+        raise ValueError(
+            "escrow_contract_state stands refused: an escrow "
+            "contract state stands built with its contract "
+            "identifier handed in, a handing stands missing "
+            "for the contract identifier, and no escrow "
+            "contract state stands returned; next step: hand "
+            "the contract identifier and call the door again")
     if not _base_member(variant, ("B-3", "B-4")):
         raise ValueError(
             "escrow_contract_state stands refused: the escrow variant "
@@ -3054,14 +3087,34 @@ def _accuracy_stands(accuracy):
     return False
 
 
-def run_instruction(name, variant="B-4", context=None):
+def run_instruction(name=_ARGUMENT_NOT_HANDED, variant="B-4", context=None,
+                    *extra_args, **extra_kwargs):
     """Run one exercised instruction case as written, fixture F-21.
 
     Allowed subpaths run as written and claim no DQ answer. Pool
     subpaths and the backup extended profile are refused. A case
     presenting a treatment as a DQ answer, a floor under N, or a
-    clock scope reading as an answer is refused as a guess.
+    clock scope reading as an answer is refused as a guess. A
+    handing missing its name stands refused in the named form of
+    this module, stating the door, the ground, and the next step
+    (FW6-03). A handing carrying an argument beyond the stated
+    handings of this door, in keyword form, stands refused in
+    the same named form (FW7-01).
     """
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "run_instruction stands refused: an instruction "
+            "stands run with its name handed in, an argument "
+            "stands handed in beyond the name, and no "
+            "instruction stands run; next step: hand the name "
+            "and call the door again")
+    if name is _ARGUMENT_NOT_HANDED:
+        raise ValueError(
+            "run_instruction stands refused: an instruction "
+            "stands run with its name handed in, a handing "
+            "stands missing for the name, and no instruction "
+            "stands run; next step: hand the name and call "
+            "the door again")
     try:
         return _run_instruction_act(name, variant=variant, context=context)
     except (ExcludedSubpath, GuessedAnswer, UnnamedInstruction, ValueError) as error:
@@ -3471,11 +3524,23 @@ def validate_dq_arrival_table(rows):
 
 def enter_ruling(rows=_ARGUMENT_NOT_HANDED,
                  item=_ARGUMENT_NOT_HANDED,
-                 ruling_text=_ARGUMENT_NOT_HANDED):
+                 ruling_text=_ARGUMENT_NOT_HANDED,
+                 *extra_args, **extra_kwargs):
     """Enter a ruling in the final column of its row, verbatim,
     when the ruling for that item arrives. A handing missing
     any of its rows, its item, or its ruling text stands
-    refused in the named form of this module."""
+    refused in the named form of this module. A handing
+    carrying an argument beyond the stated handings of this
+    door, in keyword form or in positional form, stands
+    refused in the same named form (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "enter_ruling stands refused: a ruling stands "
+            "entered with its rows, its item, and its ruling "
+            "text handed in, an argument stands handed in "
+            "beyond the ruling text, and no ruling stands "
+            "entered; next step: hand the rows, the item, and "
+            "the ruling text and call the door again")
     if (rows is _ARGUMENT_NOT_HANDED
             or item is _ARGUMENT_NOT_HANDED
             or ruling_text is _ARGUMENT_NOT_HANDED):

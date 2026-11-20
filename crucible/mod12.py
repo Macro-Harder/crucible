@@ -790,7 +790,8 @@ _SEAL_NO_HASH_STANDING = (
     "no hash stands computed by this seal")
 
 
-def seal_family_record(record=_ARGUMENT_NOT_HANDED):
+def seal_family_record(record=_ARGUMENT_NOT_HANDED,
+                       *extra_args, **extra_kwargs):
     """Seal one family record. The completeness condition stands
     performed before the seal: a record missing any one of the
     completeness items this controller names is refused in the
@@ -839,7 +840,17 @@ def seal_family_record(record=_ARGUMENT_NOT_HANDED):
     handed record reports seals unguarded or by identity.
     A handing missing its record stands refused in the named
     form of this module, stating the door, the ground, and
-    the next step (FW5-10)."""
+    the next step (FW5-10). A handing carrying an argument
+    beyond the record, in positional or in keyword form,
+    stands refused in the same named form (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "family record cannot seal: an argument stands "
+            "handed in beyond the record, this door stands "
+            "handed the record, and no seal stands written; "
+            "next step: hand a family record, the record "
+            "make_family_record builds, and call the seal "
+            "again")
     if record is _ARGUMENT_NOT_HANDED:
         raise NamedControllerFailure(
             "family record cannot seal: a handing stands "
@@ -1163,7 +1174,7 @@ def family_record_validation_failures(record):
     return failures
 
 
-def validate_family_record(record):
+def validate_family_record(record, *extra_args, **extra_kwargs):
     """Return True only where a family record stands in a lawful
     form: the record stands in the Shape 1 form the reporter
     path checks through MOD-01, it carries every completeness
@@ -1176,7 +1187,17 @@ def validate_family_record(record):
     sealed by the product own seal act, carrying the keys that
     act writes, and an edited record produced by the product own
     edit acts, validate here in that form (Step 16 fix wave 3,
-    row F3-01, ruling T16-39)."""
+    row F3-01, ruling T16-39). A handing carrying an argument
+    beyond the record, in positional or in keyword form, stands
+    refused in the named form of this module, stating the door,
+    the ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "family record cannot stand validated: an argument "
+            "stands handed in beyond the record, this door "
+            "stands handed the record, and no validation stands "
+            "returned; next step: hand a family record and "
+            "call the door again")
     if not isinstance(record, dict):
         return False
     if family_record_validation_failures(record):
@@ -3839,9 +3860,12 @@ def _name_start_extra_handings(refusal, extra):
     and in words, and stands not taken: the gate itself stands
     untouched, no run stands started, no seed stands drawn, and
     DQ7-02 stands not circumvented. A refusal with no extra
-    handing stands returned unchanged."""
+    handing stands returned unchanged. Each handed name stands
+    rendered in the bounded form of FW4-10, so the carriage of
+    the start refusal surface stands bounded however long a
+    handed name stands (FW6-04)."""
     if extra:
-        names = sorted(extra)
+        names = [_bounded_echo(name) for name in sorted(extra)]
         refusal["unexpected_keyword_handings"] = names
         refusal["extra_handing_note"] = (
             "The keyword handings " + ", ".join(names)
@@ -3851,7 +3875,8 @@ def _name_start_extra_handings(refusal, extra):
     return refusal
 
 
-def start_run(run_class=None, family_id=None, **_extra):
+def start_run(run_class=None, family_id=None, *extra_args,
+              **_extra):
     """Start one run. Start inputs stand validated before the gate
     answer: a run class outside the four stated classes, a missing
     run class, and a missing family identifier each return a named
@@ -3861,7 +3886,17 @@ def start_run(run_class=None, family_id=None, **_extra):
     MOD-02 and starts nothing, in the one form that gate uses
     across MOD-02 and MOD-04, with its ground and its next step
     stated in words beside its codes and its sample statement
-    inside the result."""
+    inside the result. A handing carrying an argument beyond
+    the run class and the family identifier, in positional
+    form, stands refused in the named input failure form of
+    this module, stating the door, the ground, and the next
+    step, with no run started and no seed drawn (FW8-01)."""
+    if extra_args:
+        return _name_start_extra_handings(_input_failure(
+            "start run", "an argument stands handed in beyond "
+            "the run class and the family identifier: this door "
+            "stands handed the run class and the family "
+            "identifier, and no run stands started"), _extra)
     if not (isinstance(run_class, str) and any(
             str.__eq__(str.__str__(run_class), stated)
             for stated in RUN_CLASSES)):
@@ -3883,16 +3918,25 @@ def start_run(run_class=None, family_id=None, **_extra):
                      family_id=family_id), _extra)
 
 
-def start_sweep(family_id=None, **_extra):
+def start_sweep(family_id=None, *extra_args, **_extra):
     """Start one sweep. A missing family identifier returns a named
     input failure. Gated on DQ7-02 in the same form as a run
-    start."""
+    start. A handing carrying an argument beyond the family
+    identifier, in positional form, stands refused in the
+    named input failure form of this module, stating the door,
+    the ground, and the next step, with no run started and no
+    seed drawn (FW8-01)."""
+    if extra_args:
+        return _name_start_extra_handings(_input_failure(
+            "start sweep", "an argument stands handed in beyond "
+            "the family identifier: this door stands handed the "
+            "family identifier, and no run stands started"), _extra)
     if not _family_identifier_stands(family_id):
         return _name_start_extra_handings(_input_failure(
             "start sweep", "family identifier missing or in no "
             "identifier form: a family identifier stands as a "
             "text value carrying identifier text, and the value "
-            "handed stands as " + _safe_repr(family_id)), _extra)
+            "handed stands as " + _bounded_echo(_safe_repr(family_id))), _extra)
     return _name_start_extra_handings(
         _gated_start("start sweep", family_id=family_id), _extra)
 

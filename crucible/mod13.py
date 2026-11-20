@@ -950,7 +950,8 @@ def ac1_field_list():
 # ---------------------------------------------------------------------------
 
 def replay_check(first=_ARGUMENT_NOT_HANDED,
-                 second=_ARGUMENT_NOT_HANDED):
+                 second=_ARGUMENT_NOT_HANDED,
+                 *extra_args, **extra_kwargs):
     """Compare two runs over the AC-1 field list, field for field
     in list order, over the run fact values each run carries under
     those field names. An identical headline unit stands required
@@ -979,7 +980,9 @@ def replay_check(first=_ARGUMENT_NOT_HANDED,
     resume check returns for its state limb. A handing missing
     its first or its second record stands refused in the named
     form of this module, stating the door, the ground, and the
-    next step (FW5-10)."""
+    next step (FW5-10). A handing carrying an argument beyond
+    its first and second records stands refused in the same
+    named form (FW6-03)."""
     if (first is _ARGUMENT_NOT_HANDED
             or second is _ARGUMENT_NOT_HANDED):
         raise NamedReplicationFailure(
@@ -988,6 +991,13 @@ def replay_check(first=_ARGUMENT_NOT_HANDED,
             "replay check stands performed; next step: hand "
             "the first and second records and call the door "
             "again")
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "replay check requires its first and second "
+            "records: an argument stands handed in beyond the "
+            "first and second records, and no replay check "
+            "stands performed; next step: hand the first and "
+            "second records and call the door again")
     fields = ac1_field_list()
     first_record = first if isinstance(first, dict) else {}
     second_record = second if isinstance(second, dict) else {}
@@ -1104,10 +1114,27 @@ def ac1_check(run_facts):
     }
 
 
-def validate_replay_claim(claim):
+def validate_replay_claim(claim=_ARGUMENT_NOT_HANDED,
+                          *extra_args, **extra_kwargs):
     """Return False for any replay claim that asserts byte level
     hash equality while OP-24 stands open in part, or completeness
-    over the detection state."""
+    over the detection state. A handing missing its claim stands
+    refused in the named form of this module, stating the door,
+    the ground, and the next step (FW6-03). A handing carrying
+    an argument beyond the claim, in positional or in keyword
+    form, stands refused in the same named form (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "validate replay claim requires its claim: an "
+            "argument stands handed in beyond the claim, and "
+            "no replay claim stands validated; next step: "
+            "hand the claim and call the door again")
+    if claim is _ARGUMENT_NOT_HANDED:
+        raise NamedReplicationFailure(
+            "validate replay claim requires its claim: a claim "
+            "handing stands missing, and no replay claim stands "
+            "validated; next step: hand the claim and call the "
+            "door again")
     if not isinstance(claim, dict):
         return False
     if _stored_present(_base_get(claim, "hash_equality_claimed")):
@@ -1163,7 +1190,8 @@ def detection_comparison_points():
 
 
 def resume_check(original=_ARGUMENT_NOT_HANDED,
-                 resumed=_ARGUMENT_NOT_HANDED):
+                 resumed=_ARGUMENT_NOT_HANDED,
+                 *extra_args, **extra_kwargs):
     """Compare a resumed run with the uninterrupted run inside the
     stated scope: the same state on every part of the non
     detection state, over the AC-1 field list with the detection
@@ -1183,7 +1211,18 @@ def resume_check(original=_ARGUMENT_NOT_HANDED,
     two records agree on every comparability item of contracts
     C-02 and C-03; a differing item records the pair as not
     comparable on that item and no equality observation stands
-    reported from it."""
+    reported from it. A handing carrying an argument beyond
+    the original and resumed records, in positional or in
+    keyword form, stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "resume check requires its original and resumed "
+            "records: an argument stands handed in beyond the "
+            "original and resumed records, and no resume check "
+            "stands performed; next step: hand the original "
+            "and resumed records and call the door again")
     if (original is _ARGUMENT_NOT_HANDED
             or resumed is _ARGUMENT_NOT_HANDED):
         raise NamedReplicationFailure(
@@ -1598,11 +1637,23 @@ def validate_verdict_record(record):
 
 
 def publishable_on_replication(claim=_ARGUMENT_NOT_HANDED,
-                               verdict=_ARGUMENT_NOT_HANDED):
+                               verdict=_ARGUMENT_NOT_HANDED,
+                               *extra_args, **extra_kwargs):
     """Return True only where the Reporter may publish a claim as
     resting on replication: a verdict record for that claim must
     stand, with the outcome rests. A handing missing its claim
-    or its verdict answers False, the judged form of this act."""
+    or its verdict answers False, the judged form of this act.
+    A handing carrying an argument beyond the claim and the
+    verdict, in positional or in keyword form, stands refused
+    in the named form of this module, stating the door, the
+    ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "publishable on replication requires its claim and "
+            "its verdict: an argument stands handed in beyond "
+            "the claim and the verdict, and no publication "
+            "standing stands returned; next step: hand the "
+            "claim and the verdict and call the door again")
     if (claim is _ARGUMENT_NOT_HANDED
             or verdict is _ARGUMENT_NOT_HANDED):
         return False
@@ -1704,8 +1755,10 @@ def _is_detection_output(record):
     )
 
 
-def score_detection_outputs(outputs, authored_by=None, knowledge=None,
-                            records_position=None):
+def score_detection_outputs(outputs=_ARGUMENT_NOT_HANDED,
+                            authored_by=None, knowledge=None,
+                            records_position=None, *extra_args,
+                            **extra_kwargs):
     """Score retained DetectionOutput records after a run, under
     the three separations. The record states who authored the
     profiles, what they could know, and where the records sit, as
@@ -1714,7 +1767,27 @@ def score_detection_outputs(outputs, authored_by=None, knowledge=None,
     DetectionOutput form. While OP-16 stands open, no score stands
     reported as a pass or a fail: the record carries its profile
     bound label in the stated carriage value, as the product own
-    carriage, never as a value taken from an input."""
+    carriage, never as a value taken from an input. A handing
+    missing its outputs stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW6-03). A handing carrying an argument beyond the stated
+    handings of this door, in keyword form, stands refused in
+    the same named form (FW7-01). A handing carrying an
+    argument beyond the stated handings of this door, in
+    positional form, stands refused in the same named form
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "score detection outputs requires its outputs: an "
+            "argument stands handed in beyond the outputs, "
+            "and no score stands returned; next step: hand "
+            "the outputs and call the door again")
+    if outputs is _ARGUMENT_NOT_HANDED:
+        raise NamedReplicationFailure(
+            "score detection outputs requires its outputs: an "
+            "outputs handing stands missing, and no score stands "
+            "returned; next step: hand the outputs and call the "
+            "door again")
     if not isinstance(outputs, (list, tuple)):
         raise NamedReplicationFailure(
             "scoring requires a list of DetectionOutput records: the input stands in no list form"

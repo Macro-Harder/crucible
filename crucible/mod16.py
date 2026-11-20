@@ -17,13 +17,24 @@ from crucible import mod10
 from crucible import mod11
 
 
-def run_tracer_cut():
+def run_tracer_cut(*extra_args, **extra_kwargs):
     """Tracer composition, moved here from MOD-04 under finding
     F-LE-03: MOD-04 holds no code dependency on MOD-10 in any form,
     so the composition that hands the form only record to the
     MOD-10 retention path and reads it back through that path
     alone stands on this integration surface. The engine delivers
-    the record and the projection; this surface composes."""
+    the record and the projection; this surface composes. A
+    handing carrying an argument beyond the door stated
+    handings, in positional or in keyword form, stands refused
+    in the named form of this module, stating the door, the
+    ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "run_tracer_cut stands refused: this door stands "
+            "handed no argument, an argument stands handed in "
+            "beyond the door stated handings, and no tracer "
+            "cut stands returned; next step: call the door "
+            "again handing no argument")
     record, projected = mod04.build_tracer_run_record()
     canary_present = mod04._value_appears(mod04.CANARY_VALUE, projected)
     store = mod10.RecorderStore(store_kind="sweep")
@@ -48,10 +59,21 @@ def run_tracer_cut():
     }
 
 
-def tracer_record():
+def tracer_record(*extra_args, **extra_kwargs):
     """The tracer result as an integration record: the smallest end
     to end cut, proving dependency direction for the restated path
-    alone, with its scope exclusions named."""
+    alone, with its scope exclusions named. A handing carrying
+    an argument beyond the door stated handings, in positional
+    or in keyword form, stands refused in the named form of
+    this module, stating the door, the ground, and the next
+    step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "tracer_record stands refused: this door stands "
+            "handed no argument, an argument stands handed in "
+            "beyond the door stated handings, and no tracer "
+            "record stands returned; next step: call the door "
+            "again handing no argument")
     result = run_tracer_cut()
     return {
         "cut": "S-01, S-02 interface only, S-03, narrowed S-09, narrowed S-10",
@@ -70,10 +92,21 @@ def tracer_record():
     }
 
 
-def validate_tracer_wording(wording):
+def validate_tracer_wording(wording, *extra_args, **extra_kwargs):
     """Return False for any wording that describes a slice as built
     because the tracer ran, claims a headline result for the cut,
-    or makes a replication or verdict claim from it."""
+    or makes a replication or verdict claim from it. A handing
+    carrying an argument beyond the wording, in positional or
+    in keyword form, stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_tracer_wording stands refused: this "
+            "door stands handed the wording, an argument "
+            "stands handed in beyond the wording, and no "
+            "wording judgement stands returned; next step: "
+            "hand the wording and call the door again")
     if not isinstance(wording, dict):
         return False
     if dict.get(wording, "slice_built_because_tracer_ran"):
@@ -119,13 +152,24 @@ _FIXTURE_LINES = (
 )
 
 
-def fixture_inventory():
+def fixture_inventory(*extra_args, **extra_kwargs):
     """The fixture inventory as a product artefact: one line per
     fixture, F-01 to F-30, with F-01 and F-02 at the head, stating
     whether it ran, what it showed, and what it does not show. No
     fixture value stands invented on this surface: every line
     rests on a value the brief or the evidence register states,
-    and carries its provenance label."""
+    and carries its provenance label. A handing carrying an
+    argument beyond the door stated handings, in positional or
+    in keyword form, stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "fixture_inventory stands refused: this door "
+            "stands handed no argument, an argument stands "
+            "handed in beyond the door stated handings, and "
+            "no fixture inventory stands returned; next step: "
+            "call the door again handing no argument")
     lines = []
     for fixture_id, ran, showed, does_not_show in _FIXTURE_LINES:
         lines.append({
@@ -298,6 +342,37 @@ def _missing_fixture_failure():
     return failure
 
 
+def _extra_argument_fixture_failure(fixture_id):
+    """The named fixture lookup failure for a fixture_record
+    handing carrying an argument beyond the fixture identifier
+    (FW8-01): the door, the ground, and the next step stand
+    stated, in the same named form as the missing handing
+    failure of this door, and no fixture record stands
+    returned."""
+    failure = FixtureLookupFailure.__new__(FixtureLookupFailure)
+    failure.fixture_id = fixture_id
+    failure.failure = {
+        "name": "fixture lookup failure",
+        "module": "MOD-16",
+        "fixture": fixture_id,
+        "ground": (
+            "an argument stands handed in beyond the fixture "
+            "identifier at fixture_record"),
+        "run_status": "failed",
+        "complete": False,
+    }
+    KeyError.__init__(
+        failure,
+        "fixture lookup failure: fixture_record stands "
+        "refused: this door stands handed the fixture "
+        "identifier, an argument stands handed in beyond "
+        "the fixture identifier, and no fixture record "
+        "stands returned. Next step: hand one of the 30 "
+        "standing fixture identifiers, as fixture_inventory "
+        "states them, and call the door again.")
+    return failure
+
+
 class FixtureLookupFailure(KeyError):
     """A named failure for a fixture that does not resolve in the
     inventory. The failure value stands on the exception in the
@@ -325,13 +400,19 @@ class FixtureLookupFailure(KeyError):
             "fixture identifiers and hand one of them.")
 
 
-def fixture_record(fixture_id=_ARGUMENT_NOT_HANDED):
+def fixture_record(fixture_id=_ARGUMENT_NOT_HANDED,
+                   *extra_args, **extra_kwargs):
     """Return the integration record line of one fixture. A
     fixture identifier that stands in no inventory line raises
     the named fixture lookup failure, never a bare key error.
     A handing missing its fixture identifier stands refused
     in the same named form, stating the door, the ground, and
-    the next step (FW5-10)."""
+    the next step (FW5-10). A handing carrying an argument
+    beyond the fixture identifier, in positional or in
+    keyword form, stands refused in the same named form
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise _extra_argument_fixture_failure(fixture_id)
     if fixture_id is _ARGUMENT_NOT_HANDED:
         raise _missing_fixture_failure()
     for line in fixture_inventory():
@@ -340,7 +421,7 @@ def fixture_record(fixture_id=_ARGUMENT_NOT_HANDED):
     raise FixtureLookupFailure(fixture_id)
 
 
-def f01_centre_only_unit():
+def f01_centre_only_unit(*extra_args, **extra_kwargs):
     """Return the F-01 centre only headline unit as a readable
     stored fixture record, beside its inventory entry.
 
@@ -350,8 +431,19 @@ def f01_centre_only_unit():
     record names every part that failed and how it failed, on
     the verified retirement tally, and stands marked as the
     warning example and as no headline claim: the unit is never
-    quoted as a headline unit.
+    quoted as a headline unit. A handing carrying an argument
+    beyond the door stated handings, in positional or in
+    keyword form, stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW8-01).
     """
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "f01_centre_only_unit stands refused: this door "
+            "stands handed no argument, an argument stands "
+            "handed in beyond the door stated handings, and "
+            "no unit stands returned; next step: call the "
+            "door again handing no argument")
     return {
         "fixture": "F-01",
         "warning_example": True,
@@ -427,10 +519,21 @@ def f01_centre_only_unit():
     }
 
 
-def validate_fixture_record(record):
+def validate_fixture_record(record, *extra_args, **extra_kwargs):
     """Return False where a fixture stands recorded as run on a
     value no brief or register statement supplies, or where its
-    line lacks any of the three stated parts."""
+    line lacks any of the three stated parts. A handing
+    carrying an argument beyond the record, in positional or
+    in keyword form, stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_fixture_record stands refused: this "
+            "door stands handed the record, an argument "
+            "stands handed in beyond the record, and no "
+            "record judgement stands returned; next step: "
+            "hand the record and call the door again")
     if not isinstance(record, dict):
         return False
     for key in ("ran", "showed", "does_not_show"):
@@ -509,13 +612,27 @@ def _settings_lineage_record(confirmation_record):
 RUN_CLASSES = ("screening", "confirmation", "headline", "validation")
 
 
-def exercise_run_class(run_class, material="validation"):
+def exercise_run_class(run_class, material="validation",
+                       *extra_args, **extra_kwargs):
     """Exercise one run class end to end on pilot confined and
     validation material only. In this group the screening and
     validation classes stand exercised by a run driven through
     the wired product; the confirmation and headline classes
     stand carried as unexercised here, their exercise standing
-    in the companion exercise below."""
+    in the companion exercise below. A handing carrying an
+    argument beyond the run class and the material, in
+    positional or in keyword form, stands refused in the
+    named form of this module, stating the door, the ground,
+    and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "exercise_run_class stands refused: this door "
+            "stands handed the run class and the material, "
+            "an argument stands handed in beyond the run "
+            "class and the material, and no run class "
+            "exercise stands returned; next step: hand the "
+            "run class and the material and call the door "
+            "again")
     stored_class = _stored_text(run_class)
     if stored_class is None or stored_class not in RUN_CLASSES:
         raise ValueError("unknown run class: " + _sentence_text(run_class))
@@ -542,7 +659,7 @@ def exercise_run_class(run_class, material="validation"):
     }
 
 
-def exercise_confirmation_and_headline():
+def exercise_confirmation_and_headline(*extra_args, **extra_kwargs):
     """The companion exercise: one confirmation run and one
     headline run exercised end to end on validation material only,
     before Step 17 closes. Each run stands driven through the
@@ -561,7 +678,18 @@ def exercise_confirmation_and_headline():
     named failure and never a build source, and where the build
     fails after this act retained its record, the partial
     retention stands removed and the failure stands named in
-    the result, never silently reused by the next call."""
+    the result, never silently reused by the next call. A
+    handing carrying an argument beyond the door stated
+    handings, in positional or in keyword form, stands refused
+    in the named form of this module, stating the door, the
+    ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "exercise_confirmation_and_headline stands "
+            "refused: this door stands handed no argument, an "
+            "argument stands handed in beyond the door stated "
+            "handings, and no exercise stands returned; next "
+            "step: call the door again handing no argument")
     confirmation_driven, confirmation_read, _c_retained, c_conflict = _drive_run(
         "validation-confirmation-1", "confirmation",
         seed_domain="held out confirmation")
@@ -660,11 +788,24 @@ def exercise_confirmation_and_headline():
     return {"confirmation": confirmation, "headline": headline}
 
 
-def validate_confirmation_result(run_record):
+def validate_confirmation_result(run_record, *extra_args,
+                                 **extra_kwargs):
     """Return False where a confirmation result stands produced by
     a run whose record shows the screening domain. A record that
     carries no run class at all is no run record of the form this
-    validator names and stands refused, never passed on absence."""
+    validator names and stands refused, never passed on absence.
+    A handing carrying an argument beyond the run record, in
+    positional or in keyword form, stands refused in the named
+    form of this module, stating the door, the ground, and the
+    next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_confirmation_result stands refused: "
+            "this door stands handed the run record, an "
+            "argument stands handed in beyond the run record, "
+            "and no result judgement stands returned; next "
+            "step: hand the run record and call the door "
+            "again")
     if not isinstance(run_record, dict):
         return False
     if not dict.__contains__(run_record, "run_class"):
@@ -678,12 +819,23 @@ def validate_confirmation_result(run_record):
     return True
 
 
-def validate_headline_claim(result):
+def validate_headline_claim(result, *extra_args, **extra_kwargs):
     """Return False where a headline claim stands drawn from a
     validation exercise result: every such result stands recorded
     as validation material and as no headline claim. A result
     that carries no headline claim standing at all is no result
-    of the form this validator names and stands refused."""
+    of the form this validator names and stands refused. A
+    handing carrying an argument beyond the result, in
+    positional or in keyword form, stands refused in the named
+    form of this module, stating the door, the ground, and the
+    next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_headline_claim stands refused: this "
+            "door stands handed the result, an argument "
+            "stands handed in beyond the result, and no claim "
+            "judgement stands returned; next step: hand the "
+            "result and call the door again")
     if not isinstance(result, dict):
         return False
     if not dict.__contains__(result, "headline_claim"):
@@ -696,11 +848,22 @@ def validate_headline_claim(result):
     return True
 
 
-def folding_check_record():
+def folding_check_record(*extra_args, **extra_kwargs):
     """The folding check discharge at integration: seam tests
     written against the ruling text, at least one seam case per
     ruling checked by a reader who did not perform that folding,
-    before any B-5 difference is reported as a ruling effect."""
+    before any B-5 difference is reported as a ruling effect. A
+    handing carrying an argument beyond the door stated
+    handings, in positional or in keyword form, stands refused
+    in the named form of this module, stating the door, the
+    ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "folding_check_record stands refused: this door "
+            "stands handed no argument, an argument stands "
+            "handed in beyond the door stated handings, and "
+            "no folding check record stands returned; next "
+            "step: call the door again handing no argument")
     return {
         "discharged_at": "integration",
         "seam_cases_per_ruling": {"DQ-1": 1, "DQ-2": 1, "DQ-3": 1, "DQ-4": 1},
@@ -710,10 +873,21 @@ def folding_check_record():
     }
 
 
-def validate_folding_discharge(record):
+def validate_folding_discharge(record, *extra_args, **extra_kwargs):
     """Return False where a folding check stands claimed as
     discharged by slice level tests alone, or where any ruling
-    carries no seam case, or where the checker folded."""
+    carries no seam case, or where the checker folded. A
+    handing carrying an argument beyond the record, in
+    positional or in keyword form, stands refused in the named
+    form of this module, stating the door, the ground, and the
+    next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_folding_discharge stands refused: this "
+            "door stands handed the record, an argument "
+            "stands handed in beyond the record, and no "
+            "discharge judgement stands returned; next step: "
+            "hand the record and call the door again")
     if not isinstance(record, dict):
         return False
     if dict.get(record, "discharged_by_slice_tests_alone"):
@@ -730,11 +904,21 @@ def validate_folding_discharge(record):
     return dict.__len__(cases) > 0
 
 
-def sham_control_standing():
+def sham_control_standing(*extra_args, **extra_kwargs):
     """The sham variant control at F-11 stands gated until its two
     records stand: the equivalence margin at NQ-49 fixed on the
     record, and the seam check under decision D-02 condition three
-    read with D-20."""
+    read with D-20. A handing carrying an argument beyond the
+    door stated handings, in positional or in keyword form,
+    stands refused in the named form of this module, stating
+    the door, the ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "sham_control_standing stands refused: this door "
+            "stands handed no argument, an argument stands "
+            "handed in beyond the door stated handings, and "
+            "no sham control standing stands returned; next "
+            "step: call the door again handing no argument")
     return {
         "fixture": "F-11",
         "gated": True,
@@ -743,26 +927,62 @@ def sham_control_standing():
     }
 
 
-def validate_sham_result(result):
+def validate_sham_result(result, *extra_args, **extra_kwargs):
     """Return False for any sham result reported while the control
-    stands gated."""
+    stands gated. A handing carrying an argument beyond the
+    result, in positional or in keyword form, stands refused
+    in the named form of this module, stating the door, the
+    ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_sham_result stands refused: this door "
+            "stands handed the result, an argument stands "
+            "handed in beyond the result, and no sham "
+            "judgement stands returned; next step: hand the "
+            "result and call the door again")
     if result is None:
         return True
     return False
 
 
-def horizon_application(point, selected_points):
+def horizon_application(point, selected_points, *extra_args,
+                        **extra_kwargs):
     """Return True only where a longer horizon pick applies at a
     selected witness or decay point. No horizon value stands
-    settled for any other point by a pick."""
+    settled for any other point by a pick. A handing carrying
+    an argument beyond the point and the selected points, in
+    positional or in keyword form, stands refused in the named
+    form of this module, stating the door, the ground, and the
+    next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "horizon_application stands refused: this door "
+            "stands handed the point and the selected points, "
+            "an argument stands handed in beyond the point "
+            "and the selected points, and no horizon "
+            "application standing stands returned; next step: "
+            "hand the point and the selected points and call "
+            "the door again")
     for selected in (selected_points or ()):
         if _points_equal(point, selected):
             return True
     return False
 
 
-def horizon_run_cost(days, base_days):
-    """Run cost in the days multiplied form, labelled estimated."""
+def horizon_run_cost(days, base_days, *extra_args, **extra_kwargs):
+    """Run cost in the days multiplied form, labelled estimated.
+    A handing carrying an argument beyond the days and the
+    base days, in positional or in keyword form, stands
+    refused in the named form of this module, stating the
+    door, the ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "horizon_run_cost stands refused: this door "
+            "stands handed the days and the base days, an "
+            "argument stands handed in beyond the days and "
+            "the base days, and no run cost stands returned; "
+            "next step: hand the days and the base days and "
+            "call the door again")
     return {
         "form": "days multiplied",
         "days": days,
@@ -771,11 +991,22 @@ def horizon_run_cost(days, base_days):
     }
 
 
-def validate_horizon_generalisation(claim):
+def validate_horizon_generalisation(claim, *extra_args,
+                                    **extra_kwargs):
     """Return False where a horizon value stands generalised from
     a selected point to the grid. A claim that carries no
     generalisation standing at all is no claim of the form this
-    validator names and stands refused."""
+    validator names and stands refused. A handing carrying an
+    argument beyond the claim, in positional or in keyword
+    form, stands refused in the named form of this module,
+    stating the door, the ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_horizon_generalisation stands refused: "
+            "this door stands handed the claim, an argument "
+            "stands handed in beyond the claim, and no "
+            "generalisation judgement stands returned; next "
+            "step: hand the claim and call the door again")
     if not isinstance(claim, dict):
         return False
     if not dict.__contains__(claim, "generalised_to_grid"):
@@ -783,10 +1014,21 @@ def validate_horizon_generalisation(claim):
     return not dict.get(claim, "generalised_to_grid")
 
 
-def validate_mixed_patience(run):
+def validate_mixed_patience(run, *extra_args, **extra_kwargs):
     """Return True only where a mixed patience distribution enters
     as a labelled assumption in the family record before runs,
-    with the falsifier stated against the single value plane."""
+    with the falsifier stated against the single value plane.
+    A handing carrying an argument beyond the run, in
+    positional or in keyword form, stands refused in the named
+    form of this module, stating the door, the ground, and the
+    next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_mixed_patience stands refused: this "
+            "door stands handed the run, an argument stands "
+            "handed in beyond the run, and no patience "
+            "judgement stands returned; next step: hand the "
+            "run and call the door again")
     if not isinstance(run, dict):
         return False
     if not dict.get(run, "distribution_shape"):
@@ -812,10 +1054,21 @@ _REFUSAL_SET = (
 )
 
 
-def refusal_set():
+def refusal_set(*extra_args, **extra_kwargs):
     """The refusal set as test input: each refusal points to the
     contract and the slice that enforce it, and to the guard test
-    or barred contract test that exercises it."""
+    or barred contract test that exercises it. A handing
+    carrying an argument beyond the door stated handings, in
+    positional or in keyword form, stands refused in the named
+    form of this module, stating the door, the ground, and the
+    next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "refusal_set stands refused: this door stands "
+            "handed no argument, an argument stands handed in "
+            "beyond the door stated handings, and no refusal "
+            "set stands returned; next step: call the door "
+            "again handing no argument")
     return [
         {
             "refusal": refusal,
@@ -827,11 +1080,23 @@ def refusal_set():
     ]
 
 
-def validate_refusal_coverage(records=None):
+def validate_refusal_coverage(records=None, *extra_args,
+                              **extra_kwargs):
     """Return True only where every refusal in the set names its
     enforcing contract, its slice, and at least one guard test or
     barred contract test that exercises it by behaviour, not by a
-    test that merely restates the refusal in its name."""
+    test that merely restates the refusal in its name. A handing
+    carrying an argument beyond the records, in positional or
+    in keyword form, stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_refusal_coverage stands refused: this "
+            "door stands handed the records, an argument "
+            "stands handed in beyond the records, and no "
+            "coverage judgement stands returned; next step: "
+            "hand the records and call the door again")
     records = records if records is not None else refusal_set()
     if not isinstance(records, (list, tuple)):
         return False

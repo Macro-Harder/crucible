@@ -317,12 +317,23 @@ _COMMAND_DETAILS = {
 }
 
 
-def command_surface():
+def command_surface(*extra_args, **extra_kwargs):
     """The shell command surface, command by command: each entry
     names the module the command carries inputs to, states its
     purpose in plain language, names its required and optional
     input fields, and gives one example invocation in the form
-    the product offers, a run_command call."""
+    the product offers, a run_command call. A handing carrying
+    an argument beyond the door stated handings, in positional
+    or in keyword form, stands refused in the named form of
+    this module, stating the door, the ground, and the next
+    step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "command_surface stands refused: this door stands "
+            "handed no argument, an argument stands handed in "
+            "beyond the door stated handings, and no command "
+            "surface stands returned; next step: call the door "
+            "again handing no argument")
     surface = []
     for name, module in sorted(_COMMAND_MODULES.items()):
         purpose, required, optional, example = _COMMAND_DETAILS[name]
@@ -338,10 +349,20 @@ def command_surface():
     return surface
 
 
-def command_computes(command):
+def command_computes(command, *extra_args, **extra_kwargs):
     """Return what a shell command itself computes. Every command
     computes nothing a core owns: no reputation, no verdict, no
-    retention tier, and no result wording."""
+    retention tier, and no result wording. A handing carrying
+    an argument beyond the command, in positional or in keyword
+    form, stands refused in the named form of this module,
+    stating the door, the ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "command_computes stands refused: this door stands "
+            "handed the command, an argument stands handed in "
+            "beyond the command, and no computation standing "
+            "stands returned; next step: hand the command and "
+            "call the door again")
     return None
 
 
@@ -425,12 +446,25 @@ def _safe_repr(value):
         return object.__repr__(value)
 
 
-def error_carriage(failure, run_id=None, stage=None):
+def error_carriage(failure, run_id=None, stage=None,
+                   *extra_args, **extra_kwargs):
     """The error carriage of the shell: a named failure reaches
     the operator as a named failure with its run identifier and
     its stage. No failure is swallowed and none is converted into
     an empty result, and no command exits cleanly over a failed
-    run."""
+    run. A handing carrying an argument beyond the failure, the
+    run identifier, and the stage, in positional or in keyword
+    form, stands refused in the named form of this module,
+    stating the door, the ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "error_carriage stands refused: this door stands "
+            "handed the failure, the run identifier, and the "
+            "stage, an argument stands handed in beyond the "
+            "failure, the run identifier, and the stage, and "
+            "no error carriage stands returned; next step: "
+            "hand the failure, the run identifier, and the "
+            "stage and call the door again")
     if isinstance(failure, str):
         raw_message = _safe_text(failure)
         class_name = None
@@ -529,13 +563,29 @@ def error_carriage(failure, run_id=None, stage=None):
     return carriage
 
 
-def run_command(command=_ARGUMENT_NOT_HANDED, payload=None, run_id=None):
+def run_command(command=_ARGUMENT_NOT_HANDED, payload=None, run_id=None,
+                *extra_args, **extra_kwargs):
     """Run one shell command. The command carries its inputs to
     its named module and returns that module outputs, or its
     named failure in the error carriage form. A handing
     missing its command stands refused in the same carriage
     form, stating the door, the ground, and the next step
-    (FW5-10)."""
+    (FW5-10). A handing carrying an argument beyond the
+    command, the payload, and the run identifier, in
+    positional or in keyword form, stands refused in the same
+    carriage form, stating the door, the ground, and the next
+    step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        return error_carriage(
+            NamedShellFailure(
+                "run_command stands refused: this door stands "
+                "handed the command, the payload, and the run "
+                "identifier, an argument stands handed in "
+                "beyond the command, the payload, and the run "
+                "identifier, and no shell command stands run; "
+                "next step: hand the command, the payload, and "
+                "the run identifier and call the door again"),
+            run_id=run_id, stage=None)
     if command is _ARGUMENT_NOT_HANDED:
         return error_carriage(
             NamedShellFailure(
@@ -991,7 +1041,8 @@ def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None, _path="roo
         walked[(id(value), _depth)] = True
 
 
-def pilot_run(use=_ARGUMENT_NOT_HANDED, artefact=None):
+def pilot_run(use=_ARGUMENT_NOT_HANDED, artefact=None,
+              *extra_args, **extra_kwargs):
     """Run the purpose built run for one of its three uses only:
     timing, conformance, and procedure rates. Every pilot output
     carries its confinement label in the same artefact as the
@@ -1007,7 +1058,18 @@ def pilot_run(use=_ARGUMENT_NOT_HANDED, artefact=None):
     side after the run stands in neither the other side nor
     the delivered record. A handing missing its use stands
     refused in the named form of this module, stating the
-    door, the ground, and the next step (FW5-10)."""
+    door, the ground, and the next step (FW5-10). A handing
+    carrying an argument beyond the use and the artefact, in
+    positional or in keyword form, stands refused in the same
+    named form (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "pilot_run stands refused: this door stands "
+            "handed the use and the artefact, an argument "
+            "stands handed in beyond the use and the artefact, "
+            "and no pilot run stands performed; next step: "
+            "hand the use and the artefact and call the door "
+            "again")
     if use is _ARGUMENT_NOT_HANDED:
         raise NamedShellFailure(
             "pilot_run stands refused: this door stands "
@@ -1061,7 +1123,7 @@ def _stored_truth_stands(value):
     return True
 
 
-def validate_pilot_claim(claim):
+def validate_pilot_claim(claim, *extra_args, **extra_kwargs):
     """Return False where a behaviour claim cites a pilot output,
     and where a pilot output stands worded as settling a
     population behaviour rate: events per agent per day and trust
@@ -1076,7 +1138,17 @@ def validate_pilot_claim(claim):
     handed value itself supplies, so a condition value whose
     truth reading answers False or raises stands judged on the
     form it stores, and no handing escapes this act bare on
-    that reading."""
+    that reading. A handing carrying an argument beyond the
+    claim, in positional or in keyword form, stands refused
+    in the named form of this module, stating the door, the
+    ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "validate_pilot_claim stands refused: this door "
+            "stands handed the claim, an argument stands "
+            "handed in beyond the claim, and no claim "
+            "judgement stands returned; next step: hand the "
+            "claim and call the door again")
     if not isinstance(claim, dict):
         return False
     if _stored_truth_stands(dict.get(claim, "cites_pilot_output")) and str.__eq__(
@@ -1103,11 +1175,22 @@ def _pilot_confined(material):
     return False
 
 
-def sweep_level_determinism_contract(material):
+def sweep_level_determinism_contract(material, *extra_args,
+                                     **extra_kwargs):
     """The sweep level determinism contract, on pilot confined
     material only. Material of any other class is refused in the
     named form, and no claim in this form rests on the material
-    it reads."""
+    it reads. A handing carrying an argument beyond the
+    material, in positional or in keyword form, stands refused
+    in the same named form, stating the door, the ground, and
+    the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "sweep_level_determinism_contract stands refused: "
+            "this door stands handed the material, an argument "
+            "stands handed in beyond the material, and no "
+            "contract stands returned; next step: hand the "
+            "material and call the door again")
     if not _pilot_confined(material):
         raise NamedShellFailure(
             "determinism contract stands on pilot confined material only")
@@ -1121,9 +1204,20 @@ def sweep_level_determinism_contract(material):
     }
 
 
-def nondeterminism_census(material):
+def nondeterminism_census(material, *extra_args, **extra_kwargs):
     """The nondeterminism census, on pilot confined material
-    only, with its face statement standing on the record."""
+    only, with its face statement standing on the record. A
+    handing carrying an argument beyond the material, in
+    positional or in keyword form, stands refused in the named
+    form of this module, stating the door, the ground, and the
+    next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "nondeterminism_census stands refused: this door "
+            "stands handed the material, an argument stands "
+            "handed in beyond the material, and no census "
+            "stands returned; next step: hand the material "
+            "and call the door again")
     if not _pilot_confined(material):
         raise NamedShellFailure(
             "nondeterminism census stands on pilot confined material only")
@@ -1138,7 +1232,8 @@ def nondeterminism_census(material):
     }
 
 
-def dual_rule_retention_simulation(families):
+def dual_rule_retention_simulation(families, *extra_args,
+                                   **extra_kwargs):
     """The dual rule retention simulation, over synthetic families
     only, reported as one paired field and no single total. A
     family that does not stand marked synthetic is refused in
@@ -1151,7 +1246,17 @@ def dual_rule_retention_simulation(families):
     module at _stored_truth_stands, never through a truth
     reading a handed mark itself supplies, so a mark stands as
     the standing its stored form carries and a raising truth
-    reading escapes nowhere bare."""
+    reading escapes nowhere bare. A handing carrying an
+    argument beyond the families, in positional or in keyword
+    form, stands refused in the same named form, stating the
+    door, the ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "dual_rule_retention_simulation stands refused: "
+            "this door stands handed the families, an argument "
+            "stands handed in beyond the families, and no "
+            "simulation stands returned; next step: hand the "
+            "families and call the door again")
     if isinstance(families, (list, tuple, set, frozenset)):
         families = _container_parts(families)
     else:
@@ -1181,16 +1286,37 @@ def dual_rule_retention_simulation(families):
 # Program checks
 # ---------------------------------------------------------------------------
 
-def store_kind_check(kind):
+def store_kind_check(kind, *extra_args, **extra_kwargs):
     """The store kind program check, over the one store kind
-    vocabulary MOD-01 owns."""
+    vocabulary MOD-01 owns. A handing carrying an argument
+    beyond the kind, in positional or in keyword form, stands
+    refused in the named form of this module, stating the
+    door, the ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "store_kind_check stands refused: this door "
+            "stands handed the kind, an argument stands "
+            "handed in beyond the kind, and no store kind "
+            "standing stands returned; next step: hand the "
+            "kind and call the door again")
     return _mod01.validate_store_kind(kind)
 
 
-def store_kind_check_with_reason(kind):
+def store_kind_check_with_reason(kind, *extra_args, **extra_kwargs):
     """The store kind program check with its reason in words,
     beside the boolean standing: the permitted kinds, and whether
-    the kind stood valid, missing, or unknown."""
+    the kind stood valid, missing, or unknown. A handing
+    carrying an argument beyond the kind, in positional or in
+    keyword form, stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "store_kind_check_with_reason stands refused: "
+            "this door stands handed the kind, an argument "
+            "stands handed in beyond the kind, and no store "
+            "kind standing stands returned; next step: hand "
+            "the kind and call the door again")
     valid = store_kind_check(kind)
     if valid:
         standing = "valid"
@@ -1388,7 +1514,7 @@ def _normalise_actor(actor, _depth=0):
 
 
 def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
-                    actor="program"):
+                    actor="program", *extra_args, **extra_kwargs):
     """The flag evaluation program check: its inputs and outcome
     stand written into the stored summary record itself by the
     MOD-10 flag rule program this check carries to. A promotion
@@ -1403,7 +1529,23 @@ def flag_evaluation(summary_record, inputs=None, outcome=None, tier=None,
     or stated condition precheck, then the inputs supplied,
     inputs form, and stated condition prechecks, and the no
     tier refusal last, as at the MOD-10 core. The actor stands
-    as supplied, in the open, not hardcoded unseen."""
+    as supplied, in the open, not hardcoded unseen. A handing
+    carrying an argument beyond the summary record, the
+    inputs, the outcome, the tier, and the actor, in
+    positional or in keyword form, stands refused in the same
+    named form, stating the door, the ground, and the next
+    step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "flag_evaluation stands refused: this door stands "
+            "handed the summary record, the inputs, the "
+            "outcome, the tier, and the actor, an argument "
+            "stands handed in beyond the summary record, the "
+            "inputs, the outcome, the tier, and the actor, "
+            "and no flag evaluation stands performed; next "
+            "step: hand the summary record, the inputs, the "
+            "outcome, the tier, and the actor and call the "
+            "door again")
     if not isinstance(summary_record, dict):
         raise NamedShellFailure(
             "flag evaluation in named form: the evaluation stands "
@@ -1757,7 +1899,8 @@ def _identifier_refusal_text(value):
     return type(value).__name__
 
 
-def weekly_headline_count(summary_records, week):
+def weekly_headline_count(summary_records, week, *extra_args,
+                          **extra_kwargs):
     """The weekly headline count program check, counted from the
     stored summary records alone as distinct headline unit
     identifiers, under the canonical field name the reporter
@@ -1784,7 +1927,19 @@ def weekly_headline_count(summary_records, week):
     stand counted as one. An identifier standing in no unit
     identifier form stands named in its refusal on the form
     it stands in, through _identifier_refusal_text, never
-    through a repr reading the identifier itself supplies."""
+    through a repr reading the identifier itself supplies.
+    A handing carrying an argument beyond the summary records
+    and the week, in positional or in keyword form, stands
+    refused in the named form of this module, stating the
+    door, the ground, and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "weekly_headline_count stands refused: this door "
+            "stands handed the summary records and the week, "
+            "an argument stands handed in beyond the summary "
+            "records and the week, and no headline count "
+            "stands returned; next step: hand the summary "
+            "records and the week and call the door again")
     if summary_records is None:
         raise NamedShellFailure(
             "weekly_headline_count stands refused: no "
@@ -1870,14 +2025,27 @@ def weekly_headline_count(summary_records, week):
 _HEADLINE_IDENTIFIER_PATTERN = re.compile(r"u[0-9]+")
 
 
-def process_and_network_call_log(run_id):
+def process_and_network_call_log(run_id, *extra_args, **extra_kwargs):
     """The process and network call log of one run, supplied by
     this shell as an input record to the outside call check. The
-    shell computes no check outcome from it."""
+    shell computes no check outcome from it. A handing carrying
+    an argument beyond the run identifier, in positional or in
+    keyword form, stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "process_and_network_call_log stands refused: "
+            "this door stands handed the run identifier, an "
+            "argument stands handed in beyond the run "
+            "identifier, and no call log stands returned; "
+            "next step: hand the run identifier and call the "
+            "door again")
     return _mod10.gc08_record("call_log", run_id)
 
 
-def outside_call_check(dependency_manifest, call_log, extra_source=None):
+def outside_call_check(dependency_manifest, call_log, extra_source=None,
+                       *extra_args, **extra_kwargs):
     """The outside call check, GC-08 in the form DQ7-12 gives it:
     the outcome stands computed from the dependency manifest and
     the process and network call log and from no other source,
@@ -1902,7 +2070,22 @@ def outside_call_check(dependency_manifest, call_log, extra_source=None):
     the named refusal, with no bare escape on a raising
     equality reading. A log or an entry in any
     other form stands refused in
-    named form, never read as an empty log."""
+    named form, never read as an empty log. A handing
+    carrying an argument beyond the dependency manifest, the
+    call log, and the extra source, in positional or in
+    keyword form, stands refused in the same named form,
+    stating the door, the ground, and the next step
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "outside_call_check stands refused: this door "
+            "stands handed the dependency manifest, the call "
+            "log, and the extra source, an argument stands "
+            "handed in beyond the dependency manifest, the "
+            "call log, and the extra source, and no outside "
+            "call check stands returned; next step: hand the "
+            "dependency manifest, the call log, and the extra "
+            "source and call the door again")
     if extra_source is not None:
         raise NamedShellFailure(
             "outside call check computed from a third source is barred"
@@ -2989,7 +3172,7 @@ def _operator_action_bar(action):
     return None
 
 
-def validate_operator_action(action):
+def validate_operator_action(action, *extra_args, **extra_kwargs):
     """The operator boundary at the shell. The act stands read,
     not its spelling: verb synonyms in the edit and destructive
     families, verb inflections, case, trailing punctuation,
@@ -3022,14 +3205,36 @@ def validate_operator_action(action):
     on a closed run record, and a destructive act stands refused
     there as on every path; a checkpoint set stands edited only
     on the deletion rule. Validation reads the action record
-    alone."""
+    alone. A handing carrying an argument beyond the action,
+    in positional or in keyword form, stands refused in the
+    named form of this module, stating the door, the ground,
+    and the next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "validate_operator_action stands refused: this "
+            "door stands handed the action, an argument "
+            "stands handed in beyond the action, and no "
+            "action judgement stands returned; next step: "
+            "hand the action and call the door again")
     return _operator_action_bar(action) is None
 
 
-def validate_operator_action_with_reason(action):
+def validate_operator_action_with_reason(action, *extra_args,
+                                         **extra_kwargs):
     """The operator boundary with its reason in words, beside the
     boolean standing: a refused action carries the rule that bars
-    it, and a standing action carries the path it stands on."""
+    it, and a standing action carries the path it stands on. A
+    handing carrying an argument beyond the action, in
+    positional or in keyword form, stands refused in the named
+    form of this module, stating the door, the ground, and the
+    next step (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "validate_operator_action_with_reason stands "
+            "refused: this door stands handed the action, an "
+            "argument stands handed in beyond the action, and "
+            "no action judgement stands returned; next step: "
+            "hand the action and call the door again")
     bar = _operator_action_bar(action)
     if bar is not None:
         return {"allowed": False, "reason": bar}
@@ -3055,12 +3260,23 @@ _RUNBOOK_STEPS = (
 )
 
 
-def operator_runbook():
+def operator_runbook(*extra_args, **extra_kwargs):
     """The operator procedure of this product, standing as the
     runbook deliverable of slice S-15 in the product own form.
     The runbook stands in this module at operator_runbook, in
     the code of this module, and that code stands as its only
-    locus in the shipped product."""
+    locus in the shipped product. A handing carrying an
+    argument beyond the door stated handings, in positional or
+    in keyword form, stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW8-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedShellFailure(
+            "operator_runbook stands refused: this door "
+            "stands handed no argument, an argument stands "
+            "handed in beyond the door stated handings, and "
+            "no runbook stands returned; next step: call the "
+            "door again handing no argument")
     return {
         "form": "operator runbook",
         "deliverable_of": "slice S-15",
