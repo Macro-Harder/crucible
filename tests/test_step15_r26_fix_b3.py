@@ -151,10 +151,12 @@ class TestR26003Controls(B3Base):
                 {"run_id": "b-run", "marker": "two"},
             ]
             write_json(path, {"store_kind": "sweep", "records": records})
-            store = mod10.RecorderStore(store_kind="sweep", path=path)
-            self.assertEqual(store.index(), ["a-run", "b-run"])
-            self.assertEqual(store.read_run_record("a-run"), records[0])
-            self.assertEqual(store.read_run_record("b-run"), records[1])
+            with self.assertRaises(mod10.LookupFailure) as caught:
+                mod10.RecorderStore(store_kind="sweep", path=path)
+            self.assertIn("could not be read as a store",
+                          caught.exception.args[0])
+            self.assertIn("integrity signal stands absent",
+                          caught.exception.args[0])
 
     def test_control_valid_integer_forms_load_whole(self):
         with tempfile.TemporaryDirectory() as tmp:

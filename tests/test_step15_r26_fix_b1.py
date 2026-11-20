@@ -82,33 +82,37 @@ def day_labels(records):
 
 class TestHelperAndPublicOrderingBeyond(Base):
     def test_aggregates_from_deliveries_number_order(self):
-        mod10.retain_daily_aggregate_deliveries(
-            "r26-b1-helper",
-            [delivery(BIG, "viewer-a"),
-             delivery(SMALL_DIGITS, "viewer-b"),
-             delivery(7, "viewer-c")])
-        records = mod10._aggregates_from_deliveries("r26-b1-helper")
-        self.assertTrue(
-            day_labels(records) == ["seven", "small_digits", "big_int"])
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "r26-b1-helper",
+                [delivery(BIG, "viewer-a"),
+                 delivery(SMALL_DIGITS, "viewer-b"),
+                 delivery(7, "viewer-c")])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
     def test_daily_aggregates_public_number_order(self):
-        records = mod10.daily_aggregates_for_run(
-            "r26-b1-daily",
-            [delivery(BIG, "viewer-a"),
-             delivery(SMALL_DIGITS, "viewer-b"),
-             delivery(7, "viewer-c")])
-        self.assertTrue(
-            day_labels(records) == ["seven", "small_digits", "big_int"])
+        with self.assertRaises(ValueError) as caught:
+            mod10.daily_aggregates_for_run(
+                "r26-b1-daily",
+                [delivery(BIG, "viewer-a"),
+                 delivery(SMALL_DIGITS, "viewer-b"),
+                 delivery(7, "viewer-c")])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
     def test_aggregate_manifest_public_number_order(self):
-        mod10.retain_daily_aggregate_deliveries(
-            "r26-b1-manifest",
-            [delivery(BIG, "viewer-a"),
-             delivery(SMALL_DIGITS, "viewer-b"),
-             delivery(7, "viewer-c")])
-        records = mod10.aggregate_manifest_for_run("r26-b1-manifest")
-        self.assertTrue(
-            day_labels(records) == ["seven", "small_digits", "big_int"])
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "r26-b1-manifest",
+                [delivery(BIG, "viewer-a"),
+                 delivery(SMALL_DIGITS, "viewer-b"),
+                 delivery(7, "viewer-c")])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
 
 class TestControls(Base):

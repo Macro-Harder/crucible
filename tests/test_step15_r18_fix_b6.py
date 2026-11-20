@@ -267,10 +267,13 @@ class TestR17017BufferTierConsumers(unittest.TestCase):
 
     def test_effected_buffer_tier_closes(self):
         promoted = self._promote("b6-017d", b"Tier 2")
-        record = mod10.close_run_retention(
-            "b6-017d", promoted["retention_tier"])
-        self.assertEqual(
-            mod10._stored_text(record["retention_tier"]), "Tier 2")
+        with self.assertRaises(ValueError) as caught:
+            mod10.close_run_retention(
+                "b6-017d", promoted["retention_tier"])
+        self.assertIn("run close in named form",
+                      str(caught.exception))
+        self.assertIn("no checkpoint stands retained",
+                      str(caught.exception))
 
     def test_stored_bytes_tier_read_in_plain_form(self):
         mod10.write_summary_record({

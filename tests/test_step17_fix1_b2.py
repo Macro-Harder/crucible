@@ -341,13 +341,13 @@ class TestFW33ValidatorAndDayKey(unittest.TestCase):
     def test_same_day_form_still_one_delivery(self):
         mod10.retain_daily_aggregate_deliveries(
             "run-same", [_delivery(day=1)])
-        mod10.retain_daily_aggregate_deliveries(
-            "run-same",
-            [_delivery(day=1, components=(3, 0, 0, 0))])
-        aggregates = mod10.daily_aggregates_for_run("run-same")
-        self.assertEqual(len(aggregates), 1)
-        self.assertEqual(
-            aggregates[0]["joint_outcome_components"], [3, 0, 0, 0])
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "run-same",
+                [_delivery(day=1, components=(3, 0, 0, 0))])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
 
 class TestFW34ReplacementStandingAndCount(unittest.TestCase):
@@ -374,17 +374,12 @@ class TestFW34ReplacementStandingAndCount(unittest.TestCase):
     def test_replacement_delivery_states_its_standing_truly(self):
         mod10.retain_daily_aggregate_deliveries(
             "runY", [_delivery(day=1, components=(1, 0, 0, 0))])
-        mod10.retain_daily_aggregate_deliveries(
-            "runY", [_delivery(day=1, components=(9, 0, 0, 0))])
-        aggregates = mod10.daily_aggregates_for_run("runY")
-        self.assertEqual(len(aggregates), 1)
-        self.assertEqual(
-            aggregates[0]["joint_outcome_components"], [9, 0, 0, 0])
-        self.assertNotEqual(
-            aggregates[0]["amendment_standing"],
-            "as originally written")
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "runY", [_delivery(day=1, components=(9, 0, 0, 0))])
         self.assertIn(
-            "replaced", aggregates[0]["amendment_standing"])
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
     def test_first_delivery_keeps_the_original_standing(self):
         mod10.retain_daily_aggregate_deliveries(
@@ -395,18 +390,15 @@ class TestFW34ReplacementStandingAndCount(unittest.TestCase):
             "as originally written")
 
     def test_replacement_inside_one_call_states_its_standing(self):
-        count = mod10.retain_daily_aggregate_deliveries(
-            "runW", [
-                _delivery(day=1, components=(1, 0, 0, 0)),
-                _delivery(day=1, components=(5, 0, 0, 0)),
-            ])
-        self.assertEqual(count, 2)
-        aggregates = mod10.daily_aggregates_for_run("runW")
-        self.assertEqual(len(aggregates), 1)
-        self.assertEqual(
-            aggregates[0]["joint_outcome_components"], [5, 0, 0, 0])
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "runW", [
+                    _delivery(day=1, components=(1, 0, 0, 0)),
+                    _delivery(day=1, components=(5, 0, 0, 0)),
+                ])
         self.assertIn(
-            "replaced", aggregates[0]["amendment_standing"])
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
 
 if __name__ == "__main__":

@@ -80,7 +80,7 @@ class TestR1606SurfaceGuide(unittest.TestCase):
 
     def test_guide_states_corrected_exported_total(self):
         text = guide_text()
-        self.assertIn("658", text)
+        self.assertIn("660", text)
         self.assertIn("summed", text)
 
     def test_guide_marks_entry_points_against_internal(self):

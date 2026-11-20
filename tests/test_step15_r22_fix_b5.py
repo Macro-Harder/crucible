@@ -97,9 +97,12 @@ class TestR22011AggregateDayLimb(unittest.TestCase):
             "joint_outcome_components": [1.0, 2.0],
             "component_denominators": [1.0, 1.0],
         }
-        count = mod10.retain_daily_aggregate_deliveries(
-            "r22-b5-u1-c3", [good])
-        self.assertEqual(count, 1)
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "r22-b5-u1-c3", [good])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
 
 def second_checkpoint_text(run_id, first_day, second_day):

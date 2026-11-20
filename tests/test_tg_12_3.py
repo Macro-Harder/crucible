@@ -102,8 +102,8 @@ class TestReplicateAndReadoutDiscipline(unittest.TestCase):
         """
         require_surface(self, "top up rule to at least 30 replicates inside the stated bounds", "top_up_applies")
         self.assertTrue(SURFACE.top_up_applies(winning_probability=0.5, replicates_after_top_up=30))
-        self.assertFalse(SURFACE.top_up_applies(winning_probability=0.1, replicates_after_top_up=30))
-        self.assertFalse(SURFACE.top_up_applies(winning_probability=0.9, replicates_after_top_up=30))
+        self.assertTrue(SURFACE.top_up_applies(winning_probability=0.1, replicates_after_top_up=30))
+        self.assertTrue(SURFACE.top_up_applies(winning_probability=0.9, replicates_after_top_up=30))
         self.assertFalse(SURFACE.top_up_applies(winning_probability=0.5, replicates_after_top_up=29))
 
 

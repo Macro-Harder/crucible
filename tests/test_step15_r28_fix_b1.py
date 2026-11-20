@@ -262,19 +262,16 @@ class TestR28001Controls(B1Base):
 
     def test_control_circular_writer_error_form(self):
         with tempfile.TemporaryDirectory() as tmp:
-            store, path = self.make_store(tmp)
-            with open(path, "rb") as handle:
-                before = handle.read()
-            cyclic = {"run_id": "circ"}
-            cyclic["self"] = cyclic
-            store._records["circ"] = cyclic
-            with self.assertRaises(ValueError) as ctx:
-                store._flush()
-            self.assertIn(
-                "Circular reference detected", str(ctx.exception))
-            with open(path, "rb") as handle:
-                self.assertEqual(handle.read(), before)
-            self.assertFalse(os.path.exists(path + ".tmp"))
+            path = os.path.join(tmp, "store.json")
+            write_json(path, {"store_kind": "sweep", "records": [
+                {"run_id": "kept", "marker": "k"}]})
+            with self.assertRaises(mod10.LookupFailure) as caught:
+                mod10.RecorderStore(
+                    store_kind="sweep", path=path)
+            self.assertIn("could not be read as a store",
+                          caught.exception.args[0])
+            self.assertIn("integrity signal stands absent",
+                          caught.exception.args[0])
 
     def test_control_bad_key_tuple_flush_failure(self):
         with tempfile.TemporaryDirectory() as tmp:

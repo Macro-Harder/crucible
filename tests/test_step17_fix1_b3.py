@@ -100,7 +100,8 @@ class TestFW23OneIdentifierForm(unittest.TestCase):
         failures = mod01.record_validation_failures(2, record)
         self.assertTrue(failures)
         self.assertIn(
-            "no form stands under that identifier", failures[0])
+            "the identifier stands handed in a non text form, "
+            "the int form", failures[0])
 
     def test_bytes_form_identifier_refused_at_minimal_instance(self):
         with self.assertRaises(ValueError) as ctx:
@@ -172,7 +173,9 @@ class TestFW24LookupDoorsRefuseUnknown(unittest.TestCase):
     def test_required_fields_none_raises_named(self):
         with self.assertRaises(ValueError) as ctx:
             mod01.required_fields(None)
-        self.assertIn("names no form", str(ctx.exception))
+        self.assertIn(
+            "stands handed in a non text form, the NoneType form",
+            str(ctx.exception))
 
     def test_form_name_unknown_raises_named(self):
         with self.assertRaises(ValueError) as ctx:

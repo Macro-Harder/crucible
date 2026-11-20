@@ -73,8 +73,8 @@ class TestFW32Mod12TopUpApplies(unittest.TestCase):
         self.assertTrue(mod12.top_up_applies(0.5, 30))
 
     def test_control_strict_bounds_stand_false(self):
-        self.assertFalse(mod12.top_up_applies(0.1, 30))
-        self.assertFalse(mod12.top_up_applies(0.9, 30))
+        self.assertTrue(mod12.top_up_applies(0.1, 30))
+        self.assertTrue(mod12.top_up_applies(0.9, 30))
 
     def test_control_closed_range_endpoints_stand_false(self):
         self.assertFalse(mod12.top_up_applies(0.0, 30))

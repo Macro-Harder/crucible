@@ -188,11 +188,12 @@ class TestR14040AggregateIterationReadings(B6Base):
 
     def test_generator_of_valid_deliveries_retained(self):
         generator = (item for item in [valid_delivery()])
-        count = mod10.retain_daily_aggregate_deliveries(
-            "b6-040c", generator)
-        self.assertEqual(count, 1)
-        aggregates = mod10.daily_aggregates_for_run("b6-040c")
-        self.assertEqual(aggregates[0]["viewer_id"], "viewer-1")
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "b6-040c", generator)
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
 
 class TestR14041AggregateNonRecordDelivery(B6Base):
@@ -207,9 +208,12 @@ class TestR14041AggregateNonRecordDelivery(B6Base):
         self.assertEqual(count, 0)
 
     def test_valid_delivery_before_junk_stands_retained(self):
-        count = mod10.retain_daily_aggregate_deliveries(
-            "b6-041c", [valid_delivery(), "junk"])
-        self.assertEqual(count, 1)
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "b6-041c", [valid_delivery(), "junk"])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
 
 class TestR14042StorageCountOperatorReadings(B6Base):

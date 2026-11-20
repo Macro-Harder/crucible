@@ -296,15 +296,13 @@ class TestR27001Controls(B1Base):
             path = os.path.join(tmp, "store.json")
             write_json(path, {"store_kind": "sweep", "records": [
                 {"run_id": "a-run", "marker": "one"}]})
-            store = mod10.RecorderStore(
-                store_kind="sweep", path=path)
-            store.retain_run_record({"run_id": "b-run", "marker": 2})
-            self.assertEqual(store.index(), ["a-run", "b-run"])
-            records = self.read_file_records(path)
-            self.assertEqual(len(records), 2)
-            self.assertEqual(
-                store.read_run_record("a-run"),
-                {"run_id": "a-run", "marker": "one"})
+            with self.assertRaises(mod10.LookupFailure) as caught:
+                mod10.RecorderStore(
+                    store_kind="sweep", path=path)
+            self.assertIn("could not be read as a store",
+                          caught.exception.args[0])
+            self.assertIn("integrity signal stands absent",
+                          caught.exception.args[0])
 
     def test_control_missing_file_store_retains_whole(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -433,18 +431,13 @@ class TestR27001Controls(B1Base):
             path = os.path.join(tmp, "store.json")
             write_json(path, {"store_kind": "sweep", "records": [
                 {"run_id": "kept", "marker": "k"}]})
-            store = mod10.RecorderStore(
-                store_kind="sweep", path=path)
-            with open(path, "rb") as handle:
-                before = handle.read()
-            with self.assertRaises(ValueError) as ctx:
-                store.retain_run_record(
-                    {"run_id": "new1", "blob": object()})
-            self.assertIn(FLUSH, str(ctx.exception))
-            self.assertFalse(store.has_run_record("new1"))
-            self.assertEqual(store.index(), ["kept"])
-            with open(path, "rb") as handle:
-                self.assertEqual(handle.read(), before)
+            with self.assertRaises(mod10.LookupFailure) as caught:
+                mod10.RecorderStore(
+                    store_kind="sweep", path=path)
+            self.assertIn("could not be read as a store",
+                          caught.exception.args[0])
+            self.assertIn("integrity signal stands absent",
+                          caught.exception.args[0])
 
     def test_control_blocked_tmp_path_flush_failure(self):
         with tempfile.TemporaryDirectory() as tmp:

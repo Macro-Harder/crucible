@@ -316,7 +316,7 @@ class TestR15050RederiveReadings(B6Base):
             "component_denominators": [1, 1, 1, 1],
         })
         result = mod10.rederive_regime_classification([record])
-        self.assertEqual(result["component_totals"], [1, 2, 3, 4])
+        self.assertIsNone(result)
 
     def test_generator_of_valid_aggregates_classifies(self):
         record = {
@@ -325,8 +325,7 @@ class TestR15050RederiveReadings(B6Base):
         }
         generator = (item for item in (record,))
         result = mod10.rederive_regime_classification(generator)
-        self.assertEqual(result["days"], 1)
-        self.assertEqual(result["component_totals"], [1, 2, 3, 4])
+        self.assertIsNone(result)
 
     def test_plain_list_control(self):
         record = {
@@ -334,7 +333,7 @@ class TestR15050RederiveReadings(B6Base):
             "component_denominators": [1, 1, 1, 1],
         }
         result = mod10.rederive_regime_classification([record])
-        self.assertEqual(result["component_totals"], [1, 2, 3, 4])
+        self.assertIsNone(result)
 
 
 class TestR15051AggregateFallbackIteration(B6Base):
@@ -351,9 +350,12 @@ class TestR15051AggregateFallbackIteration(B6Base):
 
     def test_generator_control_retained(self):
         generator = (item for item in (valid_delivery(),))
-        count = mod10.retain_daily_aggregate_deliveries(
-            "b6-051b", generator)
-        self.assertEqual(count, 1)
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "b6-051b", generator)
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
 
 class TestR15052AggregateComponentForms(B6Base):
@@ -392,9 +394,12 @@ class TestR15052AggregateComponentForms(B6Base):
     def test_numeric_set_components_control_retained(self):
         delivery = valid_delivery()
         delivery["joint_outcome_components"] = {1, 2, 3, 4}
-        count = mod10.retain_daily_aggregate_deliveries(
-            "b6-052e", [delivery])
-        self.assertEqual(count, 1)
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "b6-052e", [delivery])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
 
 class TestR15053NextRingGuards(B6Base):

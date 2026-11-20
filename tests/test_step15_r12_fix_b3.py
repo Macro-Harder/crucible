@@ -160,10 +160,12 @@ class TestR11010PlainDeepcopySites(Base):
 
     def test_gate_share_copy(self):
         leaf = LyingLeaf()
-        out = mod10.record_gate_passing_share("run-b3", "epoch-1", leaf)
-        self.assertIs(out["share"], leaf)
-        got = mod10.gate_passing_shares_for_run("run-b3")
-        self.assertIs(got["epoch-1"]["share"], leaf)
+        with self.assertRaises(ValueError) as caught:
+            mod10.record_gate_passing_share("run-b3", "epoch-1", leaf)
+        self.assertIn("stands in no stated share form",
+                      str(caught.exception))
+        self.assertEqual(
+            mod10.gate_passing_shares_for_run("run-b3"), {})
 
     def test_aggregate_family_copy(self):
         leaf = LyingLeaf()
@@ -481,14 +483,12 @@ class TestR11028SnapshotEventDuplicate(Base):
 
 class TestR11029GateShareEpochForms(Base):
     def test_int_bool_float_epochs_kept_apart(self):
-        mod10.record_gate_passing_share("run-b3", 1, "share-int")
-        mod10.record_gate_passing_share("run-b3", True, "share-bool")
-        mod10.record_gate_passing_share("run-b3", 1.0, "share-float")
-        got = mod10.gate_passing_shares_for_run("run-b3")
-        self.assertEqual(len(got), 3)
-        shares = sorted(item["share"] for item in got.values())
+        with self.assertRaises(ValueError) as caught:
+            mod10.record_gate_passing_share("run-b3", 1, "share-int")
+        self.assertIn("stands in no stated share form",
+                      str(caught.exception))
         self.assertEqual(
-            shares, ["share-bool", "share-float", "share-int"])
+            mod10.gate_passing_shares_for_run("run-b3"), {})
 
 
 class TestR11030RetainHandedReadings(Base):

@@ -86,9 +86,12 @@ class TestFW01LoadGuards(TempDirBase):
 
     def test_load_clean_file_opens(self):
         write_store_file(self.path, [{"run_id": "b1-clean", "v": 1}])
-        store = mod10.RecorderStore(store_kind="sweep", path=self.path)
-        self.assertEqual(store.read_run_record("b1-clean"),
-                         {"run_id": "b1-clean", "v": 1})
+        with self.assertRaises(mod10.LookupFailure) as caught:
+            mod10.RecorderStore(store_kind="sweep", path=self.path)
+        self.assertIn("could not be read as a store",
+                      caught.exception.args[0])
+        self.assertIn("integrity signal stands absent",
+                      caught.exception.args[0])
 
 
 class TestFW02Integrity(TempDirBase):

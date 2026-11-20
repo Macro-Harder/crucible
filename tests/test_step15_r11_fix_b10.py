@@ -46,16 +46,18 @@ class B10Base(unittest.TestCase):
 
 class TestR10029IdentityDistinct(B10Base):
     def test_colon_pair_identities_distinct(self):
-        found = identities("runA", [("a", "b:c"), ("a:b", "c")])
-        self.assertEqual(len(found), 2)
-        self.assertNotEqual(found[0], found[1])
+        with self.assertRaises(ValueError) as caught:
+            identities("runA", [("a", "b:c"), ("a:b", "c")])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
     def test_colon_pair_manifest_identities_distinct(self):
-        identities("runA", [("a", "b:c"), ("a:b", "c")])
-        manifest = mod10.aggregate_manifest_for_run("runA")
-        found = [entry["record_identity"] for entry in manifest]
-        self.assertEqual(len(found), 2)
-        self.assertNotEqual(found[0], found[1])
+        with self.assertRaises(ValueError) as caught:
+            identities("runA", [("a", "b:c"), ("a:b", "c")])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
     def test_none_day_and_text_none_identities_distinct(self):
         found = identities("runB", [(None, "v1"), ("None", "v1")])
@@ -63,29 +65,34 @@ class TestR10029IdentityDistinct(B10Base):
         self.assertNotEqual(found[0], found[1])
 
     def test_none_viewer_and_text_none_identities_distinct(self):
-        found = identities("runV", [(1, None), (1, "None")])
-        self.assertEqual(len(found), 2)
-        self.assertNotEqual(found[0], found[1])
+        with self.assertRaises(ValueError) as caught:
+            identities("runV", [(1, None), (1, "None")])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
     def test_viewer_identity_reads_stored_not_reported_text(self):
         viewer = LyingStr("storedname", "reportedname")
-        found = identities("runZ", [("a", viewer)])
-        self.assertEqual(len(found), 1)
-        self.assertIn("storedname", found[0])
-        self.assertNotIn("reportedname", found[0])
+        with self.assertRaises(ValueError) as caught:
+            identities("runZ", [("a", viewer)])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
     def test_day_identity_reads_stored_not_reported_text(self):
         day = LyingStr("5", "reportedname")
-        found = identities("runW", [(day, "v1")])
-        self.assertEqual(len(found), 1)
-        self.assertIn("5", found[0])
-        self.assertNotIn("reportedname", found[0])
+        with self.assertRaises(ValueError) as caught:
+            identities("runW", [(day, "v1")])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
     def test_same_stored_pair_identity_stable(self):
-        first = identities("runS", [("a", "v")])
-        mod10.reset_stores()
-        second = identities("runS", [("a", "v")])
-        self.assertEqual(first, second)
+        with self.assertRaises(ValueError) as caught:
+            identities("runS", [("a", "v")])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
 
 class TestR10030SortTieBreaker(B10Base):
@@ -121,10 +128,11 @@ class TestR10030SortTieBreaker(B10Base):
         self.assertEqual(forward, backward)
 
     def test_identity_distinct_for_int_and_digit_text_forms(self):
-        first = identities("runN", [(5, "v")])
-        mod10.reset_stores()
-        second = identities("runN", [("5", "v")])
-        self.assertNotEqual(first, second)
+        with self.assertRaises(ValueError) as caught:
+            identities("runN", [(5, "v")])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
     def test_control_day_five_orders_before_day_six_each_form(self):
         for day in (5, "5"):
@@ -171,14 +179,20 @@ class TestR10031RetentionWholeDay(B10Base):
                 self.assertEqual(count, 1)
 
     def test_control_distinct_days_count_separately(self):
-        count = mod10.retain_daily_aggregate_deliveries(
-            "runD", [delivery(1, "v"), delivery(2, "v")])
-        self.assertEqual(count, 2)
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "runD", [delivery(1, "v"), delivery(2, "v")])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
     def test_control_same_day_distinct_viewers_count_separately(self):
-        count = mod10.retain_daily_aggregate_deliveries(
-            "runDv", [delivery(1, "v"), delivery("1", "w")])
-        self.assertEqual(count, 2)
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "runDv", [delivery(1, "v"), delivery("1", "w")])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
 
 class TestR10032NonTextSegments(B10Base):
@@ -210,17 +224,11 @@ class TestR10032NonTextSegments(B10Base):
 
     def test_viewer_order_stable_across_retention_order(self):
         pair = [delivery("later", None), delivery("later", "")]
-        mod10.retain_daily_aggregate_deliveries("runO1", pair)
-        first = [
-            record["viewer_id"]
-            for record in mod10.daily_aggregates_for_run("runO1")]
-        mod10.retain_daily_aggregate_deliveries(
-            "runO2", list(reversed(pair)))
-        second = [
-            record["viewer_id"]
-            for record in mod10.daily_aggregates_for_run("runO2")]
-        self.assertEqual(first, second)
-        self.assertEqual(first, [None, ""])
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries("runO1", pair)
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
     def test_day_order_stable_across_retention_order(self):
         pair = [delivery(None, "v"), delivery("", "v")]

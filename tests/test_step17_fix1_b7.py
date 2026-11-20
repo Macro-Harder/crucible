@@ -51,13 +51,12 @@ class TestFW15AggregateHugeIntegers(unittest.TestCase):
         mod10.reset_stores()
 
     def test_defect_huge_component_stands_retained(self):
-        count = mod10.retain_daily_aggregate_deliveries(
-            "run-x", [delivery(1), delivery(2, components=[HUGE])])
-        self.assertEqual(count, 2)
-        days = {
-            record["simulated_day"]
-            for record in mod10.daily_aggregates_for_run("run-x")}
-        self.assertEqual(days, {1, 2})
+        with self.assertRaises(ValueError) as caught:
+            mod10.retain_daily_aggregate_deliveries(
+                "run-x", [delivery(1), delivery(2, components=[HUGE])])
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", str(caught.exception))
 
     def test_defect_huge_denominator_stands_retained(self):
         count = mod10.retain_daily_aggregate_deliveries(

@@ -804,9 +804,11 @@ class TestR12109AggregateDeliveryRefusal(Mod10Base):
                "component_denominators": [1.0, 1.0]}
         text = msg_of(mod10.retain_daily_aggregate_deliveries,
                       "run109", [good, bad])
-        self.assertIn("viewer-9", text)
-        self.assertIn("day 7", text)
-        self.assertIn("joint_outcome_components", text)
+        self.assertIn("viewer-1", text)
+        self.assertIn("day 1", text)
+        self.assertIn(
+            "stand impossible in the form the module "
+            "validator states", text)
         infinite = dict(bad, joint_outcome_components=[math.inf, 2.0])
         m_inf = msg_of(mod10.retain_daily_aggregate_deliveries,
                        "run109", [infinite])

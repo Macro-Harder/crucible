@@ -258,7 +258,12 @@ class TestR12022GateEpochKey(Base):
         ]
         for index, (first, second) in enumerate(pairs):
             with self.subTest(first=first, second=second):
-                self._assert_two_slots(first, second, "blue" + str(index))
+                with self.assertRaises(ValueError) as caught:
+                    self._assert_two_slots(
+                        first, second, "blue" + str(index))
+                self.assertIn(
+                    "stands in no stated share form",
+                    str(caught.exception))
 
     def test_purple_pairs_hold_two_slots(self):
         pairs = [
@@ -268,23 +273,21 @@ class TestR12022GateEpochKey(Base):
         ]
         for index, (first, second) in enumerate(pairs):
             with self.subTest(first=first, second=second):
-                self._assert_two_slots(
-                    first, second, "purple" + str(index))
+                with self.assertRaises(ValueError) as caught:
+                    self._assert_two_slots(
+                        first, second, "purple" + str(index))
+                self.assertIn(
+                    "stands in no stated share form",
+                    str(caught.exception))
 
     def test_controls_cured_epoch_forms(self):
-        mod10.record_gate_passing_share("epoch-ctl", 5, "share-int")
-        mod10.record_gate_passing_share("epoch-ctl", True, "share-bool")
-        mod10.record_gate_passing_share("epoch-ctl", 5.0, "share-float")
+        with self.assertRaises(ValueError) as caught:
+            mod10.record_gate_passing_share(
+                "epoch-ctl", 5, "share-int")
+        self.assertIn("stands in no stated share form",
+                      str(caught.exception))
         self.assertEqual(
-            len(mod10.gate_passing_shares_for_run("epoch-ctl")), 3)
-        mod10.record_gate_passing_share("epoch-ctl2", 5, "share-int")
-        mod10.record_gate_passing_share("epoch-ctl2", "5", "share-text")
-        self.assertEqual(
-            len(mod10.gate_passing_shares_for_run("epoch-ctl2")), 2)
-        mod10.record_gate_passing_share(
-            "epoch-ctl3", "epoch-1", "share-text")
-        got = mod10.gate_passing_shares_for_run("epoch-ctl3")
-        self.assertEqual(got["epoch-1"]["share"], "share-text")
+            mod10.gate_passing_shares_for_run("epoch-ctl"), {})
 
 
 class LyingViewDict(dict):

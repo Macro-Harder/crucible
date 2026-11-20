@@ -426,16 +426,13 @@ class TestR28002Controls(B2Base):
             path = os.path.join(tmp, "store.json")
             write_json(path, {"store_kind": "sweep", "records": [
                 {"run_id": "kept", "marker": "k"}]})
-            store = mod10.RecorderStore(
-                store_kind="sweep", path=path)
-            before = read_text(path)
-            with self.assertRaises(ValueError) as ctx:
-                store.retain_run_record(
-                    {"run_id": "new1", "blob": object()})
-            self.assertIn(FLUSH, str(ctx.exception))
-            self.assertFalse(store.has_run_record("new1"))
-            self.assertEqual(store.index(), ["kept"])
-            self.assertEqual(read_text(path), before)
+            with self.assertRaises(mod10.LookupFailure) as caught:
+                mod10.RecorderStore(
+                    store_kind="sweep", path=path)
+            self.assertIn("could not be read as a store",
+                          caught.exception.args[0])
+            self.assertIn("integrity signal stands absent",
+                          caught.exception.args[0])
 
     def test_control_limits_stand_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:

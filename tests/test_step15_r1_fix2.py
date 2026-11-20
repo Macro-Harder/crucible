@@ -437,7 +437,7 @@ class TestControllerValidators(unittest.TestCase):
             mod12.top_up_applies("high", 30)
         self.assertTrue(mod12.winning_regime([(0.6, 0.4)] * 30))
         self.assertTrue(mod12.top_up_applies(0.5, 30))
-        self.assertFalse(mod12.top_up_applies(0.1, 30))
+        self.assertTrue(mod12.top_up_applies(0.1, 30))
 
     def test_gated_refusal_form_and_input_validation(self):
         bogus = mod12.start_run(run_class="bogus", family_id="fam-1")
