@@ -1,0 +1,1960 @@
+"""MOD-02, Seed and Stream Engine.
+
+Interface form only. The module states the engine interface in full:
+derivation input in, stream state and draws out, and generator state in
+the form checkpoints carry. Any generator, adopted or not, stands behind
+this interface. No hash construction detail enters a run record beyond
+the derivation version string and the recorded string parameter values
+that Shape 5 states.
+
+Gate standing. Design question DQ7-02 stands carried open in full and
+register question NQ-24 stands open. No seed derivation, stream
+inventory, or generator stands adopted. Until an adoption record
+stands, no executable path in this module draws a seed, reads a clock,
+or assigns a seed in completion order. Every executable derivation
+entry point returns the gated refusal stated in this module. Order and
+schedule independence stands as a stated invariant of this interface.
+"""
+
+import datetime
+from decimal import Decimal
+from fractions import Fraction
+
+from crucible import mod01 as _mod01
+
+GATE_QUESTION = "DQ7-02"
+REGISTER_QUESTION = "NQ-24"
+GATED = "gated"
+DERIVATION_GATED_FAILURE = "DERIVATION-GATED"
+STREAM_EXHAUSTED_FAILURE = "STREAM-EXHAUSTED"
+
+_DOMAINS = ("screening", "held out confirmation")
+_CARDINALITY_BASIS = "inventory named in the adoption record"
+_STREAM_RECOVERY_FORMS = ("fresh run",)
+_BATTERY_RESULT_STATES = ("passed", "failed", "gated")
+_BATTERY_FAILURE_RECORD_FIELDS = (
+    "derivation input set",
+    "advance sample size",
+    "first mismatching stream class",
+    "two differing outputs by reference",
+)
+_CANDIDATE_SEPARATOR = "|"
+_OPEN_LIMBS = (
+    ("substream extension", "NQ-60 item 5"),
+    ("analysis resampling", "NQ-60 item 7"),
+)
+_EXPOSURE_LOG_FIELDS = (
+    "family and run identifier",
+    "domain of exposed material",
+    "exposed material kind",
+    "form of exposure",
+    "receiving party",
+    "channel of exposure",
+    "time of exposure",
+    "exposure and adaptive round counts",
+    "next recorded action of receiving party",
+    "commitment state",
+    "disclosure state",
+    "consequence recorded for the result",
+    "judge note",
+)
+_REPORTER_READINGS = (
+    "not gameable on exposure grounds",
+    "gameable",
+    "cannot tell from this log",
+)
+_DERIVATION_INPUT_FIELDS = (
+    "derivation_version",
+    "domain",
+    "root_seed_reference",
+    "scenario_identifier",
+    "run_identifier",
+    "stream_class_identifier",
+    "parameter_values",
+)
+_BARRED_DERIVATION_TEXTS = (
+    "arithmetic on a root seed",
+    "small increment on a root seed",
+    "random starting point in a shared sequence",
+)
+
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing argument handing in the named
+form of this module instead of escaping as bare interpreter
+text at the call itself (FW6-03)."""
+
+
+SeedDerivationInput = _mod01.SeedDerivationInput
+StreamSet = _mod01.StreamSet
+
+
+def mod01_surface():
+    """Return the MOD-01 module this engine depends on."""
+    return _mod01
+
+
+def mod01_type(name):
+    """Return a type named on the MOD-01 surface, or None if absent."""
+    return getattr(_mod01, name, None)
+
+
+def gate_standing():
+    """Return the adoption gate standing for this module."""
+    return {
+        "gate": GATE_QUESTION,
+        "register_question": REGISTER_QUESTION,
+        "standing": "carried open in full",
+        "executable_derivation": GATED,
+        "adoption_record": None,
+    }
+
+
+def domain_vocabulary():
+    """Return the closed two value domain vocabulary of Shape 5."""
+    return _DOMAINS
+
+
+def validate_domain(domain):
+    """Return True only for a stated domain value."""
+    if not isinstance(domain, str):
+        return False
+    stored = str.__str__(domain)
+    return any(str.__eq__(stored, stated) for stated in _DOMAINS)
+
+
+def validate_derivation_domain_use(purpose=None, seed_domain=None):
+    """Return True only where a seed is used inside its own domain."""
+    if not validate_domain(purpose) or not validate_domain(seed_domain):
+        return False
+    return str.__eq__(str.__str__(purpose), str.__str__(seed_domain))
+
+
+def _base_iter(value):
+    """Iterate a list, tuple, set, or frozenset part through its
+    base class iteration, never through a reading the part
+    itself supplies."""
+    iter_by_base = {list: list.__iter__, tuple: tuple.__iter__,
+                    set: set.__iter__, frozenset: frozenset.__iter__}
+    for base, base_iter in iter_by_base.items():
+        if isinstance(value, base):
+            return base_iter(value)
+    return iter(value)
+
+
+def _base_text_eq(value, stated):
+    """Return whether a handed text value stores the stated text,
+    judged through the base string equality on the stored text,
+    never through an equality reading the value supplies."""
+    if not isinstance(value, str):
+        return False
+    return str.__eq__(str.__str__(value), stated) is True
+
+
+def _plain_number(value):
+    """Return a plain number holding the value a handed number
+    stores, built through base class operations, or None where
+    the value stands in no number form this module reads."""
+    if isinstance(value, bool):
+        return int.__new__(int, int.__int__(value))
+    if isinstance(value, int):
+        return int.__new__(int, int.__int__(value))
+    if isinstance(value, float):
+        return float.__new__(float, float.__float__(value))
+    if isinstance(value, Decimal):
+        return Decimal.__new__(Decimal, value)
+    if isinstance(value, Fraction):
+        return Fraction.__new__(Fraction, value)
+    if isinstance(value, complex):
+        return complex.__new__(complex, value)
+    return None
+
+
+def _stored_present(value):
+    """Return whether a handed value stands present on its
+    stored contents, judged through base class operations
+    only: the stored characters of a text, the stored length
+    of a container, and the stored number of a number, never
+    through a truth, length, or bool reading the value itself
+    supplies. A value in none of those forms stands present
+    where it stands handed in at all."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return str.__len__(str.__str__(value)) != 0
+    if isinstance(value, bytes):
+        return bytes.__len__(value) != 0
+    if isinstance(value, bytearray):
+        return bytearray.__len__(value) != 0
+    if isinstance(value, memoryview):
+        return memoryview.__len__(value) != 0
+    if isinstance(value, dict):
+        return dict.__len__(value) != 0
+    if isinstance(value, list):
+        return list.__len__(value) != 0
+    if isinstance(value, tuple):
+        return tuple.__len__(value) != 0
+    if isinstance(value, (set, frozenset)):
+        if isinstance(value, set):
+            return set.__len__(value) != 0
+        return frozenset.__len__(value) != 0
+    plain = _plain_number(value)
+    if plain is not None:
+        return plain != 0
+    return True
+
+
+def _new_eq_frame(left, right):
+    return {"left": left, "right": right, "stage": "start",
+            "awaiting": None, "pair": None, "mode": None}
+
+
+def _base_value_eq(left, right):
+    """Return whether two handed values agree on their stored
+    contents, judged through base class operations at every
+    level, never through an equality, get, keys, or iteration
+    reading a handed value supplies. The judgement stands
+    kind first on numbers: a boolean stands apart from every
+    number and stands equal only to itself, a Decimal stands
+    equal only to a Decimal holding the same stored value,
+    a Fraction stands equal only to a Fraction holding the
+    same stored value, and the plain number limb reaches
+    int, float, and complex values alone, so no value crosses
+    into a number kind it does not store. The comparison
+    runs on an explicit stack, in the style this module
+    states for
+    its deep walks, so a deep acyclic state answers on its
+    stored contents instead of raising a bare RecursionError
+    from the interpreter frame limit. A pair of containers
+    that stands again on its own comparison path stands in
+    a cycle, and the act raises RecursionError for that pair,
+    as the recursive form did."""
+    stack = [_new_eq_frame(left, right)]
+    active = set()
+    pending = [None, False]
+
+    def close(value):
+        done = stack.pop()
+        if done["pair"] is not None:
+            active.discard(done["pair"])
+        if not stack:
+            return True
+        pending[0] = value
+        pending[1] = True
+        return False
+
+    while stack:
+        frame = stack[-1]
+        if pending[1]:
+            outcome = pending[0]
+            pending[1] = False
+            awaiting = frame["awaiting"]
+            frame["awaiting"] = None
+            if awaiting == "dict_key":
+                if outcome:
+                    frame["matched"] = frame["right_keys"][
+                        frame["candidate"]]
+                    frame["matched_index"] = frame["candidate"]
+                    frame["phase"] = "value"
+                else:
+                    frame["candidate"] += 1
+            elif awaiting == "dict_value":
+                if not outcome:
+                    frame["candidate"] = frame["matched_index"] + 1
+                    frame["matched"] = None
+                    frame["matched_index"] = None
+                    frame["phase"] = "key"
+                else:
+                    frame["used"].append(frame["matched_index"])
+                    frame["matched"] = None
+                    frame["matched_index"] = None
+                    frame["key_index"] += 1
+                    frame["candidate"] = 0
+                    frame["phase"] = "key"
+            elif awaiting == "seq_item":
+                if not outcome:
+                    if close(False):
+                        return False
+                    continue
+                frame["index"] += 1
+            elif awaiting == "set_candidate":
+                if outcome:
+                    frame["remaining"].pop(frame["candidate"])
+                    frame["item_index"] += 1
+                    frame["candidate"] = 0
+                else:
+                    frame["candidate"] += 1
+        if frame["stage"] == "start":
+            frame["stage"] = "work"
+            held = frame["left"]
+            other = frame["right"]
+            if held is None or other is None:
+                value = held is other
+                if close(value):
+                    return value
+                continue
+            if isinstance(held, str) or isinstance(other, str):
+                if not isinstance(held, str) or not isinstance(
+                        other, str):
+                    if close(False):
+                        return False
+                    continue
+                value = str.__eq__(
+                    str.__str__(held), str.__str__(other)) is True
+                if close(value):
+                    return value
+                continue
+            if isinstance(held, dict) or isinstance(other, dict):
+                if not isinstance(held, dict) or not isinstance(
+                        other, dict):
+                    if close(False):
+                        return False
+                    continue
+                if dict.__len__(held) != dict.__len__(other):
+                    if close(False):
+                        return False
+                    continue
+                pair = (id(held), id(other))
+                if pair in active:
+                    raise RecursionError(
+                        "maximum recursion depth exceeded "
+                        "in comparison")
+                active.add(pair)
+                frame["pair"] = pair
+                frame["mode"] = "dict"
+                frame["left_pairs"] = list(dict.items(held))
+                frame["right_pairs"] = list(dict.items(other))
+                frame["left_keys"] = [
+                    pair[0] for pair in frame["left_pairs"]]
+                frame["right_keys"] = [
+                    pair[0] for pair in frame["right_pairs"]]
+                frame["key_index"] = 0
+                frame["candidate"] = 0
+                frame["phase"] = "key"
+                frame["matched"] = None
+                frame["matched_index"] = None
+                frame["used"] = []
+                continue
+            if isinstance(held, (list, tuple)) or isinstance(
+                    other, (list, tuple)):
+                if not isinstance(held, (list, tuple)) or not (
+                        isinstance(other, (list, tuple))):
+                    if close(False):
+                        return False
+                    continue
+                if isinstance(held, list) != isinstance(other, list):
+                    if close(False):
+                        return False
+                    continue
+                if isinstance(held, list):
+                    left_items = list(list.__iter__(held))
+                    right_items = list(list.__iter__(other))
+                else:
+                    left_items = list(tuple.__iter__(held))
+                    right_items = list(tuple.__iter__(other))
+                if len(left_items) != len(right_items):
+                    if close(False):
+                        return False
+                    continue
+                pair = (id(held), id(other))
+                if pair in active:
+                    raise RecursionError(
+                        "maximum recursion depth exceeded "
+                        "in comparison")
+                active.add(pair)
+                frame["pair"] = pair
+                frame["mode"] = "seq"
+                frame["left_items"] = left_items
+                frame["right_items"] = right_items
+                frame["index"] = 0
+                continue
+            if isinstance(held, (set, frozenset)) or isinstance(
+                    other, (set, frozenset)):
+                if not isinstance(held, (set, frozenset)) or not (
+                        isinstance(other, (set, frozenset))):
+                    if close(False):
+                        return False
+                    continue
+                left_items = []
+                for item in (set.__iter__(held) if isinstance(
+                        held, set) else frozenset.__iter__(held)):
+                    left_items.append(item)
+                right_items = []
+                for item in (set.__iter__(other) if isinstance(
+                        other, set) else frozenset.__iter__(other)):
+                    right_items.append(item)
+                if len(left_items) != len(right_items):
+                    if close(False):
+                        return False
+                    continue
+                pair = (id(held), id(other))
+                if pair in active:
+                    raise RecursionError(
+                        "maximum recursion depth exceeded "
+                        "in comparison")
+                active.add(pair)
+                frame["pair"] = pair
+                frame["mode"] = "set"
+                frame["left_items"] = left_items
+                frame["remaining"] = list(right_items)
+                frame["item_index"] = 0
+                frame["candidate"] = 0
+                continue
+            if isinstance(held, bool) or isinstance(other, bool):
+                value = held is other
+                if close(value):
+                    return value
+                continue
+            if isinstance(held, Decimal) or isinstance(
+                    other, Decimal):
+                if isinstance(held, Decimal) and isinstance(
+                        other, Decimal):
+                    value = Decimal.__eq__(
+                        Decimal.__new__(Decimal, held),
+                        Decimal.__new__(Decimal, other)) is True
+                else:
+                    value = False
+                if close(value):
+                    return value
+                continue
+            if isinstance(held, Fraction) or isinstance(
+                    other, Fraction):
+                if isinstance(held, Fraction) and isinstance(
+                        other, Fraction):
+                    value = Fraction.__eq__(
+                        Fraction.__new__(Fraction, held),
+                        Fraction.__new__(Fraction, other)) is True
+                else:
+                    value = False
+                if close(value):
+                    return value
+                continue
+            left_number = _plain_number(held)
+            right_number = _plain_number(other)
+            if left_number is not None or right_number is not None:
+                if left_number is None or right_number is None:
+                    if close(False):
+                        return False
+                    continue
+                value = left_number == right_number
+                if close(value):
+                    return value
+                continue
+            if isinstance(held, bytes) and isinstance(other, bytes):
+                value = bytes.__eq__(held, other) is True
+                if close(value):
+                    return value
+                continue
+            if isinstance(held, (bytearray, memoryview)) or isinstance(
+                    other, (bytearray, memoryview)):
+                if not isinstance(
+                        held, (bytes, bytearray, memoryview)) or not (
+                        isinstance(
+                            other, (bytes, bytearray, memoryview))):
+                    if close(False):
+                        return False
+                    continue
+                value = bytes(held) == bytes(other)
+                if close(value):
+                    return value
+                continue
+            if type(held) is datetime.date and type(
+                    other) is datetime.date:
+                value = datetime.date.__eq__(held, other) is True
+                if close(value):
+                    return value
+                continue
+            if type(held) is datetime.datetime and type(
+                    other) is datetime.datetime:
+                value = datetime.datetime.__eq__(held, other) is True
+                if close(value):
+                    return value
+                continue
+            if type(held) is datetime.time and type(
+                    other) is datetime.time:
+                value = datetime.time.__eq__(held, other) is True
+                if close(value):
+                    return value
+                continue
+            value = held is other
+            if close(value):
+                return value
+            continue
+        mode = frame["mode"]
+        if mode == "dict":
+            if frame["key_index"] >= len(frame["left_keys"]):
+                if close(True):
+                    return True
+                continue
+            if frame["phase"] == "key":
+                while (frame["candidate"] < len(frame["right_keys"])
+                        and frame["candidate"] in frame["used"]):
+                    frame["candidate"] += 1
+                if frame["candidate"] >= len(frame["right_keys"]):
+                    if close(False):
+                        return False
+                    continue
+                frame["awaiting"] = "dict_key"
+                stack.append(_new_eq_frame(
+                    frame["left_keys"][frame["key_index"]],
+                    frame["right_keys"][frame["candidate"]]))
+                continue
+            frame["awaiting"] = "dict_value"
+            stack.append(_new_eq_frame(
+                frame["left_pairs"][frame["key_index"]][1],
+                frame["right_pairs"][frame["matched_index"]][1]))
+            continue
+        if mode == "seq":
+            if frame["index"] >= len(frame["left_items"]):
+                if close(True):
+                    return True
+                continue
+            frame["awaiting"] = "seq_item"
+            stack.append(_new_eq_frame(
+                frame["left_items"][frame["index"]],
+                frame["right_items"][frame["index"]]))
+            continue
+        if mode == "set":
+            if frame["item_index"] >= len(frame["left_items"]):
+                if close(True):
+                    return True
+                continue
+            if frame["candidate"] >= len(frame["remaining"]):
+                if close(False):
+                    return False
+                continue
+            frame["awaiting"] = "set_candidate"
+            stack.append(_new_eq_frame(
+                frame["left_items"][frame["item_index"]],
+                frame["remaining"][frame["candidate"]]))
+            continue
+    return pending[0]
+
+
+def _base_set_eq(left, right):
+    """Return whether two handed sets hold matching stored
+    elements, matched through base value equality."""
+    return _base_value_eq(left, right)
+
+
+def _base_dict_get(mapping, key, default=None):
+    """Return the value a handed mapping stores under a key,
+    found by scanning the stored pairs through base value
+    equality and read as the stored item of the matched pair,
+    never through a get, keys, or equality reading the mapping or
+    the key supplies."""
+    for stored_key, item in dict.items(mapping):
+        if _base_value_eq(stored_key, key):
+            return item
+    return default
+
+
+def _stream_set_classes(stream_set):
+    """Return the stream class names a run StreamSet carries, or
+    None where no StreamSet stands handed in. A StreamSet stands
+    read in its typed form, in record form, or as a plain list of
+    class names, and each inventory entry stands read as a name
+    or as a record carrying its class name. Every reading runs
+    through base class operations only, never through a protocol
+    the handed value supplies. A StreamSet that stands handed in
+    but cannot be read in any stated form stands refused in this
+    module named failure form, a ValueError, and never falls back
+    to the no StreamSet behaviour. A plain dict carrying no
+    inventory key stands in no stated form and stands refused
+    in the same form, instead of reading its keys as classes."""
+    if stream_set is None:
+        return None
+    typed = False
+    if isinstance(stream_set, dict):
+        values = stream_set
+    elif isinstance(stream_set, (list, tuple, set, frozenset)):
+        values = stream_set
+    else:
+        stored = None
+        try:
+            instance_dict = object.__getattribute__(
+                stream_set, "__dict__")
+        except Exception:
+            instance_dict = None
+        if isinstance(instance_dict, dict) and dict.__contains__(
+                instance_dict, "values"):
+            stored = dict.__getitem__(instance_dict, "values")
+        if isinstance(stored, dict):
+            values = stored
+            typed = True
+        else:
+            raise ValueError(
+                "stream set stands in no stated form: the handed "
+                "value stands as a " + type(stream_set).__name__
+                + ", in no stated stream set form")
+    inventory = None
+    inventory_found = False
+    if isinstance(values, dict):
+        missing = object()
+        for key in ("stream_class_inventory", "stream_classes",
+                    "inventory", "classes"):
+            found = _base_dict_get(values, key, missing)
+            if found is not missing:
+                inventory = found
+                inventory_found = True
+                break
+        if not inventory_found:
+            raise ValueError(
+                "stream set carries no stream class inventory")
+    elif isinstance(values, (list, tuple, set, frozenset)):
+        inventory = list(_base_iter(values))
+        inventory_found = True
+    if inventory_found:
+        if isinstance(inventory, dict):
+            inventory = list(dict.__iter__(inventory))
+        elif isinstance(inventory, (list, tuple, set, frozenset)):
+            inventory = list(_base_iter(inventory))
+        else:
+            raise ValueError(
+                "stream class inventory stands in no stated form: "
+                "the handed inventory stands as a "
+                + type(inventory).__name__
+                + ", in no stated stream set form")
+    classes = []
+    for entry in inventory or []:
+        if isinstance(entry, dict):
+            name = None
+            for key in ("stream_class_identifier", "stream_class",
+                        "name", "identifier", "class"):
+                if _base_dict_get(entry, key) is not None:
+                    name = _base_dict_get(entry, key)
+                    break
+            if name is None:
+                raise ValueError(
+                    "stream class inventory entry names no class: "
+                    "the handed entry stands as a "
+                    + type(entry).__name__
+                    + ", carrying no class name")
+            classes.append(name)
+        else:
+            classes.append(entry)
+    for name in classes:
+        try:
+            hash(name)
+        except Exception:
+            raise ValueError(
+                "stream class entry stands in no stated form: "
+                "the handed entry stands as a "
+                + type(name).__name__
+                + ", in no stated stream set form") from None
+    return classes
+
+
+def validate_stream_cardinality(counts=None, stream_set=None,
+                                **kwargs):
+    """Return True only at exactly one derivation input per class.
+
+    The counts mapping names each stream class in the run StreamSet
+    against the number of derivation inputs handed over for it. Any
+    count other than one, for any class, fails. An empty set fails.
+    Where the run StreamSet stands handed in, as the second
+    argument or under a stream set keyword, the classes named in
+    the counts must stand as exactly the classes of that set: a
+    class of the set with no count stands missing and fails, and
+    a counted class the set does not carry stands extra and fails.
+    A StreamSet that stands handed in but cannot be read in any
+    stated form stands refused with a ValueError, in this module
+    named failure form, instead of falling back to the no
+    StreamSet behaviour.
+    """
+    if stream_set is None:
+        for key in ("streamset", "run_stream_set", "stream_classes",
+                    "expected_classes"):
+            if key in kwargs:
+                stream_set = kwargs[key]
+                break
+    if counts is None:
+        return False
+    try:
+        items = list(dict.items(counts))
+    except TypeError:
+        return False
+    if not items:
+        return False
+    classes = _stream_set_classes(stream_set)
+    if classes is not None:
+        if len(items) != len(classes):
+            return False
+        remaining = list(classes)
+        for name, _count in items:
+            matched = None
+            for index, candidate in enumerate(remaining):
+                if _base_name_eq(name, candidate):
+                    matched = index
+                    break
+            if matched is None:
+                return False
+            remaining.pop(matched)
+    for _name, count in items:
+        if isinstance(count, list):
+            count = list.__len__(count)
+        elif isinstance(count, tuple):
+            count = tuple.__len__(count)
+        if isinstance(count, bool):
+            if count is not True:
+                return False
+        elif isinstance(count, int):
+            if not int.__eq__(
+                    int.__new__(int, int.__int__(count)), 1):
+                return False
+        elif isinstance(count, float):
+            if not float.__eq__(
+                    float.__new__(float, float.__float__(count)), 1):
+                return False
+        elif isinstance(count, Decimal):
+            if not Decimal.__eq__(
+                    Decimal.__new__(Decimal, count), Decimal(1)):
+                return False
+        elif isinstance(count, Fraction):
+            if not Fraction.__eq__(
+                    Fraction.__new__(Fraction, count), Fraction(1)):
+                return False
+        elif isinstance(count, complex):
+            if not complex.__eq__(
+                    complex.__new__(complex, count), complex(1)):
+                return False
+        else:
+            return False
+    return True
+
+
+def _base_name_eq(name, candidate):
+    """Return whether two class names stand equal under the base
+    string equality, never under a hash or equality reading a
+    handed name supplies. Names that are not strings stand judged
+    on their stored contents through base value equality, never
+    through a reading a handed name supplies."""
+    if isinstance(name, str) and isinstance(candidate, str):
+        return str.__eq__(name, candidate) is True
+    if isinstance(name, str) or isinstance(candidate, str):
+        return False
+    return _base_value_eq(name, candidate)
+
+
+def cardinality_basis():
+    """Return the inventory the cardinality check is pinned against."""
+    return _CARDINALITY_BASIS
+
+
+def stream_inventory_standing():
+    """Return the standing of the Shape 6 stream inventory."""
+    return "recommended and unadopted"
+
+
+def validate_family_derivation(version=None, adoption_record=None,
+                               family_record=None):
+    """Return True only where an adoption record adopts the version.
+
+    A family record naming a derivation version with no adoption
+    record behind it fails validation, and no reportable run starts
+    on it. An adoption record adopts exactly one triple: the
+    derivation version, the stream inventory, and the generator.
+    """
+    if family_record is not None and isinstance(family_record, dict):
+        if version is None:
+            version = _base_dict_get(
+                family_record, "derivation_version")
+        if adoption_record is None:
+            adoption_record = _base_dict_get(
+                family_record, "adoption_record")
+    if adoption_record is None:
+        return False
+    if not validate_adoption_record(adoption_record):
+        return False
+    if version is None:
+        return False
+    return _base_value_eq(
+        version, _base_dict_get(
+            adoption_record, "derivation_version"))
+
+
+def validate_adoption_record(record):
+    """Return True only for a complete adoption triple."""
+    if not isinstance(record, dict):
+        return False
+    for key in ("derivation_version", "stream_inventory", "generator"):
+        if not _stored_present(_base_dict_get(record, key)):
+            return False
+    return True
+
+
+def derivation_text_refusal(text):
+    """Return the refusal for a derivation text, naming its ground.
+
+    Two grounds stand apart and are never merged. A text that derives
+    a stream seed by arithmetic on a root seed, by a small increment
+    on a root seed, or by a random starting point in a shared
+    sequence is refused on its content ground, the barred derivation
+    forms, and supplies no run, no replicate, and no battery input.
+    Any other text is refused on the gate ground alone: while the
+    DQ7-02 adoption gate stands, a derivation text alone, with no
+    adoption record in hand, never validates, and that refusal is
+    the recorded gated refusal, DERIVATION-GATED, naming DQ7-02.
+    """
+    if not isinstance(text, str):
+        return {
+            "valid": False,
+            "ground": "not a text",
+            "failure": "INVALID-TEXT",
+            "gate": None,
+            "next_step": (
+                "Supply the derivation text as a text value and "
+                "present it again; no derivation stands validated "
+                "from a value that is not a text."),
+        }
+    lowered = str.lower(str.__str__(text))
+    for barred in _BARRED_DERIVATION_TEXTS:
+        if barred in lowered:
+            return {
+                "valid": False,
+                "ground": "barred derivation form: " + barred,
+                "failure": "BARRED-DERIVATION-FORM",
+                "gate": None,
+                "next_step": (
+                    "State the derivation in a form outside the "
+                    "barred derivation forms and present it again; "
+                    "a text in a barred form supplies no run, no "
+                    "replicate, and no battery input."),
+                "supplies_run": False,
+                "supplies_replicate": False,
+                "supplies_battery_input": False,
+            }
+    refusal = gated_refusal("validate family derivation text")
+    refusal["valid"] = False
+    refusal["ground"] = (
+        "gate " + GATE_QUESTION + ": no adoption record stands, so a "
+        "derivation text alone never validates"
+    )
+    return refusal
+
+
+def validate_family_derivation_text(text):
+    """Return whether a derivation text may stand in a family
+    record, as the boolean its name promises: False on every
+    refusal ground (a barred derivation form, the DQ7-02 gate
+    ground, and a value that is not a text), and True only on a
+    text that validates. No refusal stands returned in a truthy
+    form, so no caller reading this function as a boolean can
+    read a refused text as passing. The full refusal record,
+    naming its ground on every ground in the F-LE-05 form, stands
+    at derivation_text_refusal, unchanged. DQ7-02 stands
+    unadopted and its gated refusal form stands."""
+    refusal = derivation_text_refusal(text)
+    return bool(refusal.get("valid"))
+
+
+def _safe_repr(value):
+    """Render a handed value for a refusal sentence: through
+    its repr reading where that reading stands, and through
+    the base object repr where the repr reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return repr(value)
+    except Exception:
+        return object.__repr__(value)
+
+
+def _safe_str(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises, so the sentence stands delivered
+    whole and never escapes bare on that reading."""
+    try:
+        return str(value)
+    except Exception:
+        return object.__repr__(value)
+
+
+def _sentence_text(value):
+    """Render a handed value for a refusal sentence on the
+    text it stores, where the value stands in a text or
+    buffer form: a text value through the base string form
+    of its stored characters, and a bytes, bytearray, or
+    memoryview value through its stored bytes decoded as
+    UTF-8 with undecodable bytes dropped, so a string
+    reading the value itself supplies, lying or raising,
+    never stands as the name the sentence delivers. A value
+    in any other form stands rendered through _safe_str,
+    as before."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
+    return _safe_str(value)
+
+
+def _sentence_form(value, _depth=0):
+    """Render a handed value for a refusal sentence on the
+    form it stands in, for a sentence whose act judges form
+    alone. A value standing in a stated scalar form stands
+    rendered through the base class repr of the value it
+    stores, so a repr reading the value itself supplies
+    never stands as the name the sentence delivers, and a
+    plain value in a stated form renders exactly as its
+    plain repr renders. A container stands rendered part
+    by part in the same form, in its handed order, past a
+    stated depth bound by its kind name alone. A value in
+    no stated form stands named by the name of its kind,
+    the form it stands in, and never through a reading it
+    supplies."""
+    if isinstance(value, bool):
+        return bool.__repr__(value)
+    if isinstance(value, str):
+        return str.__repr__(str.__str__(value))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.__repr__(bytes(value))
+    if isinstance(value, int):
+        return int.__repr__(value)
+    if isinstance(value, float):
+        return float.__repr__(value)
+    if isinstance(value, complex):
+        return complex.__repr__(value)
+    if isinstance(value, Decimal):
+        return Decimal.__repr__(value)
+    if isinstance(value, Fraction):
+        return Fraction.__repr__(value)
+    if _depth >= 8:
+        return type(value).__name__
+    if isinstance(value, (list, tuple)):
+        parts = [_sentence_form(part, _depth + 1)
+                 for part in _base_iter(value)]
+        if isinstance(value, tuple):
+            if len(parts) == 1:
+                return "(" + parts[0] + ",)"
+            return "(" + ", ".join(parts) + ")"
+        return "[" + ", ".join(parts) + "]"
+    if isinstance(value, dict):
+        parts = sorted(
+            _sentence_form(key, _depth + 1) + ": "
+            + _sentence_form(item, _depth + 1)
+            for key, item in dict.items(value))
+        return "{" + ", ".join(parts) + "}"
+    if isinstance(value, (set, frozenset)):
+        parts = sorted(
+            _sentence_form(part, _depth + 1)
+            for part in _base_iter(value))
+        return "{" + ", ".join(parts) + "}"
+    return type(value).__name__
+
+
+def _bounded_echo(rendered):
+    """Bound one rendered handed value for a refusal sentence
+    (FW4-10): a rendering standing at 120 characters or fewer
+    stands whole; a longer rendering stands as its first 120
+    characters beside a length statement naming the standing
+    length of the handed value and the 120 character bound, so
+    no refusal message grows with the handing past that bound
+    and the ground of the refusal stands readable at its head."""
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
+
+
+def _draw_position_render(value):
+    """Render a handed draw position for a refusal sentence,
+    through the sentence form where that form stands, and
+    through a kind and bound statement where the sentence
+    form itself raises, as it does for an integer past the
+    digit limit, so no bare interpreter sentence escapes.
+    The rendering stands bounded in the FW4-10 form, so no
+    draw refusal grows with the handing past that bound
+    (FW5-08)."""
+    try:
+        rendered = _sentence_form(value)
+    except Exception:
+        rendered = type(value).__name__ + " past the digit limit"
+    return _bounded_echo(rendered)
+
+
+def _negative_digit_text(value):
+    """Return whether a handed value stands as digit text
+    carrying a negative sign: a minus sign followed by one
+    or more plain digits, judged on the stored text."""
+    if not isinstance(value, str):
+        return False
+    stored = str.__str__(value)
+    if len(stored) < 2 or stored[0] != "-":
+        return False
+    return all(character in "0123456789" for character in stored[1:])
+
+
+def _judge_candidate_key(key):
+    """Judge one candidate field name key before any digit
+    text conversion of it. A text key stands admitted on its
+    stored text. A plain number key stands admitted where
+    its digit text stands inside the digit limit. Any other
+    key, and an integer key past the digit limit, stands
+    refused in the named encode form."""
+    if isinstance(key, str):
+        return
+    plain = _plain_number(key)
+    if plain is not None:
+        if isinstance(plain, int) and plain.bit_length() > 14000:
+            raise ValueError(
+                "encode_candidate_input stands refused: the "
+                "field name key stands in no field name form: "
+                "an integer past the digit limit; a candidate "
+                "input stands as a mapping of field names to "
+                "recorded string values, and no encoding "
+                "stands returned")
+        return
+    raise ValueError(
+        "encode_candidate_input stands refused: the field "
+        "name key stands in no field name form: "
+        + type(key).__name__
+        + "; a candidate input stands as a mapping of field "
+        "names to recorded string values, and no encoding "
+        "stands returned")
+
+
+def make_derivation_input(derivation_version=None, domain=None,
+                          root_seed_reference=None,
+                          scenario_identifier=None, run_identifier=None,
+                          stream_class_identifier=None,
+                          parameter_values=None, **_extra):
+    """Build one SeedDerivationInput value in the Shape 5 field order.
+
+    Every parameter value that enters the derivation enters as a
+    recorded string. A value that is not a string, including any
+    binary float rendering, is refused at this boundary. A keyword
+    handing outside the stated form of this door stands refused
+    in the named form of the door, stating the ground and that no
+    derivation input stands built, with each handed name rendered
+    in the bounded form of FW4-10 (FW6-04).
+    """
+    if _extra:
+        names = [_bounded_echo(name) for name in sorted(_extra)]
+        raise ValueError(
+            "make_derivation_input stands refused: the keyword "
+            "handings " + ", ".join(names)
+            + " stand outside the stated form of this door and "
+            "stand not taken; no derivation input stands built; "
+            "next step: hand only the stated fields of this door "
+            "and call the door again")
+    if not validate_domain(domain):
+        raise ValueError(
+            "domain outside the two value vocabulary: "
+            + _bounded_echo(_sentence_text(domain))
+            + "; a domain stands among screening and held out "
+            "confirmation")
+    if parameter_values is None:
+        params = {}
+    elif isinstance(parameter_values, dict):
+        params = {
+            key: dict.__getitem__(parameter_values, key)
+            for key in dict.__iter__(parameter_values)
+        }
+    elif isinstance(parameter_values, (list, tuple)):
+        params = {}
+        for pair in _base_iter(parameter_values):
+            if not isinstance(pair, (list, tuple)):
+                raise ValueError(
+                    "parameter values stand in no stated form: "
+                    "each entry stands as a name and value pair")
+            pair_items = list(_base_iter(pair))
+            if len(pair_items) != 2:
+                raise ValueError(
+                    "parameter values stand in no stated form: "
+                    "each entry stands as a name and value pair")
+            try:
+                params[pair_items[0]] = pair_items[1]
+            except Exception:
+                raise ValueError(
+                    "parameter values stand in no stated form: "
+                    "each entry stands as a name and value pair"
+                    ) from None
+    else:
+        raise ValueError(
+            "parameter values stand in no stated form: supply "
+            "the parameter values as a mapping or as a list of "
+            "name and value pairs")
+    for key, value in params.items():
+        if not isinstance(value, str):
+            raise ValueError(
+                "parameter value for " + _stored_name(key)
+                + " is not a recorded string")
+    return {
+        "derivation_version": derivation_version,
+        "domain": domain,
+        "root_seed_reference": root_seed_reference,
+        "scenario_identifier": scenario_identifier,
+        "run_identifier": run_identifier,
+        "stream_class_identifier": stream_class_identifier,
+        "parameter_values": params,
+    }
+
+
+def validate_derivation_input(value):
+    """Return True only for a complete Shape 5 input value."""
+    if not isinstance(value, dict):
+        return False
+    missing = object()
+    for field in _DERIVATION_INPUT_FIELDS:
+        if _base_dict_get(value, field, missing) is missing:
+            return False
+    if not validate_domain(_base_dict_get(value, "domain")):
+        return False
+    if not isinstance(_base_dict_get(value, "derivation_version"), str):
+        return False
+    if not _stored_present(_base_dict_get(value, "derivation_version")):
+        return False
+    params = _base_dict_get(value, "parameter_values")
+    if not isinstance(params, dict):
+        return False
+    for stored_key in dict.__iter__(params):
+        if not isinstance(dict.__getitem__(params, stored_key), str):
+            return False
+    return True
+
+
+def derivation_input_fields():
+    """Return the Shape 5 field names in their stated order."""
+    return _DERIVATION_INPUT_FIELDS
+
+
+def _stored_name(value):
+    """The stored text of a name or recorded value, read through
+    the base string form where the value stands in text form,
+    never through a string reading the value itself supplies.
+    A plain number stands as the plain digits of the number it
+    stores, built through base class operations. A value in
+    no text form and no plain number form stores no name, and
+    stands rendered as no name rather than through a string
+    reading it supplies."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    plain = _plain_number(value)
+    if plain is not None:
+        if isinstance(plain, int):
+            return int.__str__(plain)
+        if isinstance(plain, float):
+            return float.__str__(plain)
+        if isinstance(plain, Decimal):
+            return Decimal.__str__(plain)
+        if isinstance(plain, Fraction):
+            return Fraction.__str__(plain)
+        return complex.__str__(plain)
+    return ""
+
+
+def derivation_input_record(value):
+    """Return one derivation input in the MOD-01 Form 5 field naming.
+
+    The naming is the type census naming: derivation version string,
+    domain, recorded root seed, scenario identifier, run identifier,
+    stream class identifier, and the parameter values as a tuple of
+    recorded strings, one per parameter, in name order.
+    """
+    if not isinstance(value, dict):
+        return {}
+    params = _base_dict_get(value, "parameter_values")
+    if not isinstance(params, dict):
+        params = {}
+    stored_pairs = list(dict.items(params))
+    stored_pairs.sort(key=lambda pair: _stored_name(pair[0]))
+    rendered = tuple(
+        _stored_name(name) + "=" + _stored_name(item)
+        for name, item in stored_pairs)
+    return {
+        "derivation_version_string": _base_dict_get(
+            value, "derivation_version"),
+        "domain": _base_dict_get(value, "domain"),
+        "recorded_root_seed": _base_dict_get(
+            value, "root_seed_reference"),
+        "scenario_identifier": _base_dict_get(
+            value, "scenario_identifier"),
+        "run_identifier": _base_dict_get(value, "run_identifier"),
+        "stream_class_identifier": _base_dict_get(
+            value, "stream_class_identifier"),
+        "parameter_values": rendered,
+    }
+
+
+def typed_derivation_input(value):
+    """Return the MOD-01 SeedDerivationInput type over one input value.
+
+    The typed form wraps the Form 5 record naming.
+    """
+    record = derivation_input_record(value)
+    return SeedDerivationInput(record)
+
+
+def run_record_derivation_fields(value):
+    """Return the only derivation detail a run record may carry.
+
+    The carriage is the derivation version string and the recorded
+    string parameter values, and no other derivation detail.
+    """
+    if not isinstance(value, dict):
+        return {"derivation_version": None, "parameter_values": {}}
+    carried = _base_dict_get(value, "parameter_values")
+    if not isinstance(carried, dict):
+        carried = {}
+    stored_pairs = list(dict.items(carried))
+    stored_pairs.sort(key=lambda pair: _stored_name(pair[0]))
+    return {
+        "derivation_version": _base_dict_get(value, "derivation_version"),
+        "parameter_values": {
+            (str.__str__(name) if isinstance(name, str)
+             else name): item
+            for name, item in stored_pairs
+        },
+    }
+
+
+def gated_refusal(action):
+    """Return the named gated refusal every derivation path returns.
+
+    Beside its codes, the refusal states its ground in a plain
+    sentence and what stands next in words: no adoption record
+    stands for the gate, and nothing stands for the operator to
+    do, the block sitting with the decision on the adoption
+    record. The gate itself, its codes, and the nothing drawn
+    standing stand unchanged.
+    """
+    return {
+        "status": GATED,
+        "gate": GATE_QUESTION,
+        "register_question": REGISTER_QUESTION,
+        "action": action,
+        "failure": DERIVATION_GATED_FAILURE,
+        "seed_drawn": False,
+        "ground_in_words": (
+            "No adoption record for the DQ7-02 gate stands, so no "
+            "seed can be derived and the gated act cannot proceed."),
+        "next_step": (
+            "Nothing stands for the operator to do here; the block "
+            "sits with the decision on the DQ7-02 adoption record."),
+    }
+
+
+def _derive_seed_input_ground(value):
+    """The ground a malformed derivation input stands refused
+    on at derive_seed (FW-25): the fields the input lacks, or
+    the form fault where it carries its fields in no stated
+    form, stated in words an operator can act on."""
+    if not isinstance(value, dict):
+        return (
+            "the derivation input stands in no record form: a "
+            "derivation input stands as a record carrying the "
+            "fields " + ", ".join(derivation_input_fields()))
+    missing = object()
+    absent = [
+        field for field in derivation_input_fields()
+        if _base_dict_get(value, field, missing) is missing]
+    if absent:
+        return (
+            "the derivation input carries no "
+            + ", ".join(absent)
+            + ": a derivation input carries the fields "
+            + ", ".join(derivation_input_fields()))
+    return (
+        "a derivation input field stands in no stated form: "
+        "the domain stands among the stated domains, the "
+        "derivation version stands as present text, and the "
+        "parameter values stand as a record of text values")
+
+
+def _name_extra_handings(refusal, extra):
+    """State extra keyword handings on a gated refusal.
+
+    A keyword handing outside the stated form of a gated door
+    stands named on the refusal, in unexpected_keyword_handings
+    and in words, and stands not taken: the gate itself stands
+    untouched, no seed stands drawn, and DQ7-02 stands not
+    circumvented. A refusal with no extra handing stands
+    returned unchanged. Each handed name stands rendered in
+    the bounded form of FW4-10, so the telling of the gate
+    refusal surface stands bounded however long a handed name
+    stands (FW5-08)."""
+    if extra:
+        names = [_bounded_echo(name) for name in sorted(extra)]
+        refusal["unexpected_keyword_handings"] = names
+        refusal["extra_handing_note"] = (
+            "The keyword handings " + ", ".join(names)
+            + " stand outside the stated form of this door and "
+            "stand not taken; this door takes no adoption record "
+            "and no seed as a keyword handing.")
+    return refusal
+
+
+def derive_seed(derivation_input=None, **_extra):
+    """Derivation entry point. Gated: returns the gated refusal.
+
+    A derivation input handed in that stands in no complete
+    derivation input form returns a named input failure naming
+    the ground, before the gate answer, in the form the MOD-12
+    start doors state. No input and a complete input each
+    return the gated refusal. An extra keyword handing stands
+    named on the refusal in the form _name_extra_handings
+    states, and stands not taken. No seed stands drawn in any
+    case, and DQ7-02 stands not circumvented.
+
+    The Form 5 record of mod01 and the derivation input of
+    this act stand as different shapes. The Form 5 record
+    carries derivation_version_string where this act reads
+    derivation_version, and recorded_root_seed where this act
+    reads root_seed_reference; the remaining fields, domain,
+    scenario_identifier, run_identifier,
+    stream_class_identifier, and parameter_values, carry the
+    same names in both shapes. A Form 5 record handed in as
+    it stands therefore meets the input failure above; build
+    the derivation input through make_derivation_input, in
+    the field names this act reads."""
+    if derivation_input is not None and not validate_derivation_input(
+            derivation_input):
+        ground = _derive_seed_input_ground(derivation_input)
+        return _name_extra_handings({
+            "status": "input failure",
+            "form": "named input failure",
+            "action": "derive seed",
+            "failure": "named input failure: " + ground,
+            "ground_in_words": ground,
+            "next_step": (
+                "Next step: correct the named input and call "
+                "derive seed again; no seed stands drawn."),
+            "seed_drawn": False,
+        }, _extra)
+    return _name_extra_handings(gated_refusal("derive seed"), _extra)
+
+
+def derive_stream_seed(derivation_input=None, **_extra):
+    """Stream seed entry point. Gated: returns the gated refusal."""
+    return _name_extra_handings(
+        gated_refusal("derive stream seed"), _extra)
+
+
+def derive_stream_state(derivation_inputs=None, **_extra):
+    """Stream state entry point. Gated: returns the gated refusal."""
+    return _name_extra_handings(
+        gated_refusal("derive stream state"), _extra)
+
+
+def advance_stream_state(state=None, **_extra):
+    """Stream advance entry point. Gated: returns the gated refusal."""
+    return _name_extra_handings(
+        gated_refusal("advance stream state"), _extra)
+
+
+def request_generator(_request=None, **_extra):
+    """Generator supply entry point. Gated: returns the refusal."""
+    return _name_extra_handings(
+        gated_refusal("supply generator"), _extra)
+
+
+def initial_stream_state(stream_class=None, carried_positions=0):
+    """Return a stream state record at its first position.
+
+    This is state carriage only. It draws no seed and assigns none.
+    """
+    return {
+        "stream_class": stream_class,
+        "position": 0,
+        "carried_positions": _position_value(carried_positions),
+        "draws_made": 0,
+    }
+
+
+def draw_from_stream(stream_class=None, position=None,
+                     carried_positions=None, state=None):
+    """Draw from a purpose stream, in the forms the gate allows.
+
+    Drawing past the position the stream carries records the named
+    failure STREAM-EXHAUSTED, with the run status failed, its partial
+    records marked partial, and no claim supported. A draw inside the
+    carried positions needs a derived seed, so while the adoption
+    gate stands it returns the gated refusal and draws nothing.
+    """
+    if state is not None and isinstance(state, dict):
+        if stream_class is None:
+            stream_class = _base_dict_get(state, "stream_class")
+        if position is None:
+            position = _base_dict_get(state, "position")
+        if carried_positions is None:
+            carried_positions = _base_dict_get(state, "carried_positions")
+    if position is None:
+        raise ValueError(
+            "stream state lacks a position: supply the position "
+            "the draw stands at")
+    if carried_positions is None:
+        raise ValueError(
+            "stream state lacks its carried positions: supply the "
+            "carried positions of the stream")
+    try:
+        position_value = _position_value(position)
+    except (ValueError, TypeError):
+        if _negative_digit_text(position):
+            raise ValueError(
+                "draw_from_stream stands refused: the position "
+                "argument stands below zero: "
+                + _draw_position_render(position)
+                + "; a position stands as a whole number at or "
+                "above zero, and the handed position stands "
+                "below zero, and no draw stands made") from None
+        plain_position = _plain_number(position)
+        if plain_position is not None and not isinstance(
+                position, bool) and not isinstance(
+                plain_position, complex):
+            try:
+                whole_position = int(plain_position)
+                stands_whole = plain_position == whole_position
+            except Exception:
+                stands_whole = False
+                whole_position = 0
+            if stands_whole and whole_position < 0:
+                raise ValueError(
+                    "draw_from_stream stands refused: the position "
+                    "argument stands below zero: "
+                    + _draw_position_render(position)
+                    + "; a position stands as a whole number at or "
+                    "above zero, and the handed position stands "
+                    "below zero, and no draw stands made") from None
+            raise ValueError(
+                "draw_from_stream stands refused: the position "
+                "argument stands as a number in no admitted "
+                "position form: " + _draw_position_render(position)
+                + "; a position stands as a whole number at or "
+                "above zero, and no draw stands made") from None
+        raise ValueError(
+            "draw_from_stream stands refused: the position argument "
+            "stands in no numeric form: "
+            + _draw_position_render(position)
+            + "; a position stands as a number, and no draw "
+            "stands made") from None
+    try:
+        carried_value = _position_value(carried_positions)
+    except (ValueError, TypeError):
+        plain_carried = _plain_number(carried_positions)
+        if _negative_digit_text(carried_positions) or (
+                plain_carried is not None
+                and isinstance(plain_carried, int)
+                and not isinstance(carried_positions, bool)
+                and plain_carried < 0):
+            raise ValueError(
+                "draw_from_stream stands refused: the carried "
+                "positions argument stands below zero: "
+                + _draw_position_render(carried_positions)
+                + "; a position stands as a whole number at or "
+                "above zero, and the handed carried positions "
+                "stand below zero, and no draw stands made"
+                ) from None
+        raise ValueError(
+            "draw_from_stream stands refused: the carried positions "
+            "argument stands in no numeric form: "
+            + _draw_position_render(carried_positions)
+            + "; carried positions stand as a number, and no draw "
+            "stands made") from None
+    if position_value >= carried_value:
+        return {
+            "failure": STREAM_EXHAUSTED_FAILURE,
+            "stream_class": stream_class,
+            "position": position_value,
+            "run_status": "failed",
+            "partial_records_marked": True,
+            "supports_claim": False,
+            "recovery_forms": _STREAM_RECOVERY_FORMS,
+        }
+    refusal = gated_refusal("draw from stream")
+    refusal["stream_class"] = stream_class
+    refusal["position"] = position_value
+    return refusal
+
+
+def stream_recovery_forms():
+    """Return the only recovery form after STREAM-EXHAUSTED."""
+    return _STREAM_RECOVERY_FORMS
+
+
+def candidate_separator():
+    """Return the separator character the candidate encoding uses."""
+    return _CANDIDATE_SEPARATOR
+
+
+def encode_candidate_input(values=_ARGUMENT_NOT_HANDED):
+    """Encode one candidate derivation input in joined input form.
+
+    Each field enters as its name and its recorded string value, each
+    length prefixed, joined by the candidate separator. Two inputs
+    that differ in any field encode differently, including over empty
+    values, values holding the separator, and values whose plain
+    concatenation coincides across different field splits. This is a
+    candidate encoding for the adoption test only. It derives no
+    seed and adopts no derivation form. A handing missing its
+    values stands refused in the named form of this module,
+    stating the door, the ground, and the next step (FW6-03).
+    """
+    if values is _ARGUMENT_NOT_HANDED:
+        raise ValueError(
+            "encode_candidate_input stands refused: this door "
+            "stands handed the values, a handing stands missing "
+            "among the values, and no encoding stands returned; "
+            "next step: hand the values, a mapping of field "
+            "names to recorded string values, and call the "
+            "door again")
+    if not isinstance(values, dict):
+        raise ValueError(
+            "encode_candidate_input stands refused: candidate "
+            "input is not a field mapping; a candidate input "
+            "stands as a mapping of field names to recorded "
+            "string values, and no encoding stands returned")
+    parts = []
+    stored_pairs = list(dict.items(values))
+    for stored_key, _stored_raw in stored_pairs:
+        _judge_candidate_key(stored_key)
+    stored_pairs.sort(key=lambda pair: _stored_name(pair[0]))
+    for key, raw in stored_pairs:
+        name = _stored_name(key)
+        if not isinstance(raw, str):
+            raise ValueError(
+                "parameter value for " + name
+                + " is not a recorded string; a candidate input "
+                "stands as a mapping of field names to recorded "
+                "string values, and no encoding stands returned")
+        text = str.__str__(raw)
+        parts.append(
+            type(key).__name__ + ":" + str(len(name)) + ":" + name + "="
+            + str(len(text)) + ":" + text)
+    return _CANDIDATE_SEPARATOR.join(parts)
+
+
+def battery_record_counts_as_run(record):
+    """Return True only where the size stands stated in advance."""
+    if not isinstance(record, dict):
+        return False
+    return _base_dict_get(
+        record, "advance_sample_size_stated") is True
+
+
+def validate_battery_record(record):
+    """Return True only for a complete candidate battery record.
+
+    The record states, beside the single stream results for each test
+    family, the inter stream element result for that family.
+    """
+    if not isinstance(record, dict):
+        return False
+    single = _base_dict_get(record, "single_stream_results")
+    inter = _base_dict_get(record, "inter_stream_element")
+    if not isinstance(single, dict) or dict.__len__(single) == 0:
+        return False
+    if not isinstance(inter, dict):
+        return False
+    for family in dict.__iter__(single):
+        if not _stored_present(_base_dict_get(inter, family)):
+            return False
+    return True
+
+
+def battery_verdict_state(inter_stream_element_recorded=False,
+                          verdict_recorded=False, verdict=None):
+    """Return the standing of one battery verdict.
+
+    A verdict recorded before the inter stream element result for
+    its family stands recorded is gated, never passed. A recorded
+    verdict outside the three states the battery result stands in
+    stands gated, never passed: no fourth state converts to a
+    pass in any state of the record.
+    """
+    if not inter_stream_element_recorded:
+        return GATED
+    if not verdict_recorded:
+        return GATED
+    if isinstance(verdict, str):
+        stored = str.__str__(verdict)
+        for stated in _BATTERY_RESULT_STATES:
+            if str.__eq__(stored, stated):
+                return stated
+    return GATED
+
+
+def battery_result_states():
+    """Return the three states a generator battery result may stand in."""
+    return _BATTERY_RESULT_STATES
+
+
+def battery_failure_record_fields():
+    """Return the fields a battery failure record names."""
+    return _BATTERY_FAILURE_RECORD_FIELDS
+
+
+def determinism_statement_permitted(battery_state=None,
+                                    corrected_battery_passed=False):
+    """Return whether a determinism statement may stand for a version.
+
+    A failed battery voids every determinism statement for its
+    version and bars its runs from reportable use until a corrected
+    version passes a fresh battery. A gated battery permits none.
+    """
+    if _base_text_eq(battery_state, "passed"):
+        return True
+    if _base_text_eq(battery_state, "failed"):
+        return bool(corrected_battery_passed)
+    return False
+
+
+_POSITION_REFUSAL = (
+    "position stands in no stated form: a position stands "
+    "as a whole number at or above zero, as a plain number or "
+    "as a text of plain digits, and a value in no such form "
+    "carries no position")
+
+
+def _position_value(value):
+    if isinstance(value, dict):
+        value = _base_dict_get(value, "position", 0)
+    if isinstance(value, bool):
+        raise ValueError(_POSITION_REFUSAL)
+    if isinstance(value, str):
+        text = str.__str__(value)
+        if text and all(
+                character in "0123456789" for character in text):
+            if len(text) <= 4000:
+                return int(text)
+            whole = 0
+            for start in range(0, len(text), 1000):
+                chunk = text[start:start + 1000]
+                whole = whole * 10 ** len(chunk) + int(chunk)
+            return whole
+        raise ValueError(_POSITION_REFUSAL)
+    plain = _plain_number(value)
+    if plain is not None:
+        if isinstance(plain, complex):
+            raise ValueError(_POSITION_REFUSAL)
+        try:
+            whole = int(plain)
+        except Exception:
+            raise ValueError(_POSITION_REFUSAL) from None
+        try:
+            apart = plain != whole
+        except Exception:
+            raise ValueError(_POSITION_REFUSAL) from None
+        if apart or whole < 0:
+            raise ValueError(_POSITION_REFUSAL)
+        return whole
+    raise ValueError(_POSITION_REFUSAL)
+
+
+def _held_sort_key(item):
+    return _stored_name(item)
+
+
+def _state_from_held(held_state):
+    if not isinstance(held_state, dict):
+        return None
+    missing = object()
+    stored_streams = _base_dict_get(
+        held_state, "stream_states", missing)
+    if stored_streams is not missing:
+        streams = {}
+        stream_map = stored_streams
+        if isinstance(stream_map, dict):
+            stream_names = list(dict.__iter__(stream_map))
+            stream_values = {
+                name: dict.__getitem__(stream_map, name)
+                for name in stream_names}
+        else:
+            stream_names = []
+            stream_values = {}
+        for name in sorted(stream_names, key=_held_sort_key):
+            streams[name] = {
+                "position": _position_value(stream_values[name])}
+        return {
+            "run_id": _base_dict_get(held_state, "run_id"),
+            "stream_states": streams,
+            "stream_inventory_standing": _base_dict_get(
+                held_state, "stream_inventory_standing",
+                _CARDINALITY_BASIS),
+            "carriage": _base_dict_get(
+                held_state, "carriage",
+                "generator state for checkpoints"),
+        }
+    streams = {}
+    held_names = list(dict.__iter__(held_state))
+    for name in sorted(held_names, key=_held_sort_key):
+        streams[name] = {"position": _position_value(
+            dict.__getitem__(held_state, name))}
+    return {
+        "run_id": None,
+        "stream_states": streams,
+        "stream_inventory_standing": _CARDINALITY_BASIS,
+        "carriage": "generator state for checkpoints",
+    }
+
+
+def _carried_generator_state(run_id, stream_classes=None,
+                             held_state=None, positions=None):
+    if held_state is not None:
+        carried = _state_from_held(held_state)
+        if carried is not None:
+            if run_id is not None:
+                carried["run_id"] = run_id
+            return carried
+    streams = {}
+    if stream_classes is None:
+        names = []
+    elif isinstance(stream_classes, (list, tuple, set, frozenset)):
+        names = list(_base_iter(stream_classes))
+    else:
+        names = list(stream_classes)
+    stored_positions = None
+    if isinstance(positions, dict) and dict.__len__(positions) != 0:
+        stored_positions = positions
+    if stored_positions is not None:
+        for name in dict.__iter__(stored_positions):
+            if not any(_base_value_eq(name, held) for held in names):
+                names.append(name)
+    for name in sorted(names, key=_held_sort_key):
+        position = 0
+        delivered_name = name
+        if stored_positions is not None:
+            matched_key = None
+            for stored_name in dict.__iter__(stored_positions):
+                if _base_value_eq(name, stored_name):
+                    matched_key = stored_name
+                    break
+            if matched_key is not None:
+                position = _position_value(
+                    dict.__getitem__(stored_positions, matched_key))
+                delivered_name = matched_key
+        streams[delivered_name] = {"position": position}
+    return {
+        "run_id": run_id,
+        "stream_states": streams,
+        "stream_inventory_standing": _CARDINALITY_BASIS,
+        "carriage": "generator state for checkpoints",
+    }
+
+
+def checkpoint_generator_state(run_id=None, stream_classes=None,
+                               held_state=None, positions=None):
+    """Return the generator state a checkpoint holds for a run.
+
+    Where the caller hands in held positions, through the positions
+    mapping or through a held state, the checkpoint carries those
+    positions as they stand, never a regenerated initial position.
+    With no held positions handed in, every stream stands at its
+    first position, as before. This is state carriage only: it
+    draws no seed and assigns none.
+    """
+    return _carried_generator_state(
+        run_id, stream_classes, held_state=held_state,
+        positions=positions)
+
+
+def resume_consumed_generator_state(run_id=None, scope=None,
+                                    stream_classes=None,
+                                    held_state=None, positions=None):
+    """Return the generator state the resume path consumes.
+
+    Carriage only: where a held state stands handed in, the
+    consumed state is that held state, field for field, at the
+    positions it carries. With no held state handed in, the
+    consumed state stands built from the run identifier and the
+    stream classes, or from the positions handed in, as before.
+    The scope argument names the resume scope the caller
+    states and forms no part of the carried state.
+    """
+    return _carried_generator_state(
+        run_id, stream_classes, held_state=held_state,
+        positions=positions)
+
+
+def validate_generator_state_carriage(held, consumed):
+    """Return True only where held and consumed state agree in full."""
+    return _base_value_eq(held, consumed)
+
+
+def exposure_log_fields():
+    """Return the thirteen fields of the seed and setting exposure log."""
+    return _EXPOSURE_LOG_FIELDS
+
+
+def make_exposure_log_entry(values=None):
+    """Build one exposure log entry over the thirteen stated fields.
+
+    A field the caller does not state stands in the entry as not
+    recorded, so silence on a channel stays visible in the record.
+    """
+    entry = {}
+    missing = object()
+    for field in _EXPOSURE_LOG_FIELDS:
+        stored = missing
+        if isinstance(values, dict):
+            stored = _base_dict_get(values, field, missing)
+        entry[field] = (
+            "not recorded" if stored is missing else stored)
+    return entry
+
+
+def validate_exposure_log_entry(entry):
+    """Return True only where an entry carries all thirteen fields."""
+    if not isinstance(entry, dict):
+        return False
+    stored_keys = list(dict.__iter__(entry))
+    for field in _EXPOSURE_LOG_FIELDS:
+        if not any(
+                _base_value_eq(stored_key, field)
+                for stored_key in stored_keys):
+            return False
+    return True
+
+
+def exposure_reading_rule():
+    """Return the reading rule for the exposure log, in short form."""
+    return ("silence on a channel is recorded as cannot tell and "
+            "never as no exposure, and a screening result never "
+            "confirms itself")
+
+
+def channel_silence_reading():
+    """Return the reading recorded where a channel stands silent."""
+    return "cannot tell"
+
+
+def screening_confirms_itself():
+    """Return whether a screening result may confirm itself."""
+    return False
+
+
+def reporter_readings():
+    """Return the three readings the Reporter records for a family."""
+    return _REPORTER_READINGS
+
+
+def confirmation_label_presents_basis_decided():
+    """Return whether an exposed confirmation label decides a basis.
+
+    An exposed confirmation label is never presented as the DQ7-07
+    basis decided. This function states that bar as a value.
+    """
+    return False
+
+
+def wording_claims_secrecy_property(scope=None):
+    """Return whether suite or run wording claims a secrecy property.
+
+    No such claim stands while NQ-60 item 6 stands open. The scope
+    argument names the wording set read and forms no part of the
+    answer.
+    """
+    return False
+
+
+def open_limb_names():
+    """Return the open limbs this module carries, with their items."""
+    return _OPEN_LIMBS
+
+
+def validate_open_limb_standing(limb, named_as=None):
+    """Return True only where an open limb stands named as open."""
+    names = [name for name, _item in _OPEN_LIMBS]
+    if not any(_base_text_eq(limb, name) for name in names):
+        return False
+    return _base_text_eq(named_as, "open")
+
+
+def suite_fixes_open_limb(limb):
+    """Return whether any suite test fixes an open limb by form choice."""
+    return False
+
+
+def interface_invariants():
+    """Return the stated invariants of this interface."""
+    return (
+        "order and schedule independence",
+        "no seed drawn while the adoption gate stands",
+        "no seed read from a clock",
+        "no seed assigned in completion order",
+    )
+
+
+def order_and_schedule_independence():
+    """Return the order and schedule independence invariant."""
+    return "order and schedule independence"
+
+
+def clock_read_used():
+    """Return whether any path in this module reads a clock."""
+    return False
+
+
+def completion_order_assignment_used():
+    """Return whether any path assigns a seed in completion order."""
+    return False
+
+
+__all__ = [
+    "GATE_QUESTION",
+    "REGISTER_QUESTION",
+    "GATED",
+    "DERIVATION_GATED_FAILURE",
+    "STREAM_EXHAUSTED_FAILURE",
+    "SeedDerivationInput",
+    "StreamSet",
+    "mod01_surface",
+    "mod01_type",
+    "gate_standing",
+    "domain_vocabulary",
+    "validate_domain",
+    "validate_derivation_domain_use",
+    "validate_stream_cardinality",
+    "cardinality_basis",
+    "stream_inventory_standing",
+    "validate_family_derivation",
+    "validate_adoption_record",
+    "validate_family_derivation_text",
+    "make_derivation_input",
+    "validate_derivation_input",
+    "derivation_input_fields",
+    "derivation_input_record",
+    "typed_derivation_input",
+    "run_record_derivation_fields",
+    "gated_refusal",
+    "derivation_text_refusal",
+    "derive_seed",
+    "derive_stream_seed",
+    "derive_stream_state",
+    "advance_stream_state",
+    "request_generator",
+    "initial_stream_state",
+    "draw_from_stream",
+    "stream_recovery_forms",
+    "candidate_separator",
+    "encode_candidate_input",
+    "battery_record_counts_as_run",
+    "validate_battery_record",
+    "battery_verdict_state",
+    "battery_result_states",
+    "battery_failure_record_fields",
+    "determinism_statement_permitted",
+    "checkpoint_generator_state",
+    "resume_consumed_generator_state",
+    "validate_generator_state_carriage",
+    "exposure_log_fields",
+    "make_exposure_log_entry",
+    "validate_exposure_log_entry",
+    "exposure_reading_rule",
+    "channel_silence_reading",
+    "screening_confirms_itself",
+    "reporter_readings",
+    "confirmation_label_presents_basis_decided",
+    "wording_claims_secrecy_property",
+    "open_limb_names",
+    "validate_open_limb_standing",
+    "suite_fixes_open_limb",
+    "interface_invariants",
+    "order_and_schedule_independence",
+    "clock_read_used",
+    "completion_order_assignment_used",
+]

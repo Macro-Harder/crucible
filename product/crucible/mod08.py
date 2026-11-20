@@ -1,0 +1,3346 @@
+"""MOD-08. Detection Layer.
+
+Vigil style scoring inside a run. The layer accepts one agent level
+input form only, the DetectionInput record stated at Form 19, and no
+other form. It returns verdict states and accumulator updates by
+agent and day, and it changes no reputation, stake, or contract
+state in any module.
+
+Daily scoring stands as one daily scoring pass with table identified
+contributions. The single pass is a module structure only and
+records no accumulator representation. The table identifiers stay in
+the merged pass. Conformance use and assumption use stand as two
+named modes, and no value moves between them inside one artefact
+without both uses named.
+
+Open standings carried in this module, by name. OP-16 stands open:
+the verdict rule limb values (pass condition values, fail condition
+values, the minimum stream figure, and the false alarm budget
+values) and the Form 27 profile bound label value set stand unfixed,
+so no detection score is reported as a pass or as a fail anywhere in
+this surface, and every detection output carries its profile bound
+label attached in carriage form. DQ7-01 stands carried open for
+reliance: the closed list of accumulators and each update rule stand
+open on that record, no accumulator equality claim stands in hash
+entry or in resume comparison, and resume equality for the
+detection part stands at verdict level only. OP-11 stands open for
+the strategy catalogue this layer does not own. The figures of
+fixture F-06 stand as self consistency figures only, with no
+calibration claim, under decision D-13.
+"""
+
+import itertools
+import copy
+import math
+import unicodedata
+from decimal import Decimal, localcontext
+
+from crucible import mod01 as _mod01
+
+__all__ = [
+    "CALIBRATION_STANDING",
+    "CONTESTED_LABEL_C6",
+    "DEFERRED_OUTSIDE_CLASSES",
+    "DETECTION_INPUT_FIELDS",
+    "F06_FIGURES",
+    "F06_PROFILES",
+    "LR_TABLES",
+    "OP16_STANDING",
+    "PROFILE_BOUND_LABEL_FIELD",
+    "PROFILE_LABEL_CARRIAGE",
+    "RULE_STATE_FIELDS",
+    "THRESHOLD_SETS",
+    "USES",
+    "VERDICT_LADDER",
+    "DetectionLayer",
+    "NamedDetectionFailure",
+    "SilentUseMovement",
+    "accept_detection_input",
+    "author_sealed_class",
+    "compare_verdict_determinism",
+    "conformance_statement",
+    "create_sealed_set",
+    "detection_state_record",
+    "epoch_watch_gate_on_unweighted",
+    "freeze_sealed_set",
+    "mod01_surface",
+    "null_control_bracket",
+    "oracle_control_bracket",
+    "record_verdict_difference",
+    "report",
+    "score",
+    "score_day",
+    "score_profiles",
+    "score_sealed",
+    "seal_sealed_set",
+    "unseal_sealed_set",
+    "validate_output",
+    "validate_use_naming",
+]
+
+OP16_STANDING = "open at OP-16"
+
+CALIBRATION_STANDING = "no calibration claim, self consistency only"
+
+DETECTION_INPUT_FIELDS = (
+    "agent_identifier",
+    "day",
+    "feature_values",
+    "records_for_agent_and_day",
+)
+
+_RECORDS_KEY = "records_for_agent_and_day"
+_RECORDS_ALIAS = "rule_records"
+
+_BARRED_KEY_PARTS = (
+    "membership",
+    "ground_truth",
+    "groundtruth",
+    "canary",
+)
+
+_BARRED_EXACT_KEYS = frozenset([
+    "archetype_identifier",
+    "reputation",
+    "reputation_score",
+    "reputation_score_by_viewer",
+    "band",
+    "stake",
+    "stake_held",
+    "contract_state",
+    "lien_state",
+    "is_honest",
+    "is_farm",
+    "honest",
+    "label",
+    "sleeper",
+])
+
+RULE_STATE_FIELDS = (
+    "reputation",
+    "reputation_score",
+    "reputation_score_by_viewer",
+    "band",
+    "stake",
+    "stake_held",
+    "contract_state",
+    "lien_state",
+)
+
+VERDICT_LADDER = (
+    "UNOBSERVED",
+    "NO-SIGNAL",
+    "NOTICED",
+    "WATCH",
+    "ACCUSED",
+)
+
+LR_TABLES = ("LR-1", "LR-2", "LR-3", "LR-4", "LR-5", "LR-6")
+
+USES = ("conformance", "assumption")
+
+CONTESTED_LABEL_C6 = "contested at finding C-6"
+
+THRESHOLD_SETS = {
+    "epoch weighted": {
+        "values": (320, 533, 800),
+        "population": 8,
+        "contested": True,
+        "contested_label": CONTESTED_LABEL_C6,
+        "standing": "operating values for an epoch watch",
+    },
+    "unweighted": {
+        "values": (160,),
+        "threshold": 160,
+        "noticed_at": 4,
+        "watch_at": 13,
+        "contested": True,
+        "contested_label": CONTESTED_LABEL_C6,
+        "standing": "brief section figures for their own threshold only",
+    },
+}
+
+F06_PROFILES = (
+    "slow leak",
+    "drifter",
+    "prepositioner",
+    "colluder",
+    "honest",
+)
+
+F06_MINIMUM_STREAMS_PER_PROFILE = 1000
+
+F06_FIGURES = {
+    "false ACCUSED": 0.0,
+    "false WATCH": 0.129,
+    "false NOTICED": 0.31,
+}
+
+DEFERRED_OUTSIDE_CLASSES = (
+    "O-1", "O-2", "O-3", "O-4", "O-5", "O-6", "O-7",
+)
+
+PROFILE_BOUND_LABEL_FIELD = "profile_bound_label"
+
+PROFILE_LABEL_CARRIAGE = (
+    "profile bound label attached (value set open at OP-16)"
+)
+
+_SEPARATIONS = (
+    "authorship separation",
+    "knowledge separation",
+    "record separation",
+)
+
+
+class NamedDetectionFailure(Exception):
+    """A detection failure stated by name, under Contract E."""
+
+
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing argument handing in the named
+form of this module instead of escaping as bare interpreter
+text at the call itself (FW5-10)."""
+
+
+class SilentUseMovement(NamedDetectionFailure):
+    """A table value moved between uses without both uses named."""
+
+
+def mod01_surface():
+    """Return the MOD-01 module this layer depends on, or None."""
+    return _mod01
+
+
+_HOMOGLYPH_MAP = {
+    "\u0430": "a", "\u0441": "c", "\u0435": "e", "\u043e": "o",
+    "\u0440": "p", "\u0445": "x", "\u0443": "y", "\u0456": "i",
+    "\u0458": "j", "\u0455": "s", "\u04bb": "h", "\u043a": "k",
+    "\u043c": "m", "\u043d": "h", "\u0442": "t", "\u0432": "b",
+    "\u03b1": "a", "\u03b2": "b", "\u03b5": "e", "\u03b9": "i",
+    "\u03ba": "k", "\u03bc": "m", "\u03bf": "o", "\u03c1": "p",
+    "\u03c4": "t", "\u03c7": "x", "\u03c5": "y", "\u03bd": "n",
+    "\u03b3": "g", "\u03b4": "d", "\u03bb": "l", "\u03c3": "s",
+    "\u03c9": "w", "\u03b6": "z", "\u03b8": "t", "\u03c6": "f",
+    "\u00e6": "ae", "\u0153": "oe", "\u00f8": "o", "\u0111": "d",
+    "\u0142": "l", "\u00df": "ss", "\u00fe": "th", "\u00f0": "d",
+    "\u0127": "h", "\u014b": "n", "\u0192": "f", "\u0131": "i",
+    "\u0167": "t",
+    "\u00c6": "ae", "\u0152": "oe", "\u00d8": "o", "\u0110": "d",
+    "\u0141": "l", "\u1e9e": "ss", "\u00de": "th", "\u00d0": "d",
+    "\u0126": "h", "\u014a": "n", "\u0191": "f", "\u0166": "t",
+    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d",
+    "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
+    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l",
+    "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
+    "\ua7af": "q", "\u0280": "r", "\ua731": "s", "\u1d1b": "t",
+    "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y",
+    "\u1d22": "z",
+    "\u1d31": "e", "\u1d38": "l", "\u1d3c": "o", "\u1d40": "t",
+    "\u0585": "o", "\u0555": "o", "\u0578": "n", "\u0548": "n",
+    "\u0452": "s", "\u0493": "h",
+    "\u13d2": "r", "\uaba2": "r", "\u13ac": "e", "\uab7c": "e",
+    "\u13aa": "a", "\uab7a": "a", "\u13de": "l", "\uabae": "l",
+    "\u13b7": "m", "\uab87": "m", "\u13be": "o", "\uab8e": "o",
+    "\u13c1": "n", "\uab91": "n", "\u13ef": "y", "\uabbf": "y",
+    "\u2ca3": "r", "\u2c89": "e", "\u2c81": "a", "\u2c97": "l",
+    "\u2c99": "m", "\u2c9f": "o", "\u2c9b": "n", "\u2ca9": "y",
+    "\u20ac": "e", "\u00a3": "l", "\u00a2": "c", "!": "l", "|": "l", "\u00a5": "y",
+    "\u00a7": "s", "+": "t",
+}
+for _upper, _lower in list(_HOMOGLYPH_MAP.items()):
+    _HOMOGLYPH_MAP[_upper.upper()] = _lower
+
+_TRANSLITERATION_MAP = dict(_HOMOGLYPH_MAP)
+_TRANSLITERATION_MAP.update({
+    "\u0431": "b", "\u0432": "v", "\u0433": "g", "\u0434": "d",
+    "\u0451": "e", "\u0436": "zh", "\u0437": "z", "\u0438": "i",
+    "\u0439": "y", "\u043b": "l", "\u043c": "m", "\u043d": "n",
+    "\u043f": "p", "\u0440": "r", "\u0441": "s", "\u0442": "t",
+    "\u0443": "u", "\u0444": "f", "\u0445": "h", "\u0446": "ts",
+    "\u0447": "ch", "\u0448": "sh", "\u0449": "shch", "\u044a": "",
+    "\u044b": "y", "\u044c": "", "\u044d": "e", "\u044e": "yu",
+    "\u044f": "ya",
+    "\u03b2": "b", "\u03b3": "g", "\u03b4": "d", "\u03b6": "z",
+    "\u03b7": "e", "\u03b8": "th", "\u03bb": "l", "\u03bc": "m",
+    "\u03bd": "n", "\u03c0": "p", "\u03c1": "r", "\u03c2": "s",
+    "\u03c3": "s", "\u03c5": "u", "\u03c6": "ph", "\u03c7": "h",
+    "\u03c8": "ps", "\u03c9": "o",
+})
+for _upper, _lower in list(_TRANSLITERATION_MAP.items()):
+    _TRANSLITERATION_MAP[_upper.upper()] = _lower
+
+_LEET_MAP = {
+    "0": "o", "1": "i", "3": "e", "4": "a",
+    "5": "s", "7": "t", "8": "b", "@": "a", "$": "s",
+}
+
+_LEET_L_MAP = {
+    "0": "o", "1": "l", "3": "e", "4": "a",
+    "5": "s", "7": "t", "8": "b", "@": "a", "$": "s",
+}
+
+
+def _stored_text(value):
+    """The text a value stores, read through the base class
+    string form, never through a string reading the value
+    itself supplies. A value that is not a text form stores
+    no text, so no name stands judged from a string reading
+    a non text value itself supplies, and its stored text
+    stands as the empty text, in the cured MOD-01 form. A
+    bytes value stands judged on its stored bytes, decoded
+    as UTF-8 with undecodable bytes dropped, never through
+    a string reading a bytes subclass itself supplies, so a
+    bytes form keeps the standing its stored name carries. A
+    bytearray value and a memoryview value stand judged the
+    same way, on the bytes they store or view decoded the
+    same way, in the helper form limb 6 of the Round 10
+    settlement states."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.decode(bytes(value), "utf-8", "ignore")
+    return ""
+
+
+def _stored_key_matches(stored, key):
+    """Whether a stored key stands as a handed key, judged on
+    the forms each side stores, never through a hash or
+    equality reading either side itself supplies. A text form
+    key stands judged on its stored text, in the stored text
+    form of this module. A plain scalar key stands judged
+    kind first on the scalar it stores, a boolean apart from
+    every number, under settlement S-16. Any other key stands
+    as itself alone, by identity."""
+    if stored is key:
+        return True
+    if isinstance(key, (str, bytes, bytearray, memoryview)) \
+            and isinstance(
+                stored, (str, bytes, bytearray, memoryview)):
+        result = str.__eq__(_stored_text(stored), _stored_text(key))
+        return result if result is not NotImplemented else False
+    if isinstance(key, bool) or isinstance(stored, bool):
+        return False
+    if isinstance(key, int) and isinstance(stored, int):
+        result = int.__eq__(stored, key)
+        return result if result is not NotImplemented else False
+    if isinstance(key, float) and isinstance(stored, float):
+        result = float.__eq__(stored, key)
+        return result if result is not NotImplemented else False
+    if isinstance(key, complex) and isinstance(stored, complex):
+        result = complex.__eq__(stored, key)
+        return result if result is not NotImplemented else False
+    return False
+
+
+def _base_get(record, key):
+    """Read one field through its stored pairs, never through
+    a get reading the record itself supplies and never
+    through a hash or equality reading a stored key supplies,
+    in the cured companion form of the MOD-13 stored pairs
+    reading. A handed value in no mapping form stores nothing
+    under any key."""
+    if isinstance(record, dict):
+        for stored_key, item in dict.items(record):
+            if _stored_key_matches(stored_key, key):
+                return item
+    return None
+
+
+def _base_str_eq(first, second):
+    """Judge two values by base string equality, which no part
+    can override. A value that does not stand in string form, or
+    whose stored characters differ, does not agree."""
+    if not (isinstance(first, str) and isinstance(second, str)):
+        return False
+    result = str.__eq__(first, second)
+    return result if result is not NotImplemented else False
+
+
+def _folded_readings(key):
+    """The folded readings of one key, in the shared canonicalised
+    form the barred surfaces at MOD-03, MOD-04 and MOD-05 read:
+    compatibility decomposition with combining marks dropped,
+    non Latin homoglyph letters mapped to the Latin letters they
+    stand for, separators and zero width characters dropped,
+    beside a reading with digit substitutions read as letters
+    and a reading with digits dropped. The barred vocabulary of
+    this module itself stands unmoved; only its reading gains
+    the folded form. The readings stand taken under both the
+    homoglyph map and the transliteration map, and under every
+    combination of the two readings position by position, so a
+    key needing the transliteration reading at one position and
+    the homoglyph reading at another position of the same word
+    stands read as the word it spells. The decomposed text stands
+    lowered after decomposition, in the sister form at MOD-04,
+    so a letter whose decomposition stands as a capital, as the
+    modifier small capital letters decompose, reads as its small
+    letter. The combination stands built over the original
+    characters of the key, before decomposition: each original
+    character contributes the reading of its decomposed base
+    under each map, the reading each map records for the
+    character itself where one stands recorded, and, for
+    Cyrillic short i, both of its recorded readings, y and i,
+    since decomposition alone would reduce that letter to its
+    i reading and lose the y reading its transliteration
+    records. Each character contributes those readings beside
+    their digit forms, the reading itself, the reading under
+    each digit substitution map, and the reading with digits
+    dropped, so the leet reading at one digit position and the
+    drop reading at another combine inside one key. The key text
+    stands taken from the stored characters through the base
+    class string form, in _stored_text, never through a string
+    reading the handed key itself supplies, and the same stored
+    text feeds _combined_key_barred and _is_barred_key."""
+    readings = []
+
+    def add(transformed):
+        plain = "".join(
+            character for character in transformed
+            if character.isalnum())
+        if plain and plain not in readings:
+            readings.append(plain)
+
+    for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+        decomposed = unicodedata.normalize(
+            "NFKD", _stored_text(key).lower()).lower()
+        base = "".join(
+            letter_map.get(character, character)
+            for character in decomposed
+            if not unicodedata.category(character).startswith("M")
+        )
+        add(base)
+        add("".join(_LEET_MAP.get(character, character)
+                    for character in base))
+        add("".join(_LEET_L_MAP.get(character, character)
+                    for character in base))
+        add("".join(character for character in base
+                    if not character.isdigit()))
+    texts = {""}
+    combined = True
+    for character in _stored_text(key).lower():
+        base_characters = [
+            part
+            for part in unicodedata.normalize(
+                "NFKD", character).lower()
+            if not unicodedata.category(part).startswith("M")
+        ]
+        options = set()
+        for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+            options.add("".join(
+                letter_map.get(part, part)
+                for part in base_characters))
+            if character in letter_map:
+                options.add(letter_map[character])
+        if character == "й":
+            options.update(("y", "i"))
+        variants = set()
+        for option in options:
+            for transformed in (
+                option,
+                "".join(_LEET_MAP.get(part, part)
+                        for part in option),
+                "".join(_LEET_L_MAP.get(part, part)
+                        for part in option),
+                "".join(part for part in option
+                        if not part.isdigit()),
+            ):
+                variants.add("".join(
+                    part for part in transformed if part.isalnum()))
+        expanded = {
+            prefix + variant
+            for prefix in texts
+            for variant in variants
+        }
+        if len(expanded) > 4096:
+            combined = False
+            break
+        texts = expanded
+    if combined:
+        for base in texts:
+            add(base)
+            add("".join(_LEET_MAP.get(character, character)
+                        for character in base))
+            add("".join(_LEET_L_MAP.get(character, character)
+                        for character in base))
+            add("".join(character for character in base
+                        if not character.isdigit()))
+    return tuple(readings)
+
+_BARRED_FOLDED_EXACT = frozenset(
+    reading
+    for name in _BARRED_EXACT_KEYS
+    for reading in _folded_readings(name)
+)
+_BARRED_FOLDED_PARTS = ("membership", "groundtruth", "canary")
+
+
+def _character_variants(character):
+    """Every folded form one original character can contribute
+    to a combined reading: each reading the combination limb of
+    _folded_readings records for the character, taken plain,
+    under each digit substitution map, and with digits dropped,
+    as that limb builds them."""
+    base_characters = [
+        part
+        for part in unicodedata.normalize(
+            "NFKD", character).lower()
+        if not unicodedata.category(part).startswith("M")
+    ]
+    options = set()
+    for letter_map in (_HOMOGLYPH_MAP, _TRANSLITERATION_MAP):
+        options.add("".join(
+            letter_map.get(part, part)
+            for part in base_characters))
+        if character in letter_map:
+            options.add(letter_map[character])
+    if character == "й":
+        options.update(("y", "i"))
+    variants = set()
+    for option in options:
+        for transformed in (
+            option,
+            "".join(_LEET_MAP.get(part, part)
+                    for part in option),
+            "".join(_LEET_L_MAP.get(part, part)
+                    for part in option),
+            "".join(part for part in option
+                    if not part.isdigit()),
+        ):
+            variants.add("".join(
+                part for part in transformed if part.isalnum()))
+    return variants
+
+
+def _combined_matches_exact(variant_sets, target):
+    states = {0}
+    for variants in variant_sets:
+        following = set()
+        for state in states:
+            for variant in variants:
+                if target.startswith(variant, state):
+                    following.add(state + len(variant))
+        states = following
+        if not states:
+            return False
+    return len(target) in states
+
+
+def _combined_prefix_state(pattern, state, character):
+    candidate = pattern[:state] + character
+    limit = min(len(pattern), state + 1)
+    for length in range(limit, -1, -1):
+        if candidate.endswith(pattern[:length]):
+            return length
+    return 0
+
+
+def _combined_carries(variant_sets, pattern):
+    full = len(pattern)
+    states = {0}
+    for variants in variant_sets:
+        following = set()
+        for state in states:
+            for variant in variants:
+                current = state
+                for character in variant:
+                    if current == full:
+                        break
+                    current = _combined_prefix_state(
+                        pattern, current, character)
+                following.add(current)
+        if full in following:
+            return True
+        states = following
+    return full in states
+
+
+def _combined_key_barred(key):
+    """Whether any combined reading of the key stands barred,
+    judged position by position over the per character variants
+    without enumerating the combined texts, so the judgement
+    stands the same inside the 4096 combined text bound and
+    past it, in the form the MOD-05 read takes. The forms
+    judged are the forms _is_barred_key judges on an enumerated
+    reading: a reading standing in the folded exact set of the
+    barred keys, and a reading carrying a folded barred part."""
+    variant_sets = [
+        _character_variants(character)
+        for character in _stored_text(key).lower()
+    ]
+    for target in _BARRED_FOLDED_EXACT:
+        if _combined_matches_exact(variant_sets, target):
+            return True
+    for part in _BARRED_FOLDED_PARTS:
+        if _combined_carries(variant_sets, part):
+            return True
+    return False
+
+
+def _joined_stored_text(key):
+    """The stored text parts of a container key joined in
+    order, with no separator added, read leaf by leaf through
+    _stored_text at any depth, on an explicit stack, in the
+    joined reading limb 3 of the Round 10 settlement states
+    on the MOD-04 model text. A container part already visited
+    on this walk contributes its text once, so a cyclic part
+    adds nothing on a revisit."""
+    texts = []
+    seen = set()
+    stack = [key]
+    while stack:
+        part = stack.pop()
+        if isinstance(part, (dict, list, tuple, set, frozenset)):
+            if id(part) in seen:
+                continue
+            seen.add(id(part))
+            if isinstance(part, dict):
+                parts = list(dict.keys(part))
+            else:
+                parts = list(_base_iter(part))
+            stack.extend(reversed(parts))
+        else:
+            texts.append(_stored_text(part))
+    return "".join(texts)
+
+
+
+_UNORDERED_JOIN_PART_BOUND = 7
+
+_JOIN_CANDIDATE_BOUND = 5040
+
+_SEG_JOIN_CANDIDATE_BOUND = 131072
+
+_SEG_FOLDED_CANDIDATE_BOUND = 20000
+
+
+def _join_container_parts(node):
+    """The parts a container stores, read through base class
+    operations only, in the iteration order the container
+    stands in for this process."""
+    if isinstance(node, dict):
+        return list(dict.keys(node))
+    return list(_base_iter(node))
+
+
+def _has_unordered_split(value):
+    """Whether a key carries a set or frozenset part holding
+    two or more parts, found on an iterative walk, so no
+    recursion stands spent on a key that carries none."""
+    seen = set()
+    stack = [value]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (dict, list, tuple, set, frozenset)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            parts = _join_container_parts(node)
+            if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+                return True
+            stack.extend(parts)
+    return False
+
+
+def _joined_text_candidates(value, _active=None, _cap=None):
+    """Every joined stored text a container key can stand in.
+
+    An ordered container (tuple, list, or a dict read by its
+    keys) contributes the join of its parts in their stored
+    order, exactly as the standing joined reading reads it. An
+    unordered container (set or frozenset) stores no order, so
+    its iteration order, which the hash seed governs, is no
+    reading of it: the candidates are the joins under every
+    ordering of its direct parts, each part contributing every
+    candidate of its own in the same form, so a barred name
+    split across the parts of an unordered container stands
+    among the candidates in every iteration order. The form is
+    complete for an unordered container holding at most
+    _UNORDERED_JOIN_PART_BOUND direct parts and while the
+    distinct candidates of one container stand at or under
+    _JOIN_CANDIDATE_BOUND. Past either bound the container
+    contributes its iteration order join alone, beside the
+    standing per part readings, as the paper for this cure
+    states. A part already on the walk path contributes the
+    empty text, so a cyclic part cannot loop the read. The walk stands iterative on an explicit stack of frames, so a container chain at any depth stands answered on the same terms and no recursion stands spent per container level. A caller may state a wider candidate cap through _cap, as the segmentation readings do, without moving the standing bound this act states for its other callers."""
+    if _cap is None:
+        _cap = _JOIN_CANDIDATE_BOUND
+    if _active is None:
+        _active = set()
+
+    def combine(node, parts, child):
+        if (
+            isinstance(node, (set, frozenset))
+            and 2 <= len(parts) <= _UNORDERED_JOIN_PART_BOUND
+        ):
+            orders = list(
+                itertools.permutations(range(len(parts))))
+        else:
+            orders = [tuple(range(len(parts)))]
+        out = []
+        seen = set()
+        for order in orders:
+            total = 1
+            for index in order:
+                total *= len(child[index])
+            if total > _cap:
+                text = "".join(
+                    child[index][0]
+                    for index in range(len(parts)))
+                if text not in seen:
+                    seen.add(text)
+                    out.append(text)
+                continue
+            for combo in itertools.product(
+                    *(child[index] for index in order)):
+                text = "".join(combo)
+                if text not in seen:
+                    seen.add(text)
+                    out.append(text)
+                    if len(out) >= _cap:
+                        return tuple(out)
+        return tuple(out)
+
+    stack = []
+    node = value
+    result = None
+    while True:
+        if result is None:
+            if not isinstance(node, (dict, list, tuple, set, frozenset)):
+                result = (_stored_text(node),)
+            elif id(node) in _active:
+                result = ("",)
+            else:
+                _active.add(id(node))
+                parts = _join_container_parts(node)
+                if parts:
+                    stack.append([node, parts, [], 0])
+                    node = parts[0]
+                    continue
+                _active.discard(id(node))
+                result = combine(node, parts, [])
+        while result is not None:
+            if not stack:
+                return result
+            frame = stack[-1]
+            frame[2].append(result)
+            frame[3] += 1
+            if frame[3] < len(frame[1]):
+                node = frame[1][frame[3]]
+                result = None
+                break
+            stack.pop()
+            _active.discard(id(frame[0]))
+            result = combine(frame[0], frame[1], frame[2])
+
+
+def _seg_tiles_exact(options, target):
+    """Whether the parts can stand in some order so that their
+    joined reading, in the reading space the options stand in,
+    stands exactly as the target. The judgement runs as a
+    segmentation of the target over the parts: a state is a
+    position in the target beside the set of parts already
+    placed, a step places one unused part whose reading stands
+    as the next segment of the target, and a part whose
+    readings carry the empty text may stand placed without
+    advancing the position, so it is checked at the end rather
+    than placed. No ordering of the parts is ever listed, and
+    the state count stands at most at the target length plus
+    one times two to the number of parts that can contribute a
+    segment of the target, in place of the factorial count of
+    orderings. A failed state is never searched twice."""
+    count = len(options)
+    usable = []
+    for opts in options:
+        matching = sorted({o for o in opts if o and o in target})
+        if not matching and "" not in opts:
+            return False
+        usable.append(matching)
+
+    def remaining_can_vanish(mask):
+        return all(
+            "" in options[i]
+            for i in range(count) if not (mask >> i) & 1)
+
+    failed = set()
+    stack = [[0, 0, None, 0]]
+    while stack:
+        frame = stack[-1]
+        pos, mask = frame[0], frame[1]
+        if pos == len(target):
+            if remaining_can_vanish(mask):
+                return True
+            failed.add((pos, mask))
+            stack.pop()
+            continue
+        if frame[2] is None:
+            if (pos, mask) in failed:
+                stack.pop()
+                continue
+            frame[2] = [
+                (i, o) for i in range(count)
+                if not (mask >> i) & 1
+                for o in usable[i] if target.startswith(o, pos)]
+        if frame[3] < len(frame[2]):
+            i, o = frame[2][frame[3]]
+            frame[3] += 1
+            stack.append([pos + len(o), mask | (1 << i), None, 0])
+        else:
+            failed.add((pos, mask))
+            stack.pop()
+    return False
+
+
+def _seg_tiles_carrying(options, pattern):
+    """The set of parts that can stand as one unbroken block,
+    in some order, so that their joined reading carries the
+    pattern inside it, or None where no such block stands. The
+    block is found as a segmentation of the pattern: its first
+    part contributes a suffix of its reading, each middle part
+    contributes its whole reading as one segment of the
+    pattern, and its last part contributes a prefix of its
+    reading, each part used at most once. Parts outside the
+    block stand free on either side of it, so the block alone
+    decides the carrying. No ordering of the parts is ever
+    listed, and the state count stands at most at the pattern
+    length plus one times two to the number of parts that can
+    contribute a segment of the pattern."""
+    if not pattern:
+        return None
+    count = len(options)
+    opts_list = [sorted({o for o in opts if o}) for opts in options]
+    failed = set()
+    stack = [[0, 0, None, 0]]
+    while stack:
+        frame = stack[-1]
+        pos, mask = frame[0], frame[1]
+        if frame[2] is None:
+            if (pos, mask) in failed:
+                stack.pop()
+                continue
+            moves = []
+            for i in range(count):
+                if (mask >> i) & 1:
+                    continue
+                for o in opts_list[i]:
+                    if mask == 0:
+                        if pattern in o:
+                            return 1 << i
+                        for j in range(
+                                1, min(len(o), len(pattern)) + 1):
+                            if o.endswith(pattern[:j]):
+                                if j == len(pattern):
+                                    return 1 << i
+                                moves.append((j, i))
+                    elif pos + len(o) <= len(pattern):
+                        if o == pattern[pos:pos + len(o)]:
+                            if pos + len(o) == len(pattern):
+                                return mask | (1 << i)
+                            moves.append((pos + len(o), i))
+                    elif o.startswith(pattern[pos:]):
+                        return mask | (1 << i)
+            frame[2] = moves
+        if frame[3] < len(frame[2]):
+            npos, i = frame[2][frame[3]]
+            frame[3] += 1
+            stack.append([npos, mask | (1 << i), None, 0])
+        else:
+            failed.add((pos, mask))
+            stack.pop()
+    return None
+
+
+def _seg_unordered_nodes(key):
+    """Every set or frozenset standing inside a key, at any
+    depth, found on an iterative walk through base readings,
+    each beside the parts it directly stores."""
+    seen = set()
+    stack = [key]
+    nodes = []
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (dict, list, tuple, set, frozenset)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            parts = _join_container_parts(node)
+            if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+                nodes.append((node, parts))
+            stack.extend(parts)
+    return nodes
+
+
+
+
+def _seg_universe(targets, patterns):
+    """Every substring of the targets and patterns a
+    segmentation judgement in this module tiles or carries:
+    the only texts a part reading can contribute to such a
+    judgement as a whole segment."""
+    universe = set()
+    for text in list(targets) + list(patterns):
+        for start in range(len(text)):
+            for stop in range(start + 1, len(text) + 1):
+                universe.add(text[start:stop])
+    return universe
+
+
+def _seg_prefixes(universe):
+    """Every prefix of a universe text, the closure the
+    formable set computation walks through."""
+    prefixes = set()
+    for text in universe:
+        for stop in range(1, len(text) + 1):
+            prefixes.add(text[:stop])
+    return prefixes
+
+
+def _seg_formable(node, universe, prefixes, folded, _active=None):
+    """The universe texts one part can join to exactly, as a
+    set beside whether the part can join to the empty text.
+    The computation walks the part structure in the form the
+    segmentation stated: an ordered container joins its
+    parts in order, an unordered container joins its parts
+    in any order, and no joined candidate is ever listed, so
+    a composite part whose candidates pass the kept helper
+    cut still contributes every segment of a target or a
+    pattern it can stand as. A part already on the walk path
+    contributes the empty text, as the candidate act states."""
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        if folded:
+            readings = set(_folded_readings(node))
+        else:
+            readings = {_stored_text(node).lower()}
+        return (
+            {reading for reading in readings if reading in universe},
+            "" in readings or not readings)
+    if id(node) in _active:
+        return (set(), True)
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        child = [
+            _seg_formable(part, universe, prefixes, folded, _active)
+            for part in parts]
+    finally:
+        _active.discard(id(node))
+    options = []
+    can_empty = True
+    for forms, empty in child:
+        options.append(forms | ({""} if empty else set()))
+        can_empty = can_empty and empty
+    if isinstance(node, (set, frozenset)) and len(parts) >= 2:
+        if any(not opts for opts in options):
+            return (set(), can_empty)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        reached = {0: {""}}
+        full = (1 << len(parts)) - 1
+        queue = [0]
+        cursor = 0
+        bounded = False
+        while cursor < len(queue):
+            mask = queue[cursor]
+            cursor += 1
+            for index in range(len(parts)):
+                if (mask >> index) & 1:
+                    continue
+                joined = {
+                    head + tail
+                    for head in reached[mask]
+                    for tail in options[index]
+                    if head + tail == "" or head + tail in prefixes}
+                if not joined:
+                    continue
+                new_mask = mask | (1 << index)
+                if new_mask not in reached:
+                    if len(reached) >= bound:
+                        bounded = True
+                        break
+                    reached[new_mask] = set()
+                    queue.append(new_mask)
+                reached[new_mask].update(joined)
+            if bounded:
+                break
+        if bounded:
+            acc = {""}
+            for opts in options:
+                acc = {
+                    head + tail
+                    for head in acc for tail in opts
+                    if head + tail == "" or head + tail in prefixes}
+                if not acc:
+                    break
+            return (acc & universe, can_empty)
+        return (reached.get(full, set()) & universe, can_empty)
+    acc = {""}
+    for opts in options:
+        acc = {
+            head + tail
+            for head in acc for tail in opts
+            if head + tail == "" or head + tail in prefixes}
+        if not acc:
+            break
+    return (acc & universe, can_empty)
+
+def _seg_part_readings(node, folded):
+    """The readings of one leaf part in one reading space: the
+    folded readings in folded space, the lowered stored text
+    in plain space."""
+    if folded:
+        return set(_folded_readings(node))
+    return {_stored_text(node).lower()}
+
+
+def _seg_part_can_equal(node, text, folded, _active=None):
+    """Whether some whole reading of one part stands exactly
+    as the text, judged through the formable computation, so
+    no joined candidate of the part stands listed."""
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return text in _seg_part_readings(node, folded)
+    if id(node) in _active:
+        return text == ""
+    universe = _seg_universe((text,), ()) if text else set()
+    try:
+        forms, can_empty = _seg_formable(
+            node, universe, _seg_prefixes(universe), folded)
+    except RecursionError:
+        return False
+    if not text:
+        return can_empty
+    return text in forms
+
+
+def _seg_part_can_start(node, text, folded, _active=None):
+    """Whether some whole reading of one part begins with the
+    text. The judgement walks the part structure: an ordered
+    part is consumed in its stored order and an unordered
+    part in any order of its subparts, each step either
+    placing one subpart as an exact piece of the text, letting
+    one subpart begin with the remainder, or passing a subpart
+    that can stand empty. The state count stands bounded by
+    the stated candidate cap of the reading space, in the
+    form settlement S-10 states, and a part past the bound
+    contributes no opening form through this act."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            reading.startswith(text)
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_start(parts[0], text, folded, _active)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0) if unordered else (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, pos = stack.pop()
+            if pos == len(text):
+                return True
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                indices = [mask] if mask < len(parts) else []
+            for index in indices:
+                part = parts[index]
+                if _seg_part_can_start(
+                        part, text[pos:], folded, _active):
+                    return True
+                new_mask = (
+                    mask | (1 << index) if unordered else index + 1)
+                for stop in range(pos + 1, len(text) + 1):
+                    if _seg_part_can_equal(
+                            part, text[pos:stop], folded, _active):
+                        state = (new_mask, stop)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                if _seg_part_can_equal(part, "", folded, _active):
+                    state = (new_mask, pos)
+                    if state not in seen:
+                        seen.add(state)
+                        stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_part_can_end(node, text, folded, _active=None):
+    """Whether some whole reading of one part ends with the
+    text, the mirror form of _seg_part_can_start, walked from
+    the closing subpart backwards under the same stated bound."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            reading.endswith(text)
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_end(parts[0], text, folded, _active)
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, matched = stack.pop()
+            if matched == len(text):
+                return True
+            rest = text[:len(text) - matched]
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                index = len(parts) - 1 - mask
+                indices = [index] if index >= 0 else []
+            for index in indices:
+                part = parts[index]
+                if _seg_part_can_end(
+                        part, rest, folded, _active):
+                    return True
+                new_mask = (
+                    mask | (1 << index) if unordered else mask + 1)
+                for start_at in range(0, len(rest)):
+                    piece = rest[start_at:]
+                    if _seg_part_can_equal(
+                            part, piece, folded, _active):
+                        state = (new_mask, matched + len(piece))
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                if _seg_part_can_equal(part, "", folded, _active):
+                    state = (new_mask, matched)
+                    if state not in seen:
+                        seen.add(state)
+                        stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_part_can_contain(node, text, folded, _active=None):
+    """Whether some whole reading of one part carries the
+    text inside it: the text stands inside one subpart, or it
+    spans subpart boundaries, one subpart ending with its
+    opening, middle subparts standing as its exact pieces,
+    and one subpart beginning with its closing. The walk
+    stands bounded as _seg_part_can_start states."""
+    if not text:
+        return True
+    if _active is None:
+        _active = set()
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return any(
+            text in reading
+            for reading in _seg_part_readings(node, folded))
+    if id(node) in _active:
+        return False
+    _active.add(id(node))
+    try:
+        parts = _join_container_parts(node)
+        if not parts:
+            return False
+        if len(parts) == 1:
+            return _seg_part_can_contain(parts[0], text, folded, _active)
+        for part in parts:
+            if _seg_part_can_contain(part, text, folded, _active):
+                return True
+        bound = (
+            _SEG_FOLDED_CANDIDATE_BOUND if folded
+            else _SEG_JOIN_CANDIDATE_BOUND)
+        unordered = (
+            isinstance(node, (set, frozenset)) and len(parts) >= 2)
+        start = (0, 0)
+        seen = {start}
+        stack = [start]
+        while stack:
+            mask, pos = stack.pop()
+            if pos == len(text):
+                return True
+            if unordered:
+                indices = [
+                    i for i in range(len(parts))
+                    if not (mask >> i) & 1]
+            else:
+                indices = [mask] if mask < len(parts) else []
+            for index in indices:
+                part = parts[index]
+                new_mask = (
+                    mask | (1 << index) if unordered else index + 1)
+                if pos == 0:
+                    if _seg_part_can_end(part, text, folded, _active):
+                        return True
+                    for stop in range(1, len(text)):
+                        if _seg_part_can_end(
+                                part, text[:stop], folded, _active):
+                            state = (new_mask, stop)
+                            if state not in seen:
+                                seen.add(state)
+                                stack.append(state)
+                    if not unordered:
+                        state = (new_mask, 0)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+                else:
+                    if _seg_part_can_start(
+                            part, text[pos:], folded, _active):
+                        return True
+                    for stop in range(pos + 1, len(text) + 1):
+                        if _seg_part_can_equal(
+                                part, text[pos:stop], folded, _active):
+                            if stop == len(text):
+                                return True
+                            state = (new_mask, stop)
+                            if state not in seen:
+                                seen.add(state)
+                                stack.append(state)
+                    if _seg_part_can_equal(part, "", folded, _active):
+                        state = (new_mask, pos)
+                        if state not in seen:
+                            seen.add(state)
+                            stack.append(state)
+            if len(seen) > bound:
+                return False
+        return False
+    finally:
+        _active.discard(id(node))
+
+
+def _seg_parts_carry_edge(parts, options, pattern, folded):
+    """Whether a barred part stands tiled over the direct
+    parts of one unordered container where one part
+    contributes only its edge: a part whose whole reading
+    carries the pattern inside it, or a first part whose
+    whole reading ends with the opening of the pattern,
+    middle parts standing as exact pieces of it through
+    their stated options, and a last part whose whole
+    reading begins with its closing. The edge forms stand
+    judged through the part predicates above, so a composite
+    part past the candidate caps contributes its edge as
+    settlement S-4 governs, in plain and folded spaces alike."""
+    if not any(
+            isinstance(part, (dict, list, tuple, set, frozenset))
+            for part in parts):
+        return False
+    for part in parts:
+        if not isinstance(part, (dict, list, tuple, set, frozenset)):
+            continue
+        try:
+            if _seg_part_can_contain(part, pattern, folded):
+                return True
+        except RecursionError:
+            continue
+    count = len(parts)
+    for first in range(count):
+        for cut in range(1, len(pattern)):
+            try:
+                if not _seg_part_can_end(
+                        parts[first], pattern[:cut], folded):
+                    continue
+            except RecursionError:
+                continue
+            failed = set()
+            stack = [(1 << first, cut)]
+            while stack:
+                mask, pos = stack.pop()
+                if pos >= len(pattern):
+                    return True
+                if (mask, pos) in failed:
+                    continue
+                for index in range(count):
+                    if (mask >> index) & 1:
+                        continue
+                    try:
+                        if _seg_part_can_start(
+                                parts[index], pattern[pos:], folded):
+                            return True
+                    except RecursionError:
+                        pass
+                    for option in options[index]:
+                        if option and pattern.startswith(option, pos):
+                            if pos + len(option) >= len(pattern):
+                                return True
+                            stack.append(
+                                (mask | (1 << index),
+                                 pos + len(option)))
+                failed.add((mask, pos))
+    return False
+
+def _seg_plain_options(parts, _universe=None, _prefixes=None):
+    """The plain readings of the direct parts of one unordered
+    container: for each part, the lowered texts of every joined
+    candidate the part itself stands in, taken under the wider
+    segmentation candidate cap, beside every universe segment
+    the part can join to exactly where a universe stands
+    stated, so a composite part past the kept helper cut
+    still contributes the segments a barred reading needs."""
+    options = []
+    for part in parts:
+        texts = {
+            text.lower()
+            for text in _joined_text_candidates(
+                part, _cap=_SEG_JOIN_CANDIDATE_BOUND)}
+        if _universe is not None and isinstance(part, (dict, list, tuple, set, frozenset)):
+            try:
+                forms, can_empty = _seg_formable(
+                    part, _universe, _prefixes, False)
+            except RecursionError:
+                forms, can_empty = set(), False
+            texts |= forms
+            if can_empty:
+                texts.add("")
+        options.append(texts)
+    return options
+
+
+def _seg_folded_options(parts, _universe=None, _prefixes=None):
+    """The folded readings of the direct parts of one unordered
+    container: for each part, every folded reading of every
+    joined candidate the part itself stands in, under this
+    module folded reading act, beside every universe segment
+    the part can join to exactly where a universe stands
+    stated, so a folded segment a composite part can stand
+    as stands judged past the kept helper cut as well."""
+    options = []
+    for part in parts:
+        readings = set()
+        for text in _joined_text_candidates(
+                part, _cap=_SEG_FOLDED_CANDIDATE_BOUND):
+            readings.update(_folded_readings(text))
+        if not readings:
+            readings = {""}
+        if _universe is not None and isinstance(part, (dict, list, tuple, set, frozenset)):
+            try:
+                forms, can_empty = _seg_formable(
+                    part, _universe, _prefixes, True)
+            except RecursionError:
+                forms, can_empty = set(), False
+            readings |= forms
+            if can_empty:
+                readings.add("")
+        options.append(readings)
+    return options
+
+
+def _seg_unordered_barred(key):
+    """Whether an unordered container standing inside a key
+    joins, in some order of its direct parts, to a barred name
+    under this module scalar barred judgement, judged by
+    segmentation beside the kept candidate readings. The plain
+    limb tiles the plain exact names and the plain barred parts
+    of the scalar judgement over the lowered joined texts of
+    the parts; the folded limb tiles its folded exact names
+    and folded barred parts over the folded readings of the
+    parts. Either limb standing barred bars the key, as a
+    joined candidate standing barred bars it."""
+    for node, parts in _seg_unordered_nodes(key):
+        plain_universe = _seg_universe(
+            _BARRED_EXACT_KEYS, _BARRED_KEY_PARTS)
+        plain = _seg_plain_options(
+            parts, plain_universe, _seg_prefixes(plain_universe))
+        for target in tuple(_BARRED_EXACT_KEYS):
+            if _seg_tiles_exact(plain, target):
+                return True
+        for pattern in tuple(_BARRED_KEY_PARTS):
+            if _seg_tiles_carrying(plain, pattern) is not None:
+                return True
+        for pattern in tuple(_BARRED_KEY_PARTS):
+            if _seg_parts_carry_edge(parts, plain, pattern, False):
+                return True
+        folded_universe = _seg_universe(
+            _BARRED_FOLDED_EXACT, _BARRED_FOLDED_PARTS)
+        folded = _seg_folded_options(
+            parts, folded_universe, _seg_prefixes(folded_universe))
+        for target in tuple(_BARRED_FOLDED_EXACT):
+            if _seg_tiles_exact(folded, target):
+                return True
+        for pattern in tuple(_BARRED_FOLDED_PARTS):
+            if _seg_tiles_carrying(folded, pattern) is not None:
+                return True
+        for pattern in tuple(_BARRED_FOLDED_PARTS):
+            if _seg_parts_carry_edge(parts, folded, pattern, True):
+                return True
+    return False
+
+
+def _span_prefix_state(pattern, state, character):
+    candidate = pattern[:state] + character
+    limit = min(len(pattern), state + 1)
+    for length in range(limit, -1, -1):
+        if candidate.endswith(pattern[:length]):
+            return length
+    return 0
+
+
+def _span_feed(pattern, state, text):
+    current = state
+    for character in text:
+        if current == len(pattern):
+            return current
+        current = _span_prefix_state(pattern, current, character)
+    return current
+
+
+def _span_relevant(options, texts):
+    """The readings of one block that can take part in a
+    barred reading of the whole key, beside whether the block
+    carries any other reading. A reading takes part where it
+    stands as a segment of a target or a pattern, where it
+    carries a pattern whole, where a suffix of it stands as
+    the opening of a target or a pattern, or where a prefix
+    of it stands as the closing of one."""
+    relevant = set()
+    other = False
+    for option in options:
+        if option == "":
+            relevant.add(option)
+            continue
+        keep = False
+        for text in texts:
+            if not text:
+                continue
+            if option in text or text in option:
+                keep = True
+                break
+            for cut in range(1, min(len(option), len(text))):
+                if option.endswith(text[:cut]):
+                    keep = True
+                    break
+                if text[cut:] and option.startswith(text[cut:]):
+                    keep = True
+                    break
+            if keep:
+                break
+        if keep:
+            relevant.add(option)
+        else:
+            other = True
+    return relevant, other
+
+
+def _span_blocks(key):
+    """The blocks a whole key reading stands built from, in
+    the form settlement S-4 states: where the key itself
+    stands unordered, its direct parts stand as blocks in
+    no stated order; where it stands ordered, the leaf parts
+    of its ordered nesting stand as blocks in their stored
+    order, an unordered container standing among them as one
+    block whose own readings its segmentation states. A
+    container already on the walk path contributes nothing,
+    as the candidate act states."""
+    if isinstance(key, (set, frozenset)):
+        return ("unordered", _join_container_parts(key))
+    if isinstance(key, (dict, list, tuple)):
+        blocks = []
+        active = {id(key)}
+        frames = [[_join_container_parts(key), 0, id(key)]]
+        while frames:
+            frame = frames[-1]
+            parts, index, node_id = frame
+            if index >= len(parts):
+                frames.pop()
+                active.discard(node_id)
+                continue
+            frame[1] = index + 1
+            part = parts[index]
+            if isinstance(part, (dict, list, tuple)):
+                if id(part) in active:
+                    continue
+                active.add(id(part))
+                frames.append(
+                    [_join_container_parts(part), 0, id(part)])
+            else:
+                blocks.append(part)
+        return ("ordered", blocks)
+    return None
+
+
+def _seg_spanning_barred(key, plain_targets, plain_patterns,
+                         folded_targets, folded_patterns):
+    """Whether a barred reading of the whole key stands on
+    the joined and segmented readings across nesting and
+    part boundaries, in the form settlement S-4 states: a
+    name a single unordered container cannot tile on its own
+    stands barred where a segment tiled inside one block
+    stands completed by the blocks standing beside it, and
+    a name whose segment stands inside one composite block
+    past the kept helper cut stands barred on that block's
+    formable segments. An ordered key keeps its stored
+    order, judged position by position over the block
+    readings with no ordering ever listed; an unordered key
+    stands judged by the segmentation acts over its blocks.
+    A block whose reading takes no part in the barred
+    reading can only end a partial match, never carry one
+    across itself, so the ordered judgement lets every block
+    return the match to its opening state beside the states
+    its taking part readings reach."""
+    found = _span_blocks(key)
+    if found is None:
+        return False
+    mode, blocks = found
+    if not blocks:
+        return False
+    spaces = []
+    if plain_targets or plain_patterns:
+        spaces.append((plain_targets, plain_patterns, False))
+    if folded_targets or folded_patterns:
+        spaces.append((folded_targets, folded_patterns, True))
+    for targets, patterns, folded in spaces:
+        texts = list(targets) + list(patterns)
+        universe = _seg_universe(targets, patterns)
+        prefixes = _seg_prefixes(universe)
+        options = []
+        for block in blocks:
+            if folded:
+                opts = _seg_folded_options(
+                    [block], universe, prefixes)[0]
+            else:
+                opts = _seg_plain_options(
+                    [block], universe, prefixes)[0]
+            options.append(_span_relevant(opts, texts))
+        if mode == "unordered":
+            pruned = [relevant for relevant, other in options]
+            for target in targets:
+                if _seg_tiles_exact(pruned, target):
+                    return True
+            for pattern in patterns:
+                if _seg_tiles_carrying(pruned, pattern) is not None:
+                    return True
+        else:
+            for pattern in patterns:
+                states = {0}
+                for relevant, other in options:
+                    following = {0}
+                    for state in states:
+                        for option in relevant:
+                            if option == "":
+                                following.add(state)
+                                continue
+                            end = _span_feed(pattern, state, option)
+                            if end == len(pattern):
+                                return True
+                            following.add(end)
+                    states = following
+            for target in targets:
+                positions = {0}
+                for relevant, other in options:
+                    following = set()
+                    for position in positions:
+                        for option in relevant:
+                            if target.startswith(option, position):
+                                following.add(
+                                    position + len(option))
+                    positions = following
+                    if not positions:
+                        break
+                if len(target) in positions:
+                    return True
+    return False
+
+
+
+def _is_barred_key(key):
+    if isinstance(key, (dict, list, tuple, set, frozenset)):
+        stack = [key]
+        seen = set()
+        containers = []
+        while stack:
+            part = stack.pop()
+            if isinstance(part, (dict, list, tuple, set, frozenset)):
+                if id(part) in seen:
+                    continue
+                seen.add(id(part))
+                if isinstance(part, dict):
+                    parts = list(dict.keys(part))
+                else:
+                    parts = list(_base_iter(part))
+                containers.append((part, len(parts)))
+                stack.extend(parts)
+            elif _is_barred_key(part):
+                return True
+        joined_standings = {}
+        for container, part_count in containers:
+            if part_count == 1:
+                continue
+            joined = _joined_stored_text(container)
+            if not joined:
+                continue
+            if joined not in joined_standings:
+                joined_standings[joined] = _is_barred_key(joined)
+            if joined_standings[joined]:
+                return True
+        if _has_unordered_split(key):
+            for candidate in _joined_text_candidates(key):
+                if candidate and _is_barred_key(candidate):
+                    return True
+        if _seg_unordered_barred(key):
+            return True
+        if _seg_spanning_barred(
+                key, tuple(_BARRED_EXACT_KEYS),
+                tuple(_BARRED_KEY_PARTS), tuple(_BARRED_FOLDED_EXACT),
+                tuple(_BARRED_FOLDED_PARTS)):
+            return True
+        return False
+    lowered = _stored_text(key).lower()
+    if lowered in _BARRED_EXACT_KEYS:
+        return True
+    if any(part in lowered for part in _BARRED_KEY_PARTS):
+        return True
+    for reading in _folded_readings(key):
+        if reading in _BARRED_FOLDED_EXACT:
+            return True
+        if any(part in reading for part in _BARRED_FOLDED_PARTS):
+            return True
+    return _combined_key_barred(key)
+
+
+BARRED_SEARCH_DEPTH_BOUND = 100
+
+
+def _base_iter(node):
+    """Iterate a container through its base class reading, never
+    through an iteration reading the value itself supplies."""
+    if isinstance(node, list):
+        return list.__iter__(node)
+    if isinstance(node, tuple):
+        return tuple.__iter__(node)
+    if isinstance(node, frozenset):
+        return frozenset.__iter__(node)
+    if isinstance(node, set):
+        return set.__iter__(node)
+    return iter(node)
+
+
+def _path_key_text(key):
+    """The text a key stores for a barred field path, read
+    through _stored_text where the key stands in a text or
+    buffer form, so a string reading the key itself supplies,
+    lying or raising, never stands as the path name, through
+    _joined_stored_text where the key stands in a container
+    form, so the path names the field the joined stored
+    text of its parts composes, the form _is_barred_key
+    judges a container key on, and through _safe_str for a
+    key in any other form, whose string reading stands
+    guarded there against the seven named kinds."""
+    if isinstance(key, (str, bytes, bytearray, memoryview)):
+        return _stored_text(key)
+    if isinstance(key, (dict, list, tuple, set, frozenset)):
+        return _joined_stored_text(key)
+    return _safe_str(key)
+
+
+def _find_barred(node, path="", _depth=0, _seen=None, _walked=None):
+    if isinstance(node, (dict, list, tuple, set, frozenset)):
+        if _depth > BARRED_SEARCH_DEPTH_BOUND:
+            raise NamedDetectionFailure(
+                "delivery rejected: barred field search bound reached at "
+                + (path or "root")
+                + ": the value stands deeper than the stated bound of "
+                + str(BARRED_SEARCH_DEPTH_BOUND)
+                + ", counted with every container standing around a "
+                "part counting toward that bound, and no delivery "
+                "stands accepted on it"
+            )
+        seen = _seen if _seen is not None else set()
+        if id(node) in seen:
+            raise NamedDetectionFailure(
+                "delivery rejected: barred field search found a cycle at "
+                + (path or "root")
+                + ", and no delivery stands accepted on it"
+            )
+        walked = _walked if _walked is not None else {}
+        standing = walked.get((id(node), _depth))
+        if standing is not None:
+            return [path + suffix for suffix in standing]
+        seen.add(id(node))
+        try:
+            hits = []
+            if isinstance(node, dict):
+                if _is_barred_key(node) and not any(
+                        _is_barred_key(key)
+                        for key in dict.keys(node)):
+                    hits.append(path if path else "/")
+                for key, value in dict.items(node):
+                    here = path + "/" + _path_key_text(key)
+                    if _is_barred_key(key):
+                        hits.append(here)
+                    hits.extend(_find_barred(
+                        key, here, _depth + 1, seen, walked))
+                    hits.extend(_find_barred(
+                        value, here, _depth + 1, seen, walked))
+            else:
+                for index, item in enumerate(_base_iter(node)):
+                    hits.extend(_find_barred(
+                        item, path + "[" + str(index) + "]",
+                        _depth + 1, seen, walked))
+            walked[(id(node), _depth)] = tuple(
+                hit[len(path):] for hit in hits)
+            return hits
+        finally:
+            seen.discard(id(node))
+    return []
+
+
+def _record_values(record):
+    if isinstance(record, dict):
+        return record
+    stated_form = (
+        getattr(type(record), "FORM_ID", None) == "19"
+        or type(record).__name__ == "DetectionInput"
+        or getattr(record, "form", None) == "DetectionInput"
+    )
+    if not stated_form:
+        return None
+    values = getattr(record, "values", None)
+    if isinstance(values, dict):
+        return values
+    return None
+
+
+def _undirected_copy(value, _memo=None, _depth=0):
+    """Copy a checked value through base class readings only.
+
+    Dict parts stand read through the base dict items reading,
+    and list, tuple, set and frozenset parts through their base
+    iteration readings, so no copy protocol a part supplies is
+    ever invoked. The buffer forms stand carried as stored: a
+    bytearray as a fresh bytearray and a memoryview as a
+    memoryview over fresh bytes. A part in no container form and
+    no plain scalar form stands copied as itself. A value nested
+    past the barred
+    search bound stands refused in the module named form. The
+    bound test stands on containers only, on the stated basis
+    of R3-056, so the scalar leaf of a container chain is never
+    counted against the bound. A dict assignment whose key hash
+    or equality reading raises at the assignment itself, in one
+    of the seven named kinds this module guards against
+    (TypeError, RuntimeError, ValueError, AttributeError,
+    OverflowError, KeyError, OSError), stands carried under a
+    distinct numbered form, a plain text numbered form where a
+    form carrying the key itself cannot stand inserted, in the
+    MOD-14 cured form, so no carried entry is silently dropped
+    on that reading and no bare error of those kinds escapes
+    the copy."""
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        if _depth > BARRED_SEARCH_DEPTH_BOUND:
+            raise NamedDetectionFailure(
+                "delivery rejected: barred field search bound reached: "
+                "the value stands deeper than the stated bound of "
+                + str(BARRED_SEARCH_DEPTH_BOUND)
+                + ", counted with every container standing around a "
+                "part counting toward that bound, and no copy stands "
+                "made on it"
+            )
+    if _memo is None:
+        _memo = {}
+    if isinstance(value, dict):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = {}
+        _memo[id(value)] = copied
+        for key, item in dict.items(value):
+            copied_key = _undirected_copy(key, _memo, _depth + 1)
+            copied_item = _undirected_copy(item, _memo, _depth + 1)
+            try:
+                copied[copied_key] = copied_item
+            except (TypeError, RuntimeError, ValueError, AttributeError,
+                    OverflowError, KeyError, OSError):
+                counter = 2
+                while True:
+                    if isinstance(copied_key, str):
+                        candidate = (
+                            str.__str__(copied_key)
+                            + " (carried key " + str(counter) + ")")
+                    elif counter == 2:
+                        candidate = (copied_key, counter)
+                    else:
+                        candidate = (
+                            "(carried key " + str(counter) + ")")
+                    try:
+                        candidate_taken = candidate in copied
+                    except (TypeError, RuntimeError, ValueError,
+                            AttributeError, OverflowError, KeyError,
+                            OSError):
+                        candidate_taken = False
+                    if candidate_taken:
+                        counter += 1
+                        continue
+                    try:
+                        copied[candidate] = copied_item
+                        break
+                    except (TypeError, RuntimeError, ValueError,
+                            AttributeError, OverflowError, KeyError,
+                            OSError):
+                        counter += 1
+        return copied
+    if isinstance(value, list):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = []
+        _memo[id(value)] = copied
+        copied.extend(
+            _undirected_copy(item, _memo, _depth + 1)
+            for item in list.__iter__(value))
+        return copied
+    if isinstance(value, tuple):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        copied = tuple(
+            _undirected_copy(item, _memo, _depth + 1)
+            for item in tuple.__iter__(value))
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
+    if isinstance(value, (set, frozenset)):
+        if id(value) in _memo:
+            return _memo[id(value)]
+        base_iter = set.__iter__ if isinstance(value, set) \
+            else frozenset.__iter__
+        copied_items = [
+            _undirected_copy(item, _memo, _depth + 1)
+            for item in base_iter(value)]
+        if isinstance(value, set):
+            copied = set()
+            _memo[id(value)] = copied
+            try:
+                for copied_item in copied_items:
+                    copied.add(copied_item)
+            except (TypeError, RuntimeError, ValueError,
+                    AttributeError, OverflowError, KeyError,
+                    OSError):
+                _memo[id(value)] = copied_items
+                return copied_items
+            return copied
+        try:
+            copied = frozenset(copied_items)
+        except (TypeError, RuntimeError, ValueError,
+                AttributeError, OverflowError, KeyError,
+                OSError):
+            copied = copied_items
+        if id(value) in _memo:
+            return _memo[id(value)]
+        _memo[id(value)] = copied
+        return copied
+    if isinstance(value, bytearray):
+        return bytearray(bytes(value))
+    if isinstance(value, memoryview):
+        return memoryview(bytes(value))
+    if isinstance(value, (str, bytes, int, float,
+                          complex, bool)) or value is None:
+        return value
+    return value
+
+
+def _safe_repr(value):
+    """Render a handed value for a refusal sentence: through
+    its repr reading where that reading stands, and through
+    the base object repr where the repr reading the value
+    itself supplies raises one of the seven named kinds
+    (TypeError, RuntimeError, ValueError, AttributeError,
+    OverflowError, KeyError, OSError), so the sentence stands
+    delivered whole and never escapes bare on a reading that
+    raises one of those seven named kinds."""
+    try:
+        return repr(value)
+    except (TypeError, RuntimeError, ValueError, AttributeError,
+            OverflowError, KeyError, OSError):
+        return object.__repr__(value)
+
+
+def _safe_str(value):
+    """Render a handed value for a refusal sentence: through
+    its string reading where that reading stands, and through
+    the base object repr where the string reading the value
+    itself supplies raises one of the seven named kinds
+    (TypeError, RuntimeError, ValueError, AttributeError,
+    OverflowError, KeyError, OSError), so the sentence stands
+    delivered whole and never escapes bare on a reading that
+    raises one of those seven named kinds."""
+    try:
+        return str(value)
+    except (TypeError, RuntimeError, ValueError, AttributeError,
+            OverflowError, KeyError, OSError):
+        return object.__repr__(value)
+
+
+def _sentence_text(value):
+    """Render a handed value for a refusal sentence on the
+    text it stores, where the value stands in a text or
+    buffer form, so a string reading the value itself
+    supplies, lying or raising, never stands as the name
+    the sentence delivers. A value in any other form
+    stands rendered through _safe_str, as before."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return _stored_text(value)
+    return _safe_str(value)
+
+
+def _bounded_echo(rendered):
+    """Bound one rendered handed value for a refusal sentence
+    (FW4-10): a rendering standing at 120 characters or fewer
+    stands whole; a longer rendering stands as its first 120
+    characters beside a length statement naming the standing
+    length of the handed value and the 120 character bound, so
+    no refusal message grows with the handing past that bound
+    and the ground of the refusal stands readable at its head."""
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
+
+
+def _sentence_repr(value):
+    """Render a handed value for a refusal sentence in repr
+    form on the text it stores, where the value stands in a
+    text or buffer form, so a repr reading the value itself
+    supplies, lying or raising, never stands as the name the
+    sentence delivers. A value in any other form stands
+    rendered through _safe_repr, as before."""
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return repr(_stored_text(value))
+    return _safe_repr(value)
+
+
+def _stored_form_repr(value, _depth=0):
+    """Render a handed value for a refusal sentence on the
+    form it stands in, in the stored form of this module. A
+    text or buffer value stands rendered as the base class
+    repr of the text it stores, in the form _stored_text
+    states, so a repr or string reading the value itself
+    supplies, lying or raising, never stands as the name the
+    sentence delivers. A plain scalar stands rendered through
+    the base class repr of the scalar it stores, kind first,
+    a boolean apart from every number. A container stands
+    rendered part by part in the same form, an unordered
+    container with its rendered parts sorted, so the sentence
+    names the same form in every process, and past a depth of
+    eight a part stands named by its kind name alone. A value
+    in no stated form stands named by the name of its kind,
+    the form it stands in, and never through a reading it
+    supplies."""
+    if isinstance(value, bool):
+        return bool.__repr__(value)
+    if isinstance(value, str):
+        return str.__repr__(_stored_text(value))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes.__repr__(bytes(value))
+    if isinstance(value, int):
+        return int.__repr__(value)
+    if isinstance(value, float):
+        return float.__repr__(value)
+    if isinstance(value, complex):
+        return complex.__repr__(value)
+    if isinstance(value, Decimal):
+        return Decimal.__repr__(value)
+    if _depth >= 8:
+        return type(value).__name__
+    if isinstance(value, (list, tuple)):
+        parts = [
+            _stored_form_repr(part, _depth + 1)
+            for part in _base_iter(value)]
+        if isinstance(value, tuple):
+            if len(parts) == 1:
+                return "(" + parts[0] + ",)"
+            return "(" + ", ".join(parts) + ")"
+        return "[" + ", ".join(parts) + "]"
+    if isinstance(value, dict):
+        parts = sorted(
+            _stored_form_repr(key, _depth + 1) + ": "
+            + _stored_form_repr(item, _depth + 1)
+            for key, item in dict.items(value))
+        return "{" + ", ".join(parts) + "}"
+    if isinstance(value, (set, frozenset)):
+        parts = sorted(
+            _stored_form_repr(part, _depth + 1)
+            for part in _base_iter(value))
+        return "{" + ", ".join(parts) + "}"
+    return type(value).__name__
+
+
+def _stored_name_member(value, names):
+    """Whether a handed value stands as one of the named
+    values, judged on the text it stores, in the form
+    _stored_text states, under settlement S-16, never through
+    an equality or hash reading the handed value itself
+    supplies, so a lying dress stands judged on its stored
+    text, a raising reading escapes nowhere, and a value in
+    bytes or buffer dress stands judged on the text it
+    stores."""
+    text = _stored_text(value)
+    return any(
+        str.__eq__(text, name) is True for name in names)
+
+
+def accept_detection_input(record=_ARGUMENT_NOT_HANDED):
+    """Accept one DetectionInput record and return a normalised copy.
+
+    The copy carries the agent identifier, the day, the feature
+    values, and the records the rules give the detection layer for
+    that agent and day, under the Form 19 field names. The standing
+    projection in MOD-04 emits its records under its own records key;
+    that key is read as the same field and normalised to the Form 19
+    name. Any other agent level form is rejected, and any record
+    carrying a barred key at any depth is rejected, because the
+    projection contract strips such keys before delivery. A handing
+    missing its record stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW6-03).
+    """
+    if record is _ARGUMENT_NOT_HANDED:
+        raise NamedDetectionFailure(
+            "accept_detection_input stands refused: this door "
+            "stands handed the record, a handing stands missing "
+            "among the record; next step: hand the record and "
+            "call the door again, and no answer stands returned "
+            "at this door")
+    values = _record_values(record)
+    if values is None:
+        raise NamedDetectionFailure(
+            "delivery rejected: the record is not a DetectionInput record"
+        )
+    keys = set(dict.keys(values))
+    allowed = set(DETECTION_INPUT_FIELDS) | {_RECORDS_ALIAS}
+    if not keys.issubset(allowed):
+        raise NamedDetectionFailure(
+            "delivery rejected: fields outside DetectionInput: "
+            + ", ".join(sorted(
+                _bounded_echo(_sentence_text(k))
+                for k in keys - allowed))
+        )
+    for field in ("agent_identifier", "day", "feature_values"):
+        if field not in keys or dict.get(values, field) is None:
+            raise NamedDetectionFailure(
+                "delivery rejected: required DetectionInput field absent: "
+                + field
+            )
+    identifier_raw = dict.get(values, "agent_identifier")
+    if not isinstance(identifier_raw, str):
+        raise NamedDetectionFailure(
+            "delivery rejected: the agent identifier stands in no "
+            "identifier form: " + _stored_form_repr(identifier_raw)
+        )
+    identifier = str.__str__(identifier_raw)
+    if not identifier:
+        raise NamedDetectionFailure(
+            "delivery rejected: the agent identifier stands empty, "
+            "no identifier stands stated in it: "
+            + _sentence_repr(identifier_raw)
+        )
+    day_raw = dict.get(values, "day")
+    if isinstance(day_raw, bool) or not isinstance(day_raw, int):
+        raise NamedDetectionFailure(
+            "delivery rejected: the day stands in no stated simulated "
+            "day form: " + _stored_form_repr(day_raw)
+        )
+    day = int.__int__(day_raw)
+    if int.__lt__(day, 0) or int.__ge__(day, 10 ** 6):
+        raise NamedDetectionFailure(
+            "delivery rejected: the day stands in no stated simulated "
+            "day form: " + _safe_repr(day)
+        )
+    feature_raw = dict.get(values, "feature_values")
+    if not isinstance(feature_raw, dict):
+        raise NamedDetectionFailure(
+            "delivery rejected: feature values stand in no record form"
+        )
+    barred = _find_barred(values)
+    if barred:
+        raise NamedDetectionFailure(
+            "delivery rejected: barred field present in DetectionInput: "
+            + ", ".join(barred)
+        )
+    feature_values = {}
+    for feature_name_raw, feature_value_raw in dict.items(feature_raw):
+        if not isinstance(feature_name_raw, str):
+            raise NamedDetectionFailure(
+                "delivery rejected: a feature name stands in no "
+                "string form: " + _stored_form_repr(feature_name_raw)
+            )
+        feature_name = str.__str__(feature_name_raw)
+        if isinstance(feature_value_raw, bool) or not isinstance(
+                feature_value_raw, (int, float)):
+            raise NamedDetectionFailure(
+                "delivery rejected: a feature value the rules cannot "
+                "consume stands in the record: " + feature_name
+            )
+        if isinstance(feature_value_raw, int):
+            feature_value = int.__int__(feature_value_raw)
+            if feature_value >= 10 ** 4300 or feature_value <= -(
+                    10 ** 4300):
+                raise NamedDetectionFailure(
+                    "delivery rejected: a feature value the "
+                    "rules cannot consume stands in the "
+                    "record: " + feature_name
+                )
+        else:
+            feature_value = float.__float__(feature_value_raw)
+        if isinstance(feature_value, float) and not math.isfinite(
+                feature_value):
+            raise NamedDetectionFailure(
+                "delivery rejected: a feature value the rules cannot "
+                "consume stands in the record: " + feature_name
+            )
+        feature_values[feature_name] = feature_value
+    records = dict.get(
+        values, _RECORDS_KEY, dict.get(values, _RECORDS_ALIAS, []))
+    if records is None:
+        records = []
+    if not isinstance(records, (list, tuple)):
+        raise NamedDetectionFailure(
+            "delivery rejected: records for the agent and day stand "
+            "in no record form"
+        )
+    return {
+        "agent_identifier": identifier,
+        "day": day,
+        "feature_values": feature_values,
+        _RECORDS_KEY: _undirected_copy(
+            [item for item in _base_iter(records)]),
+    }
+
+
+def _contributions(feature_values):
+    contributions = []
+    with localcontext() as context:
+        context.prec = 28
+        total = Decimal("0")
+        for position, name in enumerate(sorted(feature_values.keys())):
+            raw_value = feature_values[name]
+            if isinstance(raw_value, bool):
+                value = raw_value
+            elif isinstance(raw_value, int):
+                value = int.__int__(raw_value)
+            elif isinstance(raw_value, float):
+                value = float.__float__(raw_value)
+            else:
+                value = raw_value
+            amount = Decimal(str(value))
+            total += amount
+            contributions.append({
+                "table_identifier": LR_TABLES[position % len(LR_TABLES)],
+                "table_version": "as recorded",
+                "feature": name,
+                "value": value,
+            })
+    return contributions, total
+
+
+def _verdict_state(total):
+    if total <= 0:
+        return "NO-SIGNAL"
+    if total < 10:
+        return "NOTICED"
+    if total < 100:
+        return "WATCH"
+    return "ACCUSED"
+
+
+def _score_one(accepted):
+    contributions, total = _contributions(accepted["feature_values"])
+    verdict = _verdict_state(total)
+    state_record = {
+        "agent_identifier": accepted["agent_identifier"],
+        "day": accepted["day"],
+        "feature_values": copy.deepcopy(accepted["feature_values"]),
+        "likelihood_ratio_contributions": contributions,
+        "accumulator_values": {"total_feature_value": str(total)},
+        "accumulator_update": {"total_feature_value": str(total)},
+        "accumulator_standing": (
+            "gated form: accumulator values stand carried under the "
+            "TG-07.5 reconciliation standing, which stands open; no "
+            "accumulator representation stands reconciled"),
+        "verdict_state": verdict,
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+    }
+    output = {
+        "agent_identifier": accepted["agent_identifier"],
+        "day": accepted["day"],
+        "verdict_state": verdict,
+        "accumulator_update": {"total_feature_value": str(total)},
+        "likelihood_ratio_contributions": copy.deepcopy(contributions),
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
+    }
+    return state_record, output
+
+
+THRESHOLD_FORMULA_TABLE_IDENTIFIER = "threshold formula table"
+
+THRESHOLD_FORMULA_TABLE_VERSION = (
+    "the threshold set carriage of this module, as recorded")
+
+DETECTION_STANDING_STATEMENT = (
+    "figures are self consistency only, no calibration claim "
+    "stands, and no verdict rule at OP-16 stands fixed")
+
+
+def score_day(records=_ARGUMENT_NOT_HANDED, society_state=None,
+              mode="conformance", uses=None, run_identifier=None):
+    """Run one daily scoring pass over DetectionInput records.
+
+    Returns verdict states and accumulator updates by agent and day,
+    the DetectionState records of the pass, and a DetectionOutput
+    record in the Form 27 carriage: run level fields standing as
+    stated in the call, verdict states and accumulator updates by
+    agent and day, and the profile bound label attached. Where a
+    society state snapshot is supplied, it is compared before and
+    after the pass: scoring writes to no trust state, and a
+    difference outside the detection state marks the run invalid
+    for detection reporting in the returned record. A handing
+    missing its records stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW6-03).
+    """
+    if records is _ARGUMENT_NOT_HANDED:
+        raise NamedDetectionFailure(
+            "score_day stands refused: this door stands handed "
+            "the records, a handing stands missing among the "
+            "records; next step: hand the records and call the "
+            "door again, and no answer stands returned at this "
+            "door")
+    if not isinstance(records, (list, tuple)):
+        raise NamedDetectionFailure(
+            "delivery rejected: the records for one day stand in "
+            "no record list form"
+        )
+    if not _stored_name_member(mode, USES):
+        raise NamedDetectionFailure(
+            "scoring mode stands unnamed: " + _sentence_text(mode)
+        )
+    if uses is None:
+        named_uses = [mode]
+    elif isinstance(uses, (list, tuple, set, frozenset)):
+        named_uses = list(_base_iter(uses))
+    else:
+        named_uses = []
+    for use in named_uses:
+        if not _stored_name_member(use, USES):
+            raise NamedDetectionFailure(
+                "scoring use stands unnamed: " + _sentence_text(use)
+            )
+    before = _undirected_copy(society_state)
+    accepted = [accept_detection_input(record)
+                for record in _base_iter(records)]
+    states = []
+    outputs = []
+    for record in accepted:
+        state_record, output = _score_one(record)
+        states.append(state_record)
+        outputs.append(output)
+    changed = society_state is not None and society_state != before
+    combined = [
+        {
+            "agent_identifier": o["agent_identifier"],
+            "day": o["day"],
+            "verdict_state": o["verdict_state"],
+            "accumulator_update": copy.deepcopy(o["accumulator_update"]),
+            "likelihood_ratio_contributions": copy.deepcopy(
+                o["likelihood_ratio_contributions"]),
+        }
+        for o in outputs
+    ]
+    detection_output = {
+        "run_identifier": run_identifier,
+        "scoring_day_range": sorted({o["day"] for o in outputs}),
+        "verdict_states_and_accumulator_updates": combined,
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "threshold_formula_table_identifier": (
+            THRESHOLD_FORMULA_TABLE_IDENTIFIER),
+        "threshold_formula_table_version": (
+            THRESHOLD_FORMULA_TABLE_VERSION),
+        "standing_statement": DETECTION_STANDING_STATEMENT,
+    }
+    return {
+        "verdict_states": outputs,
+        "accumulator_updates": [
+            {
+                "agent_identifier": entry["agent_identifier"],
+                "day": entry["day"],
+                "accumulator_update": copy.deepcopy(
+                    entry["accumulator_update"]),
+            }
+            for entry in combined
+        ],
+        "detection_states": states,
+        "detection_output": detection_output,
+        "uses_named": named_uses,
+        "mode": mode,
+        "rule_state_changed": bool(changed),
+        "run_valid_for_detection_reporting": not changed,
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
+    }
+
+
+def score(record_or_records=_ARGUMENT_NOT_HANDED, society_state=None, mode="conformance",
+          uses=None, run_identifier=None):
+    """Score one DetectionInput record or one day of records.
+    A handing missing its record or records stands refused in
+    the named form of this module, stating the door, the
+    ground, and the next step (FW5-10)."""
+    if record_or_records is _ARGUMENT_NOT_HANDED:
+        raise NamedDetectionFailure(
+            "score stands refused: this door stands handed "
+            "the record or records, a handing stands missing "
+            "among the record or records; next step: hand the "
+            "record or records and call the door again, and "
+            "no answer stands returned at this door")
+    if record_or_records is None:
+        raise NamedDetectionFailure(
+            "delivery rejected: the record is not a DetectionInput "
+            "record"
+        )
+    if isinstance(record_or_records, dict) or _record_values(
+            record_or_records) is not None and not isinstance(
+            record_or_records, (list, tuple)):
+        records = [record_or_records]
+    else:
+        if isinstance(record_or_records, (list, tuple)):
+            records = list(_base_iter(record_or_records))
+        else:
+            raise NamedDetectionFailure(
+                "delivery rejected: the record is not a "
+                "DetectionInput record"
+            )
+    return score_day(records, society_state=society_state, mode=mode,
+                     uses=uses, run_identifier=run_identifier)
+
+
+def detection_state_record(record):
+    """Return the DetectionState record of one scored input."""
+    accepted = accept_detection_input(record)
+    state_record, _output = _score_one(accepted)
+    return state_record
+
+
+def validate_output(output):
+    """Validate one detection output or figure record.
+
+    A record fails where its profile bound label stands missing,
+    where its label carries a value other than the carriage form
+    this module attaches while the value set stands open, or where
+    a score stands reported as a pass or as a fail.
+    """
+    if not isinstance(output, dict):
+        return False
+    if not _base_str_eq(
+            _profile_label_value(output),
+            PROFILE_LABEL_CARRIAGE):
+        return False
+    return not _carries_barred_verdict(output)
+
+
+def _profile_label_value(record):
+    """The value a record carries under its profile bound
+    label field, found by the stored text of its keys, in
+    the form _stored_text states, never through the hash or
+    equality readings a handed key supplies, so a dressed
+    key impersonating the field name finds no field. A
+    record carrying no key whose stored text stands as the
+    field name carries no label value."""
+    if not isinstance(record, dict):
+        return None
+    for key, value in dict.items(record):
+        if _base_str_eq(
+                _stored_text(key), PROFILE_BOUND_LABEL_FIELD):
+            return value
+    return None
+
+
+_BARRED_VERDICT_VALUES = ("pass", "passed", "fail", "failed")
+
+_VERDICT_POSITION_KEYS = (
+    "score_verdict", "verdict", "result", "outcome", "score_result",
+)
+
+
+def _barred_verdict_value(value):
+    """Whether a value stands as one of the barred verdict
+    values, in the stripped and lowered form the walk judges
+    a single entry in. The value stands judged on its stored
+    text, in the form _stored_text states: a text value on the
+    characters it stores, read through the base class string
+    form, and a bytes, bytearray, or memoryview value on the
+    bytes it stores or views, so no reading the handed value
+    itself supplies stands as the judgement. A value standing
+    in container dress stands judged on its stored contents,
+    in the joined candidate form the container key limb of
+    this walk states: every joined stored text the container
+    can stand in stands judged in the same stripped and
+    lowered form, so a single part container storing a barred
+    value, and a container whose parts join to a barred value,
+    stand barred as the same value in scalar dress stands
+    barred, under settlement S-15 in its dress judgement
+    form."""
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(
+            candidate.strip().lower() in _BARRED_VERDICT_VALUES
+            for candidate in _joined_text_candidates(value))
+    return _stored_text(value).strip().lower() in (
+        _BARRED_VERDICT_VALUES)
+
+
+def _verdict_keys_tile_exact(readings, pairs, target):
+    """Whether a run of two or more consecutive dict keys, in
+    stored order, joins exactly to the target on the lowered
+    reading of each key it uses, with the barred value
+    standing under the opening key of the run, in the joined
+    reading form settlement S-14 states. A key whose reading
+    stands empty may stand inside the run, stepped past on
+    that empty reading and unused by the occurrence. A name
+    standing inside one key alone stands judged by the per
+    entry acts, never here, so a run stands only on two or
+    more pieces."""
+    for start in range(len(pairs)):
+        if not _barred_verdict_value(pairs[start][1]):
+            continue
+        stack = [(start, 0, 0)]
+        visited = set()
+        while stack:
+            index, pos, pieces = stack.pop()
+            if pos == len(target):
+                if pieces >= 2:
+                    return True
+                continue
+            if index >= len(pairs):
+                continue
+            state = (index, pos, pieces >= 2)
+            if state in visited:
+                continue
+            visited.add(state)
+            option = readings[index]
+            if not option:
+                if pieces:
+                    stack.append((index + 1, pos, pieces))
+            elif option == target[pos:pos + len(option)]:
+                stack.append((
+                    index + 1, pos + len(option), pieces + 1))
+    return False
+
+
+def _verdict_keys_carry_split(readings, pairs):
+    """Whether the word verdict stands split across two or
+    more consecutive dict keys, in stored order, with the
+    barred value standing under the opening key, in the
+    verdict substring form the walk judges a single entry
+    in: the first key contributes a tail of its reading as
+    the opening of the word, each middle key one whole
+    reading as an exact piece of it, and the last key a
+    reading that begins with its closing. A key whose
+    reading stands empty may stand inside the split,
+    stepped past on that empty reading."""
+    pattern = "verdict"
+    for start in range(len(pairs)):
+        if not _barred_verdict_value(pairs[start][1]):
+            continue
+        reading = readings[start]
+        if not reading:
+            continue
+        for cut in range(len(reading)):
+            piece = reading[cut:]
+            if not piece or len(piece) >= len(pattern):
+                continue
+            if piece != pattern[:len(piece)]:
+                continue
+            stack = [(start + 1, len(piece))]
+            while stack:
+                index, pos = stack.pop()
+                if pos >= len(pattern):
+                    return True
+                if index >= len(pairs):
+                    continue
+                option = readings[index]
+                if not option:
+                    stack.append((index + 1, pos))
+                    continue
+                if option == pattern[pos:pos + len(option)]:
+                    stack.append((index + 1, pos + len(option)))
+                elif option.startswith(pattern[pos:]):
+                    return True
+    return False
+
+
+def _dict_node_carries_barred_verdict(node):
+    """Whether a dict node itself carries a barred verdict
+    reading, in the form settlement S-14 states: the node
+    stands judged on the joined reading of its keys in
+    stored order, in the same forms in which the walk judges
+    a single entry, lowered equality against the position
+    names and the verdict substring reading, with the barred
+    value standing under the opening key of the split exactly
+    as the single entry carries it under the whole name. A
+    container key stands judged on the joined stored text of
+    its parts in the same forms, with the barred value
+    standing under that key."""
+    pairs = list(dict.items(node))
+    if len(pairs) < 2:
+        return False
+    for key, value in pairs:
+        if isinstance(
+                key, (dict, list, tuple, set, frozenset)) and (
+                _barred_verdict_value(value)):
+            for candidate in _joined_text_candidates(key):
+                lowered_candidate = candidate.lower()
+                if lowered_candidate and (
+                        lowered_candidate in _VERDICT_POSITION_KEYS
+                        or "verdict" in lowered_candidate):
+                    return True
+    readings = []
+    for key, value in pairs:
+        if isinstance(key, (dict, list, tuple, set, frozenset)):
+            readings.append(_joined_stored_text(key).lower())
+        else:
+            readings.append(_stored_text(key).lower())
+    for target in _VERDICT_POSITION_KEYS:
+        if _verdict_keys_tile_exact(readings, pairs, target):
+            return True
+    return _verdict_keys_carry_split(readings, pairs)
+
+
+def _carries_barred_verdict(node, _depth=0, _seen=None, _walked=None):
+    """Return whether a value carries a barred verdict reading.
+
+    The read stands bounded, in the bounded form the delivery
+    surfaces keep: a value standing deeper than the stated bound,
+    and a value carrying a cycle on its own path, each read as
+    carrying the barred form, so the caller returns False for the
+    output as a whole and no bare RecursionError escapes. A part
+    shared from two places on different paths carries no cycle
+    and stands read on each path. The walk carries a walked
+    standing across paths, keyed by identity and depth: a
+    container whose standing at one depth stands earned is not
+    walked again at that depth, and a reach at a greater depth
+    stands judged at its own depth. A dict node stands judged
+    on the joined reading of its keys in stored order beside
+    its entries, in the form _dict_node_carries_barred_verdict
+    states."""
+    if isinstance(node, (dict, list, tuple, set, frozenset)):
+        if _depth > BARRED_SEARCH_DEPTH_BOUND:
+            return True
+        seen = _seen if _seen is not None else set()
+        if id(node) in seen:
+            return True
+        walked = _walked if _walked is not None else {}
+        standing = walked.get((id(node), _depth))
+        if standing is not None:
+            return standing
+        seen.add(id(node))
+        try:
+            if isinstance(node, dict):
+                result = False
+                if _dict_node_carries_barred_verdict(node):
+                    walked[(id(node), _depth)] = True
+                    return True
+                for key, value in dict.items(node):
+                    lowered = _stored_text(key).lower()
+                    if lowered in _VERDICT_POSITION_KEYS or (
+                            "verdict" in lowered):
+                        if _barred_verdict_value(value):
+                            result = True
+                            break
+                    if isinstance(
+                            key, (dict, list, tuple, set, frozenset)):
+                        for candidate in _joined_text_candidates(key):
+                            joined = candidate.lower()
+                            if joined and (
+                                    joined in _VERDICT_POSITION_KEYS
+                                    or "verdict" in joined):
+                                if _barred_verdict_value(value):
+                                    result = True
+                                    break
+                        if result:
+                            break
+                    if _carries_barred_verdict(
+                            key, _depth + 1, seen, walked):
+                        result = True
+                        break
+                    if _carries_barred_verdict(
+                            value, _depth + 1, seen, walked):
+                        result = True
+                        break
+                walked[(id(node), _depth)] = result
+                return result
+            result = any(
+                _carries_barred_verdict(
+                    item, _depth + 1, seen, walked)
+                for item in _base_iter(node))
+            walked[(id(node), _depth)] = result
+            return result
+        finally:
+            seen.discard(id(node))
+    return False
+
+
+def oracle_control_bracket():
+    """The oracle control of INV8B-11, as a bracket record."""
+    return {
+        "control": "oracle",
+        "standing": "bracket beside every detection figure",
+        "false_rates": {
+            "false ACCUSED": 0.0,
+            "false WATCH": 0.0,
+            "false NOTICED": 0.0,
+        },
+        "point_sets": list(F06_PROFILES),
+        "calibration": CALIBRATION_STANDING,
+        "outside_classes_adopted": [],
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
+    }
+
+
+def null_control_bracket():
+    """The null detector control of INV8B-11, as a bracket record."""
+    return {
+        "control": "null",
+        "standing": "bracket beside every detection figure",
+        "verdict_state": "NO-SIGNAL for every input",
+        "false_rates": {
+            "false ACCUSED": 0.0,
+            "false WATCH": 0.0,
+            "false NOTICED": 0.0,
+        },
+        "point_sets": list(F06_PROFILES),
+        "calibration": CALIBRATION_STANDING,
+        "outside_classes_adopted": [],
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
+    }
+
+
+def score_profiles(profile_set=None):
+    """Return the recorded profile set record of fixture F-06.
+
+    The figures stand in their carried form, at record level only,
+    as self consistency figures, with the oracle and null brackets
+    beside them. A supplied profile set is checked against the
+    carried profile names and the minimum stream count, and a set
+    that differs is rejected rather than rescored.
+    """
+    if profile_set is not None:
+        profiles_value = _base_get(profile_set, "profiles")
+        if isinstance(profiles_value, (list, tuple, set, frozenset)):
+            names = tuple(_base_iter(profiles_value))
+        elif profiles_value is None:
+            names = ()
+        else:
+            names = ()
+        if names != F06_PROFILES:
+            raise NamedDetectionFailure(
+                "profile set differs from the recorded F-06 set"
+            )
+        streams = dict.get(profile_set, "streams_per_profile", 0)
+        if isinstance(streams, bool) or not isinstance(
+                streams, (int, float)):
+            raise NamedDetectionFailure(
+                "profile set rejected: the streams per profile "
+                "value stands in no number form: "
+                + _sentence_repr(streams)
+            )
+        if isinstance(streams, int):
+            streams = int.__int__(streams)
+        else:
+            streams = float.__float__(streams)
+        if isinstance(streams, float) and not math.isfinite(streams):
+            raise NamedDetectionFailure(
+                "profile set rejected: the streams per profile "
+                "value stands in no finite number form: "
+                + repr(streams)
+            )
+        if streams < F06_MINIMUM_STREAMS_PER_PROFILE:
+            raise NamedDetectionFailure(
+                "profile set stands below the F-06 stream count"
+            )
+    return {
+        "fixture": "F-06",
+        "profiles": list(F06_PROFILES),
+        "minimum_streams_per_profile": (
+            F06_MINIMUM_STREAMS_PER_PROFILE),
+        "figures": dict(F06_FIGURES),
+        "verdict_ladder": list(VERDICT_LADDER),
+        "provenance_label": "self scored",
+        "standing": "self consistency figures only",
+        "calibration": CALIBRATION_STANDING,
+        "record_level_only": True,
+        "bracket": [oracle_control_bracket(), null_control_bracket()],
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
+    }
+
+
+def conformance_statement(table_identifier="LR-1",
+                          threshold_set="epoch weighted",
+                          table_value=None):
+    """State one conformance statement for a threshold reading.
+
+    Every statement names its threshold set and the table value it
+    checks, and carries the contested label where the register
+    carries one, per AC-12. Formula and table stand as conformance
+    material only in this surface.
+    """
+    if not _stored_name_member(
+            table_identifier,
+            LR_TABLES + ("threshold formula table",)):
+        raise NamedDetectionFailure(
+            "conformance statement names no recorded table: "
+            + _sentence_text(table_identifier)
+        )
+    if not _stored_name_member(threshold_set, tuple(THRESHOLD_SETS)):
+        raise NamedDetectionFailure(
+            "conformance statement names no recorded threshold set: "
+            + _sentence_text(threshold_set)
+        )
+    entry = THRESHOLD_SETS[_stored_text(threshold_set)]
+    value = table_value
+    if value is None:
+        value = entry["values"][0]
+    statement = {
+        "table_identifier": table_identifier,
+        "threshold_set": threshold_set,
+        "table_value": value,
+        "uses_named": ["conformance"],
+        "epoch_watch_gate_on_unweighted": False,
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+    }
+    if entry.get("contested"):
+        statement["contested_label"] = entry["contested_label"]
+    return statement
+
+
+def epoch_watch_gate_on_unweighted():
+    """No epoch watch gate is built or reported on unweighted
+    figures. The operating values are the epoch weighted values."""
+    return False
+
+
+def validate_use_naming(artefact, run_record_uses=None):
+    """Check the use naming of one artefact carrying a table value.
+
+    An artefact that carries a value in both uses stands only where
+    both uses stand named in the artefact. An artefact whose use
+    naming differs from the run record naming, or names neither
+    use, is a silent movement and is rejected.
+    """
+    if not isinstance(artefact, dict):
+        raise SilentUseMovement(
+            "use naming check: the artefact stands in no record form"
+        )
+    uses_value = _base_get(artefact, "uses_named")
+    if isinstance(uses_value, (list, tuple, set, frozenset)):
+        named = list(_base_iter(uses_value))
+    elif uses_value is None:
+        named = []
+    else:
+        named = []
+    for use in named:
+        if not _stored_name_member(use, USES):
+            raise SilentUseMovement(
+                "use naming check: a use stands unnamed: " + _sentence_text(use)
+            )
+    if not named:
+        raise SilentUseMovement(
+            "use naming check: neither use stands named in the "
+            "artefact"
+        )
+    if run_record_uses is not None:
+        recorded = list(_base_iter(run_record_uses))
+        if sorted(_stored_text(use) for use in recorded) != sorted(
+                _stored_text(use) for use in named):
+            raise SilentUseMovement(
+                "use naming check: the artefact names "
+                + (", ".join(_sentence_text(use) for use in named)
+                   if named else "no use")
+                + " while the run record names "
+                + (", ".join(_sentence_text(use) for use in recorded)
+                   if recorded else "no use")
+            )
+    return True
+
+
+def _barred_verdict_locus(node):
+    """The locus at which a figure carries a barred verdict
+    on a judgement of its contents, as the stored text of the
+    key under which the barred value stands, the position
+    name a split across the keys of one dict joins to, or the
+    joined candidate of a container key, in the forms
+    _carries_barred_verdict judges. A figure standing read
+    as carrying the barred form only on the walk cycle or
+    depth readings carries no locus here. The search stands
+    iterative on an explicit stack of frames, path scoped
+    against cycles, and bounded in depth at 500 containers,
+    past which no locus stands taken by this act, so a
+    container chain at any depth stands answered and no
+    recursion stands spent per container level."""
+    if not isinstance(node, (dict, list, tuple, set, frozenset)):
+        return None
+    seen = set()
+    stack = [{
+        "node": node, "depth": 0, "stage": 0, "index": 0,
+        "child": 0, "pairs": None, "items": None,
+    }]
+    while stack:
+        frame = stack[-1]
+        current = frame["node"]
+        if frame["stage"] == 0:
+            if frame["depth"] > 500 or id(current) in seen:
+                stack.pop()
+                continue
+            seen.add(id(current))
+            frame["stage"] = 1
+            if isinstance(current, dict):
+                frame["pairs"] = list(dict.items(current))
+                if _dict_node_carries_barred_verdict(current):
+                    pairs = frame["pairs"]
+                    readings = []
+                    for key, value in pairs:
+                        if isinstance(
+                                key, (dict, list, tuple, set,
+                                      frozenset)):
+                            readings.append(
+                                _joined_stored_text(key).lower())
+                        else:
+                            readings.append(
+                                _stored_text(key).lower())
+                    for target in _VERDICT_POSITION_KEYS:
+                        if _verdict_keys_tile_exact(
+                                readings, pairs, target):
+                            return target
+                    if _verdict_keys_carry_split(readings, pairs):
+                        return "verdict"
+                    for key, value in pairs:
+                        if isinstance(
+                                key, (dict, list, tuple, set,
+                                      frozenset)) and (
+                                _barred_verdict_value(value)):
+                            for candidate in (
+                                    _joined_text_candidates(key)):
+                                lowered_candidate = (
+                                    candidate.lower())
+                                if lowered_candidate and (
+                                        lowered_candidate
+                                        in _VERDICT_POSITION_KEYS
+                                        or "verdict"
+                                        in lowered_candidate):
+                                    return lowered_candidate
+            else:
+                frame["items"] = list(_base_iter(current))
+            continue
+        if isinstance(current, dict):
+            pairs = frame["pairs"]
+            if frame["index"] >= len(pairs):
+                seen.discard(id(current))
+                stack.pop()
+                continue
+            key, value = pairs[frame["index"]]
+            if frame["child"] == 0:
+                frame["child"] = 1
+                lowered = _stored_text(key).lower()
+                if (lowered in _VERDICT_POSITION_KEYS or (
+                        "verdict" in lowered)) and (
+                        _barred_verdict_value(value)):
+                    return lowered
+                if isinstance(
+                        key, (dict, list, tuple, set, frozenset)):
+                    for candidate in _joined_text_candidates(key):
+                        joined = candidate.lower()
+                        if joined and (
+                                joined in _VERDICT_POSITION_KEYS
+                                or "verdict" in joined) and (
+                                _barred_verdict_value(value)):
+                            return joined
+                if isinstance(
+                        key, (dict, list, tuple, set, frozenset)):
+                    stack.append({
+                        "node": key, "depth": frame["depth"] + 1,
+                        "stage": 0, "index": 0, "child": 0,
+                        "pairs": None, "items": None,
+                    })
+                continue
+            if frame["child"] == 1:
+                frame["child"] = 2
+                if isinstance(
+                        value, (dict, list, tuple, set, frozenset)):
+                    stack.append({
+                        "node": value, "depth": frame["depth"] + 1,
+                        "stage": 0, "index": 0, "child": 0,
+                        "pairs": None, "items": None,
+                    })
+                continue
+            frame["child"] = 0
+            frame["index"] += 1
+            continue
+        items = frame["items"]
+        if frame["index"] >= len(items):
+            seen.discard(id(current))
+            stack.pop()
+            continue
+        item = items[frame["index"]]
+        frame["index"] += 1
+        if isinstance(item, (dict, list, tuple, set, frozenset)):
+            stack.append({
+                "node": item, "depth": frame["depth"] + 1,
+                "stage": 0, "index": 0, "child": 0,
+                "pairs": None, "items": None,
+            })
+    return None
+
+
+def _verdict_walk_children(value):
+    """The children of one container for the verdict walk
+    ground acts, read through base class operations: a dict
+    contributes its keys and its values in stored order, and
+    every other container its elements in its base
+    iteration order."""
+    if isinstance(value, dict):
+        children = []
+        for key, item in dict.items(value):
+            children.append(key)
+            children.append(item)
+        return children
+    return list(_base_iter(value))
+
+
+def _verdict_walk_revisits_container(value):
+    """Whether a value revisits a container on its own path,
+    in the cycle form _carries_barred_verdict states, judged
+    on an iterative path scoped traversal of its own, so a
+    container chain at any depth stands answered."""
+    if not isinstance(value, (dict, list, tuple, set, frozenset)):
+        return False
+    seen = set()
+    stack = [(value, False)]
+    while stack:
+        node, leaving = stack.pop()
+        if leaving:
+            seen.discard(id(node))
+            continue
+        if not isinstance(
+                node, (dict, list, tuple, set, frozenset)):
+            continue
+        if id(node) in seen:
+            return True
+        seen.add(id(node))
+        stack.append((node, True))
+        for child in _verdict_walk_children(node):
+            stack.append((child, False))
+    return False
+
+
+def _verdict_walk_past_depth_bound(value):
+    """Whether a container of a value stands at a depth past
+    the stated bound, in the counting _carries_barred_
+    verdict states: the top container stands at depth 0,
+    each child container one deeper, and a container
+    standing at a depth greater than BARRED_SEARCH_DEPTH_
+    BOUND stands past the bound. The traversal stands
+    iterative and path scoped, so a container chain at any
+    depth stands answered."""
+    if not isinstance(value, (dict, list, tuple, set, frozenset)):
+        return False
+    seen = set()
+    stack = [(value, 0, False)]
+    while stack:
+        node, depth, leaving = stack.pop()
+        if leaving:
+            seen.discard(id(node))
+            continue
+        if not isinstance(
+                node, (dict, list, tuple, set, frozenset)):
+            continue
+        if depth > BARRED_SEARCH_DEPTH_BOUND:
+            return True
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        stack.append((node, depth, True))
+        for child in _verdict_walk_children(node):
+            stack.append((child, depth + 1, False))
+    return False
+
+
+def report(figures=None):
+    """Build the bounded version 1 detection report.
+
+    Every figure in the report carries its profile bound label, and
+    the seven outside sleeper classes stand named and visible in
+    the record as deferred, adopted in no part. A figure supplied
+    without its label is rejected before the report stands.
+    """
+    if figures is None:
+        stored_figures = []
+    elif isinstance(figures, (list, tuple, set, frozenset)):
+        stored_figures = list(_base_iter(figures))
+    else:
+        try:
+            stored_figures = list(figures)
+        except (TypeError, RuntimeError, ValueError, AttributeError,
+                OverflowError, KeyError, OSError):
+            raise NamedDetectionFailure(
+                "report stands refused: the figures stand in no "
+                "list form, a list of figures stands required, "
+                "and no report stands built") from None
+    carried = []
+    for position, figure in enumerate(stored_figures):
+        if not validate_output(figure):
+            if not isinstance(figure, dict):
+                ground = (
+                    "the figure stands in no record form (no dict form)")
+            elif not _base_str_eq(
+                    _profile_label_value(figure),
+                    PROFILE_LABEL_CARRIAGE):
+                ground = (
+                    "the figure stands without its profile bound label "
+                    "in the stated carriage form (its profile bound "
+                    "label stands missing or carries another value)")
+            elif _barred_verdict_locus(figure) is not None:
+                ground = (
+                    "the figure carries a barred pass or fail verdict "
+                    "(" + _barred_verdict_locus(figure) + "), which "
+                    "stands not reported")
+            elif _carries_barred_verdict(figure) and (
+                    _verdict_walk_revisits_container(figure)):
+                ground = (
+                    "the figure carries a cycle on its own path, so "
+                    "it stands read as carrying the barred form on "
+                    "its cycle ground alone, which stands not "
+                    "reported")
+            elif _carries_barred_verdict(figure) and (
+                    _verdict_walk_past_depth_bound(figure)):
+                ground = (
+                    "the figure stands deeper than the stated bound "
+                    "of 100, so it stands read as carrying the "
+                    "barred form on its depth bound ground alone, "
+                    "which stands not reported")
+            else:
+                ground = (
+                    "the figure carries a barred pass or fail verdict "
+                    "(score_verdict), which stands not reported")
+            raise NamedDetectionFailure(
+                "report stands refused: a figure at position "
+                + str(position) + " stands rejected: " + ground)
+        carried.append(_undirected_copy(figure))
+    return {
+        "report_kind": "bounded self consistency report",
+        "figures": carried,
+        "deferred_classes": [
+            {"class": name, "standing": "deferred"}
+            for name in DEFERRED_OUTSIDE_CLASSES
+        ],
+        "deferred_classes_visible": True,
+        "outside_classes_adopted": [],
+        "calibration": CALIBRATION_STANDING,
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
+        "pass_or_fail_reporting": (
+            "not reported while OP-16 stands open"),
+    }
+
+
+def create_sealed_set():
+    """Open the conditional sealed late class set of fixture F-08."""
+    return {
+        "fixture": "F-08",
+        "stage": "open",
+        "detector_frozen": False,
+        "authored": [],
+        "sealed": False,
+        "adoption_standing": (
+            "subject to the adoption decisions at NQ-51 and NQ-63"),
+        "profile_set_result_on_sealed_classes": (
+            "no result stated or implied"),
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
+    }
+
+
+def freeze_sealed_set(sealed_set):
+    """Freeze the detector before any sealed class is authored."""
+    sealed_set["detector_frozen"] = True
+    sealed_set["stage"] = "frozen"
+    return sealed_set
+
+
+def author_sealed_class(sealed_set, kind, identifier,
+                        separations=None):
+    """Author one sealed class under the three separations.
+
+    Authoring before freezing is rejected. The kind stands as a
+    sleeper class or as an honest challenge variant, and the three
+    separations stand named on the authored entry.
+    """
+    if not _base_get(sealed_set, "detector_frozen"):
+        raise NamedDetectionFailure(
+            "sealed set rejected: authoring before freezing"
+        )
+    if _base_get(sealed_set, "sealed"):
+        raise NamedDetectionFailure(
+            "sealed set rejected: authoring after sealing"
+        )
+    if _base_get(sealed_set, "scoring_closed") or _stored_text(
+            _base_get(sealed_set, "stage")) == (
+            "unsealed after scoring closed"):
+        raise NamedDetectionFailure(
+            "sealed set rejected: authoring after scoring has closed"
+        )
+    if not (isinstance(kind, str) and any(
+            str.__eq__(str.__str__(kind), named_kind) is True
+            for named_kind in (
+                "sleeper class", "honest challenge variant"))):
+        raise NamedDetectionFailure(
+            "sealed set rejected: authored kind stands unnamed: "
+            + _bounded_echo(_sentence_text(kind))
+        )
+    if isinstance(separations, (list, tuple, set, frozenset)):
+        named = tuple(_base_iter(separations))
+    else:
+        named = ()
+    if sorted(named) != sorted(_SEPARATIONS):
+        raise NamedDetectionFailure(
+            "sealed set rejected: the three separations stand "
+            "unnamed in full"
+        )
+    authored_value = _base_get(sealed_set, "authored")
+    if isinstance(authored_value, (list, tuple, set, frozenset)):
+        authored_entries = list(_base_iter(authored_value))
+    else:
+        authored_entries = []
+    for existing in authored_entries:
+        if not isinstance(existing, dict):
+            continue
+        if _stored_key_matches(
+                _base_get(existing, "identifier"), identifier):
+            raise NamedDetectionFailure(
+                "sealed set rejected: authored identifier "
+                "stands already authored: "
+                + _bounded_echo(_sentence_text(identifier))
+            )
+    entry = {
+        "kind": kind,
+        "identifier": identifier,
+        "separations": list(_SEPARATIONS),
+    }
+    if isinstance(sealed_set, dict):
+        dict.__getitem__(sealed_set, "authored").append(entry)
+    else:
+        sealed_set["authored"].append(entry)
+    return entry
+
+
+def seal_sealed_set(sealed_set):
+    """Seal the authored set until scoring closes."""
+    authored_value = _base_get(sealed_set, "authored")
+    if isinstance(authored_value, (list, tuple, set, frozenset)):
+        authored_entries = list(_base_iter(authored_value))
+    elif authored_value is None:
+        authored_entries = []
+    else:
+        authored_entries = []
+    kinds = [
+        _base_get(entry, "kind") if isinstance(entry, dict)
+        else entry["kind"]
+        for entry in authored_entries]
+    if "sleeper class" not in kinds or (
+            "honest challenge variant" not in kinds):
+        raise NamedDetectionFailure(
+            "sealed set rejected: sealing needs at least one "
+            "sleeper class and one honest challenge variant"
+        )
+    if isinstance(sealed_set, dict):
+        dict.__setitem__(sealed_set, "sealed", True)
+        dict.__setitem__(sealed_set, "stage", "sealed")
+    else:
+        sealed_set["sealed"] = True
+        sealed_set["stage"] = "sealed"
+    return sealed_set
+
+
+def unseal_sealed_set(sealed_set, scoring_closed=False):
+    """Unseal the set only where scoring stands closed."""
+    if not scoring_closed:
+        raise NamedDetectionFailure(
+            "sealed set rejected: early unsealing before scoring "
+            "closes"
+        )
+    sealed_set["sealed"] = False
+    sealed_set["scoring_closed"] = True
+    sealed_set["stage"] = "unsealed after scoring closed"
+    return sealed_set
+
+
+def score_sealed(sealed_set):
+    """State the standing of the sealed set while it stands sealed.
+
+    No score from the recorded profile set states or implies a
+    result on the sealed classes.
+    """
+    if _base_get(sealed_set, "sealed"):
+        return {
+            "fixture": "F-08",
+            "standing": "sealed until scoring closes",
+            "result_on_sealed_classes": None,
+            "profile_set_result_on_sealed_classes": (
+                "no result stated or implied"),
+            PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+            "score_verdict": None,
+        }
+    raise NamedDetectionFailure(
+        "sealed set scoring stands only in its sealed conditional "
+        "form"
+    )
+
+
+def compare_verdict_determinism(material_a, material_b=None):
+    """Run the verdict determinism check of contract C-16.
+
+    The same DetectionInput material, delivered twice, returns the
+    same verdict states and the same delivered update records, in
+    DetectionState per agent per day and in the scoring payload by
+    agent and day. No equality claim stands for accumulator values
+    in hash entry or in resume comparison.
+    """
+    second = material_b if material_b is not None else material_a
+    for material in (material_a, second):
+        if not isinstance(material, (list, tuple)):
+            raise NamedDetectionFailure(
+                "delivery rejected: the determinism material stands "
+                "in no record list form"
+            )
+
+    def _canonical(records):
+        return sorted(
+            (_undirected_copy(record) for record in records),
+            key=lambda record: (
+                str(_record_values(record).get("agent_identifier")),
+                _record_values(record).get("day"),
+            ),
+        )
+
+    first = score_day(_canonical(material_a))
+    other = score_day(_canonical(second))
+    same = (
+        first["verdict_states"] == other["verdict_states"]
+        and first["detection_states"] == other["detection_states"]
+        and first["accumulator_updates"] == other[
+            "accumulator_updates"]
+    )
+    return {
+        "same": same,
+        "verdict_states": first["verdict_states"],
+        "update_records": first["detection_states"],
+        "accumulator_equality_claim": None,
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
+    }
+
+
+def record_verdict_difference(material_a, material_b):
+    """Record a verdict difference on the same material.
+
+    While the OP-16 bar stands, a difference is recorded as a
+    barred check event: the event bars the run from reporting, and
+    it is recorded as neither a pass score nor a fail score.
+    """
+    check = compare_verdict_determinism(material_a, material_b)
+    if check["same"]:
+        return {
+            "event": None,
+            "run_reportable": True,
+            PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+            "score_verdict": None,
+        }
+    return {
+        "event": "barred check event",
+        "run_reportable": False,
+        "recorded_as": "neither a pass score nor a fail score",
+        PROFILE_BOUND_LABEL_FIELD: PROFILE_LABEL_CARRIAGE,
+        "score_verdict": None,
+    }
+
+
+class DetectionLayer:
+    """The Detection Layer as one daily scoring pass."""
+
+    def __init__(self):
+        self.detection_states = {}
+
+    def accept_detection_input(self, record):
+        return accept_detection_input(record)
+
+    def score_day(self, records, society_state=None,
+                  mode="conformance", uses=None):
+        result = score_day(records, society_state=society_state,
+                           mode=mode, uses=uses)
+        for state in result["detection_states"]:
+            key = (state["agent_identifier"], state["day"])
+            self.detection_states[key] = copy.deepcopy(state)
+        return result
+
+    def score(self, record_or_records, society_state=None,
+              mode="conformance", uses=None):
+        if isinstance(record_or_records, (list, tuple)):
+            return self.score_day(list(_base_iter(record_or_records)),
+                                  society_state=society_state,
+                                  mode=mode, uses=uses)
+        return self.score_day([record_or_records],
+                              society_state=society_state,
+                              mode=mode, uses=uses)
+
+    def score_profiles(self, profile_set=None):
+        return score_profiles(profile_set)
+
+    def conformance_statement(self, table_identifier="LR-1",
+                              threshold_set="epoch weighted",
+                              table_value=None):
+        return conformance_statement(
+            table_identifier=table_identifier,
+            threshold_set=threshold_set, table_value=table_value)
+
+    def report(self, figures=None):
+        return report(figures)
+
+    def score_sealed(self, sealed_set):
+        return score_sealed(sealed_set)
