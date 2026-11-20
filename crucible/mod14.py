@@ -15,6 +15,7 @@ that code stands as its only locus in the shipped product.
 
 import ast
 import itertools
+import math
 import re
 import unicodedata
 from decimal import Decimal
@@ -517,6 +518,20 @@ def run_command(command, payload=None, run_id=None):
                 "in no dict form: a mapping in dict form of input "
                 "fields stands required as the payload of every "
                 "shell command"),
+            run_id=run_id, stage=command)
+    if isinstance(command, (bytes, bytearray, memoryview)) and (
+            _stored_text(command) in (
+                "start_run", "start_sweep", "read_store",
+                "write_store", "run_pilot", "assemble_report",
+                "outside_call_check", "store_kind_check",
+                "weekly_headline_count", "flag_evaluation")):
+        return error_carriage(
+            NamedShellFailure(
+                "shell command stands refused: the command stands "
+                "in no command form: a command stands as text "
+                "naming one of the shell commands, a command handed "
+                "in buffer form stands in no command form, and no "
+                "shell command stands run"),
             run_id=run_id, stage=command)
     command_text = (
         _stored_text(command) if isinstance(command, str) else None)
@@ -1703,13 +1718,26 @@ def weekly_headline_count(summary_records, week):
             "summary_records argument stands in no list form: "
             "a list of summary records stands required, and no "
             "weekly headline count stands certified without it")
+    if isinstance(week, float) and not math.isfinite(week):
+        raise NamedShellFailure(
+            "weekly_headline_count stands refused: the week "
+            "stands in no comparable form, a week stands as a "
+            "finite value, and no weekly headline count stands "
+            "certified without it")
     seen = []
     for record in _container_parts(summary_records):
         if not isinstance(record, dict) or not _weekly_pair_present(record, "week"):
             raise NamedShellFailure(
                 "summary record carries no week field, so its weekly "
                 "headline count cannot stand read")
-        if not _week_stands_equal(_weekly_pair_get(record, "week"), week):
+        stored_week = _weekly_pair_get(record, "week")
+        if isinstance(stored_week, float) and not math.isfinite(
+                stored_week):
+            raise NamedShellFailure(
+                "summary record carries a week standing in no "
+                "comparable form, and no weekly headline count "
+                "stands certified without it")
+        if not _week_stands_equal(stored_week, week):
             continue
         if not _weekly_pair_present(record, "headline_unit_identifiers"):
             raise NamedShellFailure(

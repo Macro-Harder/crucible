@@ -3187,6 +3187,44 @@ def validate_grid_claim(claim):
     return True
 
 
+def _sample_name_key(name):
+    """The canonical key one run identifier stands under for
+    the sample statement distinctness judgement, in the kind
+    first form _stored_ids_equal states: a text form value on
+    the text it stores, a boolean apart from every number, a
+    plain number on the number it stores, and a Decimal, a
+    Fraction, or a complex value on its kind and its value.
+    A value in any other form stands under no key here and
+    stands judged against the kept container names alone,
+    in the form sample_statement states."""
+    stored_text = _stored_text(name)
+    if stored_text is not None:
+        return ("text", stored_text)
+    if isinstance(name, bool):
+        return ("bool", name is True)
+    if isinstance(name, int):
+        return ("int", int.__int__(name))
+    if isinstance(name, float):
+        return ("float", float.__float__(name))
+    if isinstance(name, (Decimal, Fraction, complex)):
+        return (type(name).__name__, name)
+    return None
+
+
+def _sample_name_alias(name):
+    """The printed name alias one run identifier carries for
+    the sample statement distinctness judgement, in the form
+    _printed_int_name_matches states: a text form value on the
+    text it stores, and a plain integer on its printed name.
+    A value of any other kind carries no printed name alias."""
+    stored_text = _stored_text(name)
+    if stored_text is not None:
+        return stored_text
+    if isinstance(name, int) and not isinstance(name, bool):
+        return int.__str__(name)
+    return None
+
+
 def sample_statement(runs=None):
     """The sample statement of one result, inside the result: the
     count of runs completed in each run class, stated class by
@@ -3196,9 +3234,17 @@ def sample_statement(runs=None):
     apart stand under one printed name, each such name in the
     sentence carries the kind of its run beside it, so the
     operator stands told that two different runs stand
-    behind the repeated name."""
+    behind the repeated name. The distinctness judgement
+    carries a stated growth bound in the runs handed in:
+    each run name stands judged once against the kept names
+    through the canonical key and printed name alias forms
+    of this module, so the work of one call stands linear
+    in the runs handed in."""
     counts = {run_class: 0 for run_class in RUN_CLASSES}
     named = []
+    named_keys = set()
+    named_aliases = set()
+    named_containers = []
     if isinstance(runs, dict):
         handed = list(dict.values(runs))
     elif isinstance(runs, (list, tuple, set, frozenset)):
@@ -3220,10 +3266,24 @@ def sample_statement(runs=None):
             name = dict.get(run, "run_identifier")
         if not _stored_value_present(name):
             continue
-        if any(_stored_ids_equal(name, kept) for kept in named):
-            continue
-        if any(_printed_int_name_matches(name, kept) for kept in named):
-            continue
+        name_key = _sample_name_key(name)
+        if name_key is None:
+            if any(_stored_ids_equal(name, kept)
+                   for kept in named_containers):
+                continue
+            if any(_printed_int_name_matches(name, kept)
+                   for kept in named):
+                continue
+            named_containers.append(name)
+        else:
+            if name_key in named_keys:
+                continue
+            name_alias = _sample_name_alias(name)
+            if name_alias is not None and name_alias in named_aliases:
+                continue
+            named_keys.add(name_key)
+            if name_alias is not None:
+                named_aliases.add(name_alias)
         counts[matched] += 1
         named.append(name)
     total = sum(counts.values())
@@ -3237,8 +3297,11 @@ def sample_statement(runs=None):
                 "the DQ7-02 gate stands unadopted"),
         }
     name_texts = [_sample_name_text(name) for name in named]
+    text_counts = {}
+    for text in name_texts:
+        text_counts[text] = text_counts.get(text, 0) + 1
     repeated = {
-        text for text in name_texts if name_texts.count(text) > 1}
+        text for text, tally in text_counts.items() if tally > 1}
     rendered = [
         text + " (" + _sample_name_kind(name) + ")"
         if text in repeated else text
@@ -3338,6 +3401,20 @@ def winning_regime(daily_shares):
             raise NamedControllerFailure(
                 "winning regime entry carries a non numeric share: "
                 + _sentence_form(entry))
+        plain_attacker = _plain_number_value(attacker)
+        plain_honest = _plain_number_value(honest)
+        if (isinstance(plain_attacker, float)
+                and not math.isfinite(plain_attacker)) \
+                or (isinstance(plain_honest, float)
+                    and not math.isfinite(plain_honest)) \
+                or plain_attacker < 0 or plain_attacker > 1 \
+                or plain_honest < 0 or plain_honest > 1:
+            raise NamedControllerFailure(
+                "winning_regime stands refused: a daily share "
+                "stands in no finite or proportion form, a share "
+                "stands as a finite number from zero to one, and "
+                "no winning regime standing stands returned: "
+                + _sentence_form(entry))
         if not _plain_number_value(attacker) > _plain_number_value(honest):
             return False
     return True
@@ -3358,10 +3435,11 @@ def validate_screening_claim(claim):
 
 def top_up_applies(winning_probability, replicates_after_top_up):
     """The top up rule of fixture F-18 as this controller states
-    it: a control point found in screening with a winning
-    probability above 0.1 and below 0.9 is topped up to at least
-    30 replicates, and the rule stands recorded in the run
-    record."""
+    it, in the one closed bound form the governing plan states
+    for F-18: a control point found in screening with a winning
+    probability at or above 0.1 and at or below 0.9 is topped
+    up to at least 30 replicates, and the rule stands recorded
+    in the run record."""
     plain_probability = _plain_number_value(winning_probability)
     plain_replicates = _plain_number_value(replicates_after_top_up)
     if plain_probability is None or plain_replicates is None:
@@ -3385,7 +3463,7 @@ def top_up_applies(winning_probability, replicates_after_top_up):
             "that range, and no top up judgement stands "
             "returned")
     return bool(
-        0.1 < plain_probability < 0.9
+        0.1 <= plain_probability <= 0.9
         and plain_replicates >= 30
     )
 
@@ -3655,7 +3733,27 @@ def _family_identifier_stands(value):
     return str.__len__(str.strip(str.__str__(value))) > 0
 
 
-def start_run(run_class=None, family_id=None):
+def _name_start_extra_handings(refusal, extra):
+    """State extra keyword handings on a start door refusal.
+
+    A keyword handing outside the stated form of a start door
+    stands named on the refusal, in unexpected_keyword_handings
+    and in words, and stands not taken: the gate itself stands
+    untouched, no run stands started, no seed stands drawn, and
+    DQ7-02 stands not circumvented. A refusal with no extra
+    handing stands returned unchanged."""
+    if extra:
+        names = sorted(extra)
+        refusal["unexpected_keyword_handings"] = names
+        refusal["extra_handing_note"] = (
+            "The keyword handings " + ", ".join(names)
+            + " stand outside the stated form of this door and "
+            "stand not taken; this door takes no adoption record "
+            "and no seed as a keyword handing.")
+    return refusal
+
+
+def start_run(run_class=None, family_id=None, **_extra):
     """Start one run. Start inputs stand validated before the gate
     answer: a run class outside the four stated classes, a missing
     run class, and a missing family identifier each return a named
@@ -3669,33 +3767,36 @@ def start_run(run_class=None, family_id=None):
     if not (isinstance(run_class, str) and any(
             str.__eq__(str.__str__(run_class), stated)
             for stated in RUN_CLASSES)):
-        return _input_failure(
+        return _name_start_extra_handings(_input_failure(
             "start run", "run class missing or outside the stated "
             "classes (screening, confirmation, headline, and "
             "validation): the class stands handed as "
             + _safe_repr(run_class)
             + ", and a run class stands as a text value naming "
-            "one of the stated classes")
+            "one of the stated classes"), _extra)
     if not _family_identifier_stands(family_id):
-        return _input_failure(
+        return _name_start_extra_handings(_input_failure(
             "start run", "family identifier missing or in no "
             "identifier form: a family identifier stands as a "
             "text value carrying identifier text, and the value "
-            "handed stands as " + _safe_repr(family_id))
-    return _gated_start("start run", run_class=run_class, family_id=family_id)
+            "handed stands as " + _safe_repr(family_id)), _extra)
+    return _name_start_extra_handings(
+        _gated_start("start run", run_class=run_class,
+                     family_id=family_id), _extra)
 
 
-def start_sweep(family_id=None):
+def start_sweep(family_id=None, **_extra):
     """Start one sweep. A missing family identifier returns a named
     input failure. Gated on DQ7-02 in the same form as a run
     start."""
     if not _family_identifier_stands(family_id):
-        return _input_failure(
+        return _name_start_extra_handings(_input_failure(
             "start sweep", "family identifier missing or in no "
             "identifier form: a family identifier stands as a "
             "text value carrying identifier text, and the value "
-            "handed stands as " + _safe_repr(family_id))
-    return _gated_start("start sweep", family_id=family_id)
+            "handed stands as " + _safe_repr(family_id)), _extra)
+    return _name_start_extra_handings(
+        _gated_start("start sweep", family_id=family_id), _extra)
 
 
 __all__ = [

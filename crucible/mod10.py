@@ -24,6 +24,7 @@ computed result without changing the value.
 """
 import copy
 import hashlib
+import hmac
 import itertools
 import json
 import math
@@ -31,6 +32,11 @@ import os
 import re
 import threading
 import unicodedata
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 from decimal import Decimal
 from fractions import Fraction
 
@@ -277,6 +283,18 @@ def _stored_repr(value, _depth=0):
     return object.__repr__(value)
 
 FORM_ONLY = "form_only"
+
+
+def _form_label(value):
+    """The stated label of one handed form for a refusal ground:
+    a container form stands rendered on the stored repr of its
+    parts, so a container label never stands blank, and every
+    other form stands rendered as the vocabulary text renders
+    it, so a form carrying no text and no container parts keeps
+    the standing the module stated for it (FW3-60)."""
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        return _stored_repr(value)
+    return _vocabulary_text(value)
 
 
 def _failure_render(value):
@@ -2473,6 +2491,13 @@ _WRITER_VALUE_FORM = (
     "form stands refused at writing, and no record stands "
     "written: ")
 
+_WRITER_KEY_COLLISION = (
+    "store writer form: two keys that share one stored text "
+    "stand refused at writing: keys stand judged on their "
+    "stored text, two keys sharing one stored text cannot "
+    "both stand written under that one text, and no record "
+    "stands written")
+
 
 def _store_file_lock(path):
     """The one lock for one store file path in this process,
@@ -2492,18 +2517,48 @@ def _store_file_lock(path):
 
 class _StoreHold:
     """Hold the instance lock and, for a file backed store, the
-    shared file lock, for the span of one store act."""
+    shared file lock, for the span of one store act. For a file
+    backed store the hold also takes the cross process lock on
+    the lock file standing beside the store file, held for the
+    whole act, so the reload, the merge, and the flush of one
+    act stand serialised against every other process standing
+    on the same path: no process flushes a standing built
+    without another process latest records, and no retained
+    record stands lost in silence across processes (FW3-03).
+    Where the platform carries no file lock form the in process
+    locks alone stand, as before."""
 
     def __init__(self, store):
         self._store = store
+        self._xproc_fd = None
 
     def __enter__(self):
         self._store._lock.acquire()
         if self._store._file_lock is not None:
             self._store._file_lock.acquire()
+        if self._store.path and fcntl is not None:
+            try:
+                fd = os.open(
+                    self._store.path + ".lock",
+                    os.O_CREAT | os.O_RDWR, 0o644)
+            except OSError:
+                fd = None
+            if fd is not None:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX)
+                    self._xproc_fd = fd
+                except OSError:
+                    os.close(fd)
         return self._store
 
     def __exit__(self, exc_type, exc, tb):
+        if self._xproc_fd is not None:
+            try:
+                fcntl.flock(self._xproc_fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            os.close(self._xproc_fd)
+            self._xproc_fd = None
         if self._store._file_lock is not None:
             self._store._file_lock.release()
         self._store._lock.release()
@@ -2608,6 +2663,10 @@ def _serialize_store_text(payload):
             if id(node) in active:
                 raise ValueError("Circular reference detected")
             active.add(id(node))
+            key_texts = [
+                _writer_key_text(key) for key in dict.keys(node)]
+            if len(set(key_texts)) != len(key_texts):
+                raise ValueError(_WRITER_KEY_COLLISION)
             items = sorted(
                 dict.items(node),
                 key=lambda pair: (
@@ -2657,11 +2716,41 @@ def _serialize_store_text(payload):
     return "".join(parts)
 
 
+_STORE_INTEGRITY_KEY = (
+    b"crucible store integrity key, held by the product alone, "
+    b"standing in no store file and derived from no store file")
+
+_STORE_PAYLOAD_MEMBERS = ("integrity", "records", "store_kind")
+
+
+def _store_integrity_signal(records, kind_text):
+    """The integrity signal over one records list under one
+    store kind: a keyed signal (HMAC SHA 256) over the records
+    in their canonical written form, the form a load of the
+    written file reads back, keyed by a key the product holds
+    in this module and no store file carries or states. A hand
+    that can write a store file can recompute a plain digest
+    of the file contents, and that recomputation stands as no
+    signal of this product: the signal stands checked against
+    the records and the kind as they stand on disk, and a
+    signal in the unkeyed digest form stands refused as a
+    signal this product did not issue."""
+    canonical_text = _serialize_store_text({"records": records})
+    canonical = json.loads(canonical_text, parse_int=_json_int)
+    body = _serialize_store_text(
+        {"records": canonical["records"]}).encode("utf-8")
+    message = (
+        b"crucible store signal v2\x00"
+        + kind_text.encode("utf-8") + b"\x00" + body)
+    return hmac.new(
+        _STORE_INTEGRITY_KEY, message, hashlib.sha256).hexdigest()
+
+
 def _store_integrity_digest(records):
-    """The integrity signal over one records list: a digest of
-    the records in their canonical written form, the form a
-    load of the written file reads back, so the signal stands
-    checked against the records as they stand on disk."""
+    """The pre cure unkeyed digest form, kept as a name only:
+    it stands as no signal of this product and no load path
+    accepts it. The signal a load accepts stands computed by
+    _store_integrity_signal."""
     canonical_text = _serialize_store_text({"records": records})
     canonical = json.loads(canonical_text, parse_int=_json_int)
     return hashlib.sha256(
@@ -2670,13 +2759,38 @@ def _store_integrity_digest(records):
     ).hexdigest()
 
 
+class _DuplicateMember(Exception):
+    """One store file object carries one member name twice."""
+
+
+def _pairs_no_duplicates(pairs):
+    seen = set()
+    for key, _value in pairs:
+        if key in seen:
+            raise _DuplicateMember(key)
+        seen.add(key)
+    return dict(pairs)
+
+
 def _read_store_payload(path):
     """Read one store file whole, delivering every path and
     file failure, a directory and a permission refusal among
-    them, as the named store file failure of this module."""
+    them, as the named store file failure of this module. A
+    file carrying one member name twice in one object stands
+    refused in the same form: no occurrence stands judged in
+    silence over another."""
     try:
         with open(path, "r", encoding="utf-8") as handle:
-            data = json.load(handle, parse_int=_json_int)
+            data = json.load(
+                handle, parse_int=_json_int,
+                object_pairs_hook=_pairs_no_duplicates)
+    except _DuplicateMember as exc:
+        raise _store_file_failure(
+            path,
+            "the file carries the member named "
+            + _failure_render(exc.args[0])
+            + " more than once, and no occurrence stands "
+            "judged over another") from exc
     except (OSError, TypeError, ValueError, RecursionError) as exc:
         raise _store_file_failure(path) from exc
     if not isinstance(data, dict):
@@ -2686,21 +2800,143 @@ def _read_store_payload(path):
     return data
 
 
-def _disk_records_lenient(path):
-    """The records a store file on disk carries, read for a
-    merge or a reconciliation, standing as no records where
-    the file stands unreadable in any part."""
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            data = json.load(handle, parse_int=_json_int)
-    except Exception:
-        return []
-    if not isinstance(data, dict):
-        return []
-    records = data.get("records")
-    if not isinstance(records, list):
-        return []
-    return [record for record in records if isinstance(record, dict)]
+def _guarded_store_records(path, kind_text, fast=False):
+    """The records a store file on disk carries, read through
+    the guarded load path whole: the same checks the opening
+    load applies, in the same order. The kind label stands
+    usable and matching, no top level member stands outside
+    the judged form, every record stands under the load
+    guards, and the integrity signal stands present where
+    the file carries records and stands as a signal of this
+    product over the records and the kind. Every failure
+    stands delivered as the named store file failure of this
+    module, and no standing stands returned for a file that
+    does not pass.
+
+    The fast form serves a reload or a flush merge on an
+    already open store. It judges the signal first: a signal
+    of this product over the records and the kind proves the
+    record set stands as the product issued it, under the
+    retention guards the writing act applied, so the fast
+    form then applies the cheap identifier checks alone (a
+    record in no record form, an identifier in no judged
+    form, whitespace included, or a duplicate identifier
+    stands refused in the same grounds). A file whose signal
+    stands absent or in no form of this product stands
+    refused on the signal ground in the fast form, as in the
+    full form."""
+    data = _read_store_payload(path)
+    file_kind = data.get("store_kind")
+    file_kind_text = _stored_text(file_kind)
+    if not isinstance(file_kind, str) or not str.__len__(
+            str.strip(file_kind_text)):
+        ground = (
+            "the file carries no usable kind label, and a "
+            "store file stands opened only under the kind its "
+            "label states")
+        if "store_kind" in data:
+            ground = (
+                ground + ": the label the file carries stands "
+                "in the form " + _form_label(file_kind))
+        raise _store_file_failure(path, ground)
+    if not str.__eq__(file_kind_text, kind_text):
+        raise _store_file_failure(
+            path,
+            "the file stands labelled as a "
+            + file_kind_text
+            + " store and stands opened as a "
+            + kind_text + " store")
+    for member in dict.keys(data):
+        if member not in _STORE_PAYLOAD_MEMBERS:
+            raise _store_file_failure(
+                path,
+                "the file carries the top level member named "
+                + _failure_render(member)
+                + " outside the judged store file form, and "
+                "no act of this store takes a standing on it "
+                "or destroys it in silence")
+    stored_records = data["records"]
+    if fast and stored_records:
+        if "integrity" not in data:
+            raise _store_file_failure(
+                path,
+                "the store file integrity signal stands "
+                "absent where the file carries records, and "
+                "no record stands served from a file whose "
+                "signal a hand could strike whole")
+        signal = data["integrity"]
+        expected = _store_integrity_signal(stored_records, kind_text)
+        if not isinstance(signal, str) or not hmac.compare_digest(
+                str.__str__(signal), expected):
+            raise _store_file_failure(
+                path,
+                "the store file integrity signal does not "
+                "match the records the file carries")
+        seen_texts = set()
+        for record in stored_records:
+            if not isinstance(record, dict):
+                raise _store_file_failure(
+                    path,
+                    "a record standing in no record form "
+                    "stands in the file")
+            rid = dict.get(record, "run_id") or dict.get(
+                record, "run_identifier")
+            if rid is None:
+                raise _store_file_failure(
+                    path,
+                    "a record carrying no run identifier "
+                    "stands in the file")
+            if not isinstance(rid, str):
+                raise _store_file_failure(
+                    path,
+                    "a record whose run identifier stands in "
+                    "no identifier form stands in the file")
+            if str.__len__(rid) == 0:
+                raise _store_file_failure(
+                    path,
+                    "a record carrying no run identifier "
+                    "stands in the file")
+            if str.__len__(str.strip(rid)) == 0:
+                raise _store_file_failure(
+                    path,
+                    "a record whose run identifier stands as "
+                    "whitespace only, which stands as no "
+                    "identifier, stands in the file")
+            rid_text = str.__str__(rid)
+            if rid_text in seen_texts:
+                raise _store_file_failure(
+                    path,
+                    "two records for the same run stand in "
+                    "the file")
+            seen_texts.add(rid_text)
+        return [record for record in stored_records
+                if isinstance(record, dict)]
+    seen = []
+    for record in stored_records:
+        ground = _loaded_record_ground(record, seen)
+        if ground is not None:
+            raise _store_file_failure(path, ground)
+        seen.append(
+            dict.get(record, "run_id")
+            or dict.get(record, "run_identifier"))
+    if stored_records:
+        if "integrity" not in data:
+            raise _store_file_failure(
+                path,
+                "the store file integrity signal stands "
+                "absent where the file carries records, and "
+                "no record stands served from a file whose "
+                "signal a hand could strike whole")
+        signal = data["integrity"]
+        expected = _store_integrity_signal(stored_records, kind_text)
+        if not isinstance(signal, str) or not hmac.compare_digest(
+                str.__str__(signal), expected):
+            raise _store_file_failure(
+                path,
+                "the store file integrity signal does not "
+                "match the records the file carries")
+    return [record for record in stored_records
+            if isinstance(record, dict)]
 
 
 def _loaded_record_ground(record, seen):
@@ -2720,6 +2956,10 @@ def _loaded_record_ground(record, seen):
             "identifier form stands in the file")
     if str.__len__(rid) == 0:
         return "a record carrying no run identifier stands in the file"
+    if str.__len__(str.strip(rid)) == 0:
+        return (
+            "a record whose run identifier stands as whitespace "
+            "only, which stands as no identifier, stands in the file")
     if any(_base_value_eq(rid, earlier) for earlier in seen):
         return "two records for the same run stand in the file"
     try:
@@ -2755,6 +2995,25 @@ _FORM4_DRESS_BOUND = 8
 _form4_fields_cache = None
 
 
+_RETAIN_BYTE_BOUND = 1000000
+
+
+def _retention_value_bytes(value):
+    """The byte count of one text or bytes value of a record,
+    read through base class readings only (FW3-12)."""
+    if isinstance(value, str):
+        text = str.__str__(value)
+        try:
+            return len(text.encode("utf-8", "ignore"))
+        except Exception:
+            return str.__len__(text)
+    if isinstance(value, (bytes, bytearray)):
+        return len(value)
+    if isinstance(value, memoryview):
+        return len(memoryview.tobytes(value))
+    return 0
+
+
 def _guard_retention_width(record):
     """Refuse a run record standing wider than the stated
     retain width bound of 10000 entries, in named form, before
@@ -2763,12 +3022,30 @@ def _guard_retention_width(record):
     every sequence or set item in the record, through base
     class readings only, each container counted once, and the
     walk stops at the bound, so the refusal itself stands
-    bounded by the bound and never by the handed width."""
+    bounded by the bound and never by the handed width. The
+    same walk counts the bytes of every text and bytes value
+    against the stated retain byte bound of 1000000 bytes
+    (FW3-12), the byte form standing beside the entry form,
+    and a record past the byte bound stands refused in the
+    same named form."""
     total = 0
+    byte_total = 0
     seen = set()
     stack = [record]
     while stack:
         node = stack.pop()
+        if isinstance(node, (str, bytes, bytearray, memoryview)):
+            byte_total += _retention_value_bytes(node)
+            if byte_total > _RETAIN_BYTE_BOUND:
+                raise ValueError(
+                    "record byte bound in named form: a run "
+                    "record carrying more than the retain byte "
+                    "bound of 1000000 bytes stands refused at "
+                    "retain_run_record on the record argument: "
+                    "the byte size stands counted across every "
+                    "text and bytes value in the record, and "
+                    "no record stands retained")
+            continue
         if not isinstance(node, (dict, list, tuple, set, frozenset)):
             continue
         if id(node) in seen:
@@ -2891,16 +3168,36 @@ def _components_impossible(record):
     return False
 
 
+def _file_stamp(path):
+    """The standing of one store file, as its filesystem states
+    it: the file identity, its size, and its modification and
+    status change times, read by one stat act. A write to the
+    file, in place or by replacement, moves at least the status
+    change time, which no write act restores, so a file standing
+    in the same stamp stands as the file this instance last
+    stood on, and a file in any other stamp stands reloaded
+    through the guarded load path before any act answers."""
+    try:
+        standing = os.stat(path)
+    except OSError:
+        return None
+    return (standing.st_ino, standing.st_size,
+            standing.st_mtime_ns, standing.st_ctime_ns)
+
+
 class RecorderStore:
     """One store for one store kind. In memory form by default, and
     file backed when a path is given. Retention of a RunRecord and
     the Recorder store reading path stand in this class.
 
     A file backed store stands reconciled with its file at every
-    act: an act first reads the records the shared file carries,
-    so two live objects on one path read what each other retained
+    act: an act first judges the standing of the shared file by
+    its file stamp and reads the records the file carries where
+    that standing has changed since this instance last stood on
+    it, so two live objects on one path read what each other retained
     and no retained record stands lost, destroyed, or resurrected
-    across instances in silence. A clear takes only the records
+    across instances in silence, while an act on an unchanged
+    file takes no load of the file at all. A clear takes only the records
     the clearing instance itself holds, never a record another
     instance retained that this instance never held. Every act
     on one instance stands under the instance lock, and every
@@ -2917,57 +3214,100 @@ class RecorderStore:
                 "unknown store kind: " + _failure_render(store_kind)
                 + "; a store kind stands among sweep, pilot, and "
                 "live, and no store stands created")
-        self.store_kind = kind_text if isinstance(
-            store_kind, (bytes, bytearray, memoryview)) else store_kind
+        self.store_kind = kind_text
         self.path = path
         self._records = {}
         self._index = []
         self._by_text = {}
         self._lock = threading.RLock()
         self._file_lock = _store_file_lock(path) if path else None
+        self._file_seen = False
+        self._file_stamp = None
+        if path and os.path.isdir(path):
+            raise _store_file_failure(
+                path,
+                "the path stands as a directory, not as a "
+                "store file; next step: hand the path of a "
+                "store file, or a file path inside that "
+                "directory at which a store file can stand "
+                "created")
+        if path and os.path.exists(path) and not os.path.isfile(path):
+            raise _store_file_failure(
+                path,
+                "the path stands in no store file form; next "
+                "step: hand the path of a store file, or a "
+                "file path inside an existing directory at "
+                "which a store file can stand created")
         if path and os.path.exists(path):
-            data = _read_store_payload(path)
-            file_kind = data.get("store_kind")
-            if file_kind is not None and not str.__eq__(
-                    _stored_text(file_kind), kind_text):
-                raise _store_file_failure(
-                    path,
-                    "the file stands labelled as a "
-                    + _stored_text(file_kind)
-                    + " store and stands opened as a "
-                    + kind_text + " store")
-            stored_records = data["records"]
-            if "integrity" in data and not str.__eq__(
-                    _stored_text(data["integrity"]),
-                    _store_integrity_digest(stored_records)):
-                raise _store_file_failure(
-                    path,
-                    "the store file integrity signal does not "
-                    "match the records the file carries")
-            seen = []
+            self._file_seen = True
+            try:
+                stored_records = _guarded_store_records(path, kind_text)
+            except LookupFailure as exc:
+                text = exc.args[0] if exc.args else ""
+                if "next step" not in text:
+                    exc.args = (
+                        text + "; next step: hand a store file "
+                        "path that stands in store form, or a "
+                        "new file path inside an existing "
+                        "directory at which a store file can "
+                        "stand created",)
+                raise
             for record in stored_records:
-                ground = _loaded_record_ground(record, seen)
-                if ground is not None:
-                    raise _store_file_failure(path, ground)
                 rid = dict.get(record, "run_id") or dict.get(
                     record, "run_identifier")
                 if isinstance(rid, str):
                     rid = str.__str__(rid)
                     self._by_text[rid] = rid
-                seen.append(rid)
                 self._records[rid] = record
                 self._index.append(rid)
+            self._file_stamp = _file_stamp(path)
+
+    def _disk_records_guarded(self):
+        """The records the shared file carries now, read through
+        the guarded load path. A file that stands absent where
+        this store has stood on a file, or that no longer stands
+        in guarded form, stands delivered as the named store
+        file failure of this module: no act proceeds on an
+        empty standing the file does not state."""
+        if not os.path.exists(self.path):
+            if self._file_seen:
+                raise _store_file_failure(
+                    self.path,
+                    "the store file no longer stands at the "
+                    "store path, and no act proceeds on an "
+                    "empty standing the file does not state")
+            return []
+        records = _guarded_store_records(
+            self.path, self.store_kind, fast=True)
+        self._file_seen = True
+        self._file_stamp = _file_stamp(self.path)
+        return records
 
     def _reload_from_disk(self):
         """Rebuild the instance standing from the shared file,
         so an act answers on the records the file carries now,
         records another instance retained included, and records
-        another instance cleared standing absent."""
+        another instance cleared standing absent. The rebuild
+        reads through the guarded load path, so a file that no
+        longer stands in guarded form stands refused at the
+        act in the named store file form, and no tampered or
+        barred record stands adopted at reload. The growth form
+        of this path stands bounded by the act: where the file
+        standing stands unchanged since this instance last stood
+        on it, judged by the file stamp, the instance standing
+        already stands as the file states it and no load of the
+        file stands taken at all; where the standing has
+        changed, the file stands reloaded once through the
+        guarded load path, in this act and no more."""
         if not self.path:
             return
+        if self._file_stamp is not None:
+            current = _file_stamp(self.path)
+            if current is not None and current == self._file_stamp:
+                return
         records = {}
         index = []
-        for record in _disk_records_lenient(self.path):
+        for record in self._disk_records_guarded():
             rid = dict.get(record, "run_id") or dict.get(
                 record, "run_identifier")
             if rid is None:
@@ -2991,8 +3331,22 @@ class RecorderStore:
             return
         merged = {}
         order = []
+        disk_records = []
         if merge_disk and os.path.exists(self.path):
-            for record in _disk_records_lenient(self.path):
+            if (self._file_stamp is not None
+                    and _file_stamp(self.path) == self._file_stamp):
+                # The file standing stands unchanged since this
+                # instance last stood on it, so the records the
+                # file carries stand already in this instance
+                # standing, apart from the changes this act itself
+                # carries in its records and its removal forms,
+                # which the merge below applies. No second load of
+                # the file stands taken in this act.
+                disk_records = []
+            else:
+                disk_records = _guarded_store_records(
+                    self.path, self.store_kind, fast=True)
+            for record in disk_records:
                 rid = dict.get(record, "run_id") or dict.get(
                     record, "run_identifier")
                 if rid is None:
@@ -3019,7 +3373,8 @@ class RecorderStore:
         payload = {
             "store_kind": self.store_kind,
             "records": records,
-            "integrity": _store_integrity_digest(records),
+            "integrity": _store_integrity_signal(
+                records, self.store_kind),
         }
         text = _serialize_store_text(payload)
         tmp_path = (
@@ -3031,6 +3386,8 @@ class RecorderStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp_path, self.path)
+            self._file_seen = True
+            self._file_stamp = _file_stamp(self.path)
         except BaseException:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
@@ -3046,8 +3403,11 @@ class RecorderStore:
             raise ValueError(
                 "identity less record: a run record stands as a record "
                 "carrying a run identifier, and no other form stands retained")
-        rid = dict.get(record, "run_id") or dict.get(
-            record, "run_identifier")
+        rid = dict.get(record, "run_id")
+        if rid is None or (
+                isinstance(rid, str) and str.__len__(rid) == 0) or (
+                not isinstance(rid, str) and not rid):
+            rid = dict.get(record, "run_identifier")
         if rid is None:
             raise ValueError(
                 "identity less record: no run identifier stands on the "
@@ -3069,11 +3429,12 @@ class RecorderStore:
                 "no record stands retained under it")
         try:
             hash(rid)
-        except TypeError as exc:
+        except Exception as exc:
             raise ValueError(
                 "identity less record: the run identifier stands in "
                 "an unhashable form, and no record stands retained "
                 "under it") from exc
+        rid = str.__str__(rid)
         _guard_retention_width(record)
         _guard_retention_shape(record, "retain_run_record", "record")
         if _carries_real_money_field(record):
@@ -3082,7 +3443,6 @@ class RecorderStore:
                 "a real money value stands refused at retention, by "
                 "field name and by amount and currency shape")
         _guard_run_record_validation(record)
-        rid = str.__str__(rid)
         if dict.__contains__(self._by_text, rid):
             raise ValueError(
                 "second record for the same run is rejected: "
@@ -3094,9 +3454,10 @@ class RecorderStore:
             stored = _safe_copy(record)
         except RecursionError as exc:
             raise ValueError(_DEEP_REFUSAL) from exc
-        if dict.get(stored, "run_id"):
+        stored_rid = dict.get(stored, "run_id")
+        if isinstance(stored_rid, str) and str.__len__(stored_rid) > 0:
             dict.__setitem__(stored, "run_id", rid)
-        elif dict.get(stored, "run_identifier"):
+        elif dict.get(stored, "run_identifier") is not None:
             dict.__setitem__(stored, "run_identifier", rid)
         self._records[rid] = stored
         self._index.append(rid)
@@ -3104,7 +3465,12 @@ class RecorderStore:
         try:
             self._flush()
         except Exception as exc:
+            if isinstance(exc, LookupFailure) and isinstance(
+                    getattr(exc, "failure", None), dict) and (
+                    "store_path" in exc.failure):
+                raise
             if self.path:
+                self._file_stamp = None
                 self._reload_from_disk()
             else:
                 del self._records[rid]
@@ -3163,6 +3529,13 @@ class RecorderStore:
             try:
                 self._flush(merge_disk=True, remove_forms=removal)
             except Exception as exc:
+                if isinstance(exc, LookupFailure) and isinstance(
+                        getattr(exc, "failure", None), dict) and (
+                        "store_path" in exc.failure):
+                    self._records = kept_records
+                    self._index = kept_index
+                    self._by_text = kept_by_text
+                    raise
                 self._records = kept_records
                 self._index = kept_index
                 self._by_text = kept_by_text
@@ -3183,6 +3556,14 @@ _DEFAULT_STORE = _STORES["sweep"]
 
 _EVENT_LOGS = {}
 _DAILY_SNAPSHOTS = {}
+_EVENT_LOG_FORMS = {}
+_DAILY_SNAPSHOT_FORMS = {}
+
+# The stated cap on one run bucket of the event log and daily
+# snapshot retention paths: one run carries at most this many
+# entries of either form, the figure this module already states
+# for a per run retained collection at the checkpoint doors.
+_RETENTION_BUCKET_CAP = 10000
 _CHECKPOINTS = {}
 _AGGREGATE_DELIVERIES = {}
 _GATE_SHARES = {}
@@ -3216,7 +3597,8 @@ def reset_stores():
         store.clear()
     _DEFAULT_STORE = _STORES["sweep"]
     for collection in (
-        _EVENT_LOGS, _DAILY_SNAPSHOTS, _CHECKPOINTS,
+        _EVENT_LOGS, _DAILY_SNAPSHOTS, _EVENT_LOG_FORMS,
+        _DAILY_SNAPSHOT_FORMS, _CHECKPOINTS,
         _AGGREGATE_DELIVERIES, _GATE_SHARES, _GC08_RECORDS,
         _RESERVE_HOLDS, _SUMMARY_RECORDS, _VIEW_RECORDS,
         _CHECKPOINT_STATES,
@@ -3331,37 +3713,84 @@ def _components_stand_numeric(values):
         and all(_numeric_component(value) for value in values))
 
 
+def _plain_share_number(value):
+    """The plain number a handed share part stores, built
+    through base class operations, or None where the part
+    stands in no plain numeric form. A part standing as a
+    bool stores no share number."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return int.__new__(int, int.__int__(value))
+    if isinstance(value, float):
+        return float.__new__(float, float.__float__(value))
+    return None
+
+
 def _delivery_share_stands(value):
     """Whether one handed share stands in a stated share form:
     a plain number in the closed unit range, finite by its
     form, or a proportion record carrying a non negative
-    numerator and a positive denominator, each in plain
-    numeric form and finite where it stands in float form."""
+    numerator and a positive denominator whose quotient
+    stands inside the closed unit range, each part judged on
+    the plain number it stores, read through base class
+    operations, never through a comparison, equality, or get
+    reading the handed value supplies (FW3-21). A proportion
+    record carrying a stored quotient stands judged on that
+    quotient in the proportion form the module validator
+    states at _joint_share_ground and mod05.validate_proportion
+    states for its parts: the quotient stands in finite form
+    and agrees with its numerator and denominator within the
+    validator tolerance (FW3-43). A part too large to stand
+    converted to a float for the quotient judgement stands in
+    no judged form here, as the validator answers it."""
     if isinstance(value, bool):
         return False
     if isinstance(value, int):
-        return 0 <= int.__int__(value) <= 1
+        plain = int.__int__(value)
+        return 0 <= plain <= 1
     if isinstance(value, float):
-        return math.isfinite(value) and 0.0 <= value <= 1.0
+        plain = float.__float__(value)
+        return math.isfinite(plain) and 0.0 <= plain <= 1.0
     if isinstance(value, dict):
-        numerator = dict.get(value, "numerator")
-        denominator = dict.get(value, "denominator")
+        if not dict.__contains__(value, "numerator") \
+                or not dict.__contains__(value, "denominator"):
+            return False
+        numerator = _plain_share_number(
+            dict.__getitem__(value, "numerator"))
+        denominator = _plain_share_number(
+            dict.__getitem__(value, "denominator"))
         if numerator is None or denominator is None:
             return False
-        if isinstance(numerator, bool) or isinstance(
-                denominator, bool):
+        for part in (numerator, denominator):
+            if isinstance(part, float) and not math.isfinite(part):
+                return False
+        if numerator < 0 or denominator <= 0:
             return False
-        if not isinstance(numerator, (int, float)):
+        try:
+            ratio = float(numerator) / float(denominator)
+        except (OverflowError, ValueError, ZeroDivisionError):
             return False
-        if not isinstance(denominator, (int, float)):
+        if not math.isfinite(ratio) or ratio > 1.0:
             return False
-        if isinstance(numerator, float) and not math.isfinite(
-                numerator):
-            return False
-        if isinstance(denominator, float) and not math.isfinite(
-                denominator):
-            return False
-        return numerator >= 0 and denominator > 0
+        if dict.__contains__(value, "quotient") \
+                and dict.__getitem__(value, "quotient") is not None:
+            quotient = _plain_share_number(
+                dict.__getitem__(value, "quotient"))
+            if quotient is None:
+                return False
+            if isinstance(quotient, float) \
+                    and not math.isfinite(quotient):
+                return False
+            if quotient < 0:
+                return False
+            try:
+                quotient_plain = float(quotient)
+            except (OverflowError, ValueError):
+                return False
+            if abs(quotient_plain - ratio) > 1e-12:
+                return False
+        return True
     return False
 
 
@@ -3455,6 +3884,27 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
                         + " stand in a non numeric form (component "
                         + _stored_repr(component)
                         + "), and that delivery stands not retained")
+        judged = {}
+        for field in ("joint_outcome_components",
+                      "component_denominators"):
+            values = dict.get(delivery, field)
+            if isinstance(values, (list, tuple, set, frozenset)):
+                judged[field] = list(_base_iter(values))
+            elif isinstance(values, str):
+                judged[field] = [values]
+        if _components_impossible(judged):
+            raise ValueError(
+                "daily aggregate delivery in named form: the "
+                "joint outcome components of the delivery for "
+                "viewer "
+                + _vocabulary_text(dict.get(delivery, "viewer_id"))
+                + " at day "
+                + _vocabulary_text(dict.get(delivery, "simulated_day"))
+                + " stand impossible in the form the module "
+                "validator states (a component below zero, a "
+                "denominator below zero, or a component above "
+                "its own denominator), and that delivery stands "
+                "not retained")
     for delivery in stored_deliveries:
         if not isinstance(delivery, dict):
             continue
@@ -3773,6 +4223,8 @@ def rederive_regime_classification(aggregates):
         if len(components) != 4:
             return None
         if not _components_stand_numeric(components):
+            return None
+        if _components_impossible(record):
             return None
         for position, value in enumerate(components):
             try:
@@ -4210,7 +4662,11 @@ def _gate_shares_copy(run_id):
 
 def record_gate_passing_share(run_id, epoch, share, simulated_day=None):
     """Record the gate passing share handed over at the close of an
-    epoch, as a retained delivery of the run."""
+    epoch, as a retained delivery of the run. The share stands
+    judged in the stated share form the delivery share judge
+    states at _delivery_share_stands, on its stored form, and
+    a share in no stated share form stands refused in named
+    form before any recording (FW3-16)."""
     if run_id is None:
         raise ValueError(
             "identity less gate passing share record: no run "
@@ -4223,6 +4679,16 @@ def record_gate_passing_share(run_id, epoch, share, simulated_day=None):
             "identity less gate passing share record: the run "
             "identifier stands in an unhashable form, and no "
             "gate passing share stands recorded under it") from exc
+    if not _delivery_share_stands(share):
+        raise ValueError(
+            "gate passing share in named form: the share handed "
+            "for epoch " + _stored_repr(epoch)
+            + " stands in no stated share form, and no gate "
+            "passing share stands recorded; next step: hand a "
+            "share as a plain number in the closed unit range, "
+            "or as a proportion record carrying a non negative "
+            "numerator and a positive denominator in the "
+            "stated share form")
     shares = _GATE_SHARES.setdefault(run_id, {})
     key = _gate_epoch_key(epoch)
     shares[key] = {"share": _safe_copy(share), "simulated_day": simulated_day}
@@ -4272,7 +4738,15 @@ def _store_kind_stands(store_kind):
 def retain_event_log_entry(entry, store_kind="sweep"):
     """Retain one EventLog entry as an opaque payload, in delivery
     order. No completeness validation stands performed, and no
-    ordering by journal position stands applied."""
+    ordering by journal position stands applied. The growth form
+    of this path stands bounded by the act: the duplicate
+    judgement computes the stored form of the handed entry alone
+    and judges it against the maintained index of the forms the
+    run bucket already holds, so the work of one act stands
+    governed by the handed entry and never by the volume already
+    held. One run bucket carries at most the stated cap of
+    10000 entries; a retention past the cap stands refused in
+    named form and no entry stands retained past it."""
     store_kind = _canonical_store_kind(store_kind)
     if not isinstance(entry, dict):
         raise ValueError(
@@ -4291,12 +4765,24 @@ def retain_event_log_entry(entry, store_kind="sweep"):
             "unhashable form, and no entry stands retained under "
             "it") from exc
     _guard_retention_shape(entry, "retain_event_log_entry", "entry")
-    bucket = _EVENT_LOGS.setdefault((store_kind, run_id), [])
-    for existing in bucket:
-        if _stored_form(existing) == _stored_form(entry):
-            return _safe_copy(existing)
-    bucket.append(_safe_copy(entry))
-    return _safe_copy(entry)
+    bucket_key = (store_kind, run_id)
+    bucket = _EVENT_LOGS.setdefault(bucket_key, [])
+    forms = _EVENT_LOG_FORMS.setdefault(bucket_key, {})
+    form = _stored_form(entry)
+    if dict.__contains__(forms, form):
+        return _safe_copy(dict.__getitem__(forms, form))
+    if len(bucket) >= _RETENTION_BUCKET_CAP:
+        raise ValueError(
+            "event log retention cap: one run carries at most "
+            "10000 event log entries, the stated cap for one run, "
+            "and no further entry stands retained; next step: "
+            "read the entries already retained through "
+            "event_log_entries, or retain under a new run "
+            "identifier")
+    stored = _safe_copy(entry)
+    bucket.append(stored)
+    dict.__setitem__(forms, form, stored)
+    return _safe_copy(stored)
 
 
 def event_log_entries(run_id, store_kind="sweep"):
@@ -4313,7 +4799,14 @@ def event_log_entries(run_id, store_kind="sweep"):
 def retain_daily_snapshot(snapshot, store_kind="sweep"):
     """Retain one DailySnapshot as an opaque payload. No validation
     of the daily state contents stands performed, and no per viewer
-    snapshot stands delivered from this path."""
+    snapshot stands delivered from this path. The growth form of
+    this path stands bounded by the act, in the form
+    retain_event_log_entry states: the duplicate judgement
+    computes the stored form of the handed snapshot alone and
+    judges it against the maintained index of the forms the run
+    bucket already holds. One run bucket carries at most the
+    stated cap of 10000 snapshots; a retention past the cap
+    stands refused in named form."""
     store_kind = _canonical_store_kind(store_kind)
     if not isinstance(snapshot, dict):
         raise ValueError(
@@ -4333,12 +4826,24 @@ def retain_daily_snapshot(snapshot, store_kind="sweep"):
             "unhashable form, and no snapshot stands retained under "
             "it") from exc
     _guard_retention_shape(snapshot, "retain_daily_snapshot", "snapshot")
-    bucket = _DAILY_SNAPSHOTS.setdefault((store_kind, run_id), [])
-    for existing in bucket:
-        if _stored_form(existing) == _stored_form(snapshot):
-            return _safe_copy(existing)
-    bucket.append(_safe_copy(snapshot))
-    return _safe_copy(snapshot)
+    bucket_key = (store_kind, run_id)
+    bucket = _DAILY_SNAPSHOTS.setdefault(bucket_key, [])
+    forms = _DAILY_SNAPSHOT_FORMS.setdefault(bucket_key, {})
+    form = _stored_form(snapshot)
+    if dict.__contains__(forms, form):
+        return _safe_copy(dict.__getitem__(forms, form))
+    if len(bucket) >= _RETENTION_BUCKET_CAP:
+        raise ValueError(
+            "daily snapshot retention cap: one run carries at "
+            "most 10000 daily snapshots, the stated cap for one "
+            "run, and no further snapshot stands retained; next "
+            "step: read the snapshots already retained through "
+            "daily_snapshots, or retain under a new run "
+            "identifier")
+    stored = _safe_copy(snapshot)
+    bucket.append(stored)
+    dict.__setitem__(forms, form, stored)
+    return _safe_copy(stored)
 
 
 def daily_snapshots(run_id, store_kind="sweep"):
@@ -4784,6 +5289,33 @@ def close_run_retention(run_id, tier, store_kind="sweep"):
     tier = tier_text
     store_kind = _canonical_store_kind(store_kind)
     bucket = _CHECKPOINTS.get((store_kind, run_id), [])
+    if not bucket:
+        other_kinds = []
+        for (held_kind, held_run) in list(dict.keys(_CHECKPOINTS)):
+            if held_kind == store_kind:
+                continue
+            if not _CHECKPOINTS.get((held_kind, held_run)):
+                continue
+            if _stored_form(held_run) == _stored_form(run_id) \
+                    and held_kind not in other_kinds:
+                other_kinds.append(held_kind)
+        if other_kinds:
+            raise ValueError(
+                "run close in named form: the run stands "
+                "retained under the store kind "
+                + ", ".join(other_kinds)
+                + ", not under the kind handed in, "
+                + store_kind
+                + ", and no release stands recorded; next "
+                "step: close the run under the kind it stands "
+                "retained under")
+        raise ValueError(
+            "run close in named form: no checkpoint stands "
+            "retained for the run under the kind handed in or "
+            "under any other kind, so the run stands nowhere "
+            "for the close act, and no release stands "
+            "recorded; next step: hand the identifier and the "
+            "kind of a run standing retained")
     groups = []
     seen_forms = []
     for item in bucket:
@@ -4931,22 +5463,51 @@ def replay_check(original, resumed):
     while OP-24 stands partial. Each record stands read through
     the base class dict reading, on the record and verdict it
     stores, never through a get reading the handed record itself
-    supplies."""
-    if not (
-            isinstance(original, dict)
-            and (dict.__contains__(original, "record")
-                 or dict.__contains__(original, "verdict"))) and not (
-            isinstance(resumed, dict)
-            and (dict.__contains__(resumed, "record")
-                 or dict.__contains__(resumed, "verdict"))):
+    supplies. A part, record or verdict, stands to compare only
+    where it stands present on both sides: where no part stands
+    present on both sides the check states the undelivered
+    standing and certifies no equality, and where one part
+    stands present on one side only the check states the
+    undelivered standing for that part beside the comparison of
+    the part that stands on both sides."""
+    def _carries(record, part):
+        return (
+            isinstance(record, dict)
+            and dict.__contains__(record, part))
+
+    shared_parts = [
+        part for part in ("record", "verdict")
+        if _carries(original, part) and _carries(resumed, part)
+    ]
+    if not shared_parts:
+        if not (
+                _carries(original, "record")
+                or _carries(original, "verdict")) and not (
+                _carries(resumed, "record")
+                or _carries(resumed, "verdict")):
+            standing = (
+                "undelivered: neither record carries a record "
+                "or a verdict standing to compare, and no "
+                "equality stands certified")
+        elif not (
+                _carries(original, "record")
+                or _carries(original, "verdict")) or not (
+                _carries(resumed, "record")
+                or _carries(resumed, "verdict")):
+            standing = (
+                "undelivered: one side carries no record or "
+                "verdict standing to compare, and no equality "
+                "stands certified")
+        else:
+            standing = (
+                "undelivered: no record or verdict standing "
+                "stands present on both sides to compare, and "
+                "no equality stands certified")
         return {
             "record_level_equal": False,
             "verdict_level_equal": False,
             "state_hash_equality_claimed": False,
-            "comparison_standing": (
-                "undelivered: neither record carries a record "
-                "or a verdict standing to compare, and no "
-                "equality stands certified"),
+            "comparison_standing": standing,
         }
     record_equal = _base_value_eq(
         (dict.get(original, "record") if isinstance(original, dict)
@@ -4958,11 +5519,22 @@ def replay_check(original, resumed):
          else None),
         (dict.get(resumed, "verdict") if isinstance(resumed, dict)
             else None))
-    return {
+    result = {
         "record_level_equal": bool(record_equal),
         "verdict_level_equal": bool(verdict_equal),
         "state_hash_equality_claimed": False,
     }
+    one_sided_parts = [
+        part for part in ("record", "verdict")
+        if part not in shared_parts
+    ]
+    if one_sided_parts:
+        result["comparison_standing"] = (
+            "undelivered in part: the "
+            + " and ".join(one_sided_parts)
+            + " standing stands present on one side only, and "
+            "no equality on that part stands certified")
+    return result
 
 
 def retain_gc08_record(kind, record, owner_id):
@@ -4973,7 +5545,7 @@ def retain_gc08_record(kind, record, owner_id):
         kind, (str, bytes, bytearray, memoryview)) else None
     if kind_text not in ("dependency_manifest", "call_log"):
         raise ValueError(
-            "unknown GC-08 record kind: " + _vocabulary_text(kind)
+            "unknown GC-08 record kind: " + _form_label(kind)
             + "; a GC-08 record kind stands among "
             "dependency_manifest and call_log, and no record "
             "stands retained")
@@ -4998,7 +5570,19 @@ def gc08_record(kind, owner_id):
     """Read one retained GC-08 record. Reading never writes: an
     absent record raises the named lookup failure, with the
     identifier carried under the agreed key run_identifier and
-    the record kind sought stated in the failure."""
+    the record kind sought stated in the failure. The kind
+    stands judged in the retain door form before any lookup: a
+    kind outside the closed set stands refused in named form
+    stating the kinds that stand."""
+    kind_text = _stored_text(kind) if isinstance(
+        kind, (str, bytes, bytearray, memoryview)) else None
+    if kind_text not in ("dependency_manifest", "call_log"):
+        raise ValueError(
+            "unknown GC-08 record kind: " + _form_label(kind)
+            + "; a GC-08 record kind stands among "
+            "dependency_manifest and call_log, and no record "
+            "stands returned")
+    kind = kind_text
     owner_unhashable = False
     try:
         hash(owner_id)
@@ -5133,9 +5717,22 @@ def checkpoint_count_c10(rows):
     each row, the retained checkpoints per run multiplied by the
     runs in the row, plus one for each held regression corpus copy
     of a checkpoint in the row, summed over rows. No checkpoint
-    byte total stands stated by this count."""
+    byte total stands stated by this count. A rows handing in no
+    iterable form stands refused in the named checkpoint count
+    form, and no count stands returned for it."""
     total = 0
-    for row in (list(_base_iter(rows)) if isinstance(rows, (list, tuple, set, frozenset)) else rows):
+    if isinstance(rows, (list, tuple, set, frozenset)):
+        row_iter = list(_base_iter(rows))
+    else:
+        try:
+            row_iter = iter(rows)
+        except TypeError:
+            raise ValueError(
+                "checkpoint count in named form: the rows handing "
+                "stands in no iterable form, a set of C10 rows "
+                "stands required, and no count stands returned"
+            ) from None
+    for row in row_iter:
         if not isinstance(row, dict):
             raise ValueError(
                 "checkpoint count in named form: a C10 row stands as a "
@@ -6781,6 +7378,12 @@ def store_lookup(store_kinds=None, key=None, store_kind=None):
             "a lookup that resolves across stores in one step is "
             "rejected: exactly one store kind stands required, and "
             "no record lookup stands performed")
+    if len(kinds_tuple) == 0:
+        raise ValueError(
+            "a lookup that names no store is rejected: the "
+            "store handing stands missing, no store kind stands "
+            "named, exactly one store kind stands required, "
+            "and no record lookup stands performed")
     if len(kinds_tuple) != 1:
         raise ValueError(
             "a lookup that resolves across stores in one step is "

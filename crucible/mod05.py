@@ -17,6 +17,7 @@ values passed in.
 import itertools
 import math
 import unicodedata
+from fractions import Fraction
 
 from . import mod01
 
@@ -514,19 +515,100 @@ def _member_sort_key(member):
     if isinstance(member, (str, bytes, bytearray, memoryview)):
         return (_stored_text(member), 0, _stored_text(member))
     if isinstance(member, (int, float)):
-        return ("", 1, member)
+        return ("", 1, _base_number(member))
     return ("", 3, _safe_repr(member))
+
+
+def _member_key(member):
+    """The stored form key of one component member, judged on
+    stored readings alone, in the form _member_sort_key states:
+    a text form member on the text it stores, a number on the
+    plain number it stores, a boolean apart from every number
+    on its stated value, and any other form on its safe
+    representation. Two members stand as the same member where
+    their stored form keys stand equal, so no comparison or
+    equality reading a handed member supplies stands consulted
+    in the judgement."""
+    if isinstance(member, bool):
+        return (2, int.__int__(member))
+    if isinstance(member, (str, bytes, bytearray, memoryview)):
+        return (0, _stored_text(member))
+    if isinstance(member, (int, float)):
+        return (1, _base_number(member))
+    return (3, _safe_repr(member))
+
+
+def _stored_member_equal(first, second):
+    """Whether two handed members stand as the same member, on
+    their stored form keys alone."""
+    return _member_key(first) == _member_key(second)
+
+
+def _judge_graph_edges(edges, door):
+    """Judge the edges a graph door computes from, in stated
+    form, before any figure stands computed: a vouch from a
+    member for itself, judged on stored forms, and a stake in
+    no numeric form, in negative form, or in non finite form,
+    each stand refused in the named form of the door. A stake
+    standing absent stands as no stake, as the component
+    computation has always read it."""
+    for entry in edges:
+        voucher = _get(entry, "voucher")
+        vouchee = _get(entry, "vouchee")
+        if voucher is not None and vouchee is not None and (
+                _stored_member_equal(voucher, vouchee)):
+            raise ValueError(
+                door + " stands refused: an edge entry stands "
+                "as a vouch from a member for itself, a vouch "
+                "stands between two distinct members, and no "
+                "figure stands computed")
+        stake = _get(entry, "stake", default=None)
+        if stake is None:
+            continue
+        if not _stands_numeric(stake):
+            raise ValueError(
+                door + " stands refused: the stake of an edge "
+                "entry stands in no numeric form, a stake "
+                "stands as a finite number at or above zero, "
+                "and no figure stands computed")
+        if isinstance(stake, float) and not math.isfinite(
+                _base_number(stake)):
+            raise ValueError(
+                door + " stands refused: the stake of an edge "
+                "entry stands in non finite form, a stake "
+                "stands as a finite number at or above zero, "
+                "and no figure stands computed")
+        if _base_number(stake) < 0:
+            raise ValueError(
+                door + " stands refused: the stake of an edge "
+                "entry stands in negative form, a stake stands "
+                "as a finite number at or above zero, and no "
+                "figure stands computed")
+
+
+def _edge_stake_plain(edge):
+    """The plain number an edge stake stores, or zero where
+    the edge names no stake."""
+    stake = _get(edge, "stake", default=None)
+    if stake is None:
+        return 0
+    return _base_number(stake)
 
 
 def _mutual_pairs(edges):
     directed = set()
+    originals = {}
     for edge in edges:
-        directed.add((_get(edge, "voucher"), _get(edge, "vouchee")))
+        voucher = _get(edge, "voucher")
+        vouchee = _get(edge, "vouchee")
+        for member in (voucher, vouchee):
+            originals.setdefault(_member_key(member), member)
+        directed.add((_member_key(voucher), _member_key(vouchee)))
     pairs = set()
-    for a, b in directed:
-        if (b, a) in directed:
-            pairs.add(tuple(sorted((a, b), key=_member_sort_key)))
-    return pairs
+    for first, second in directed:
+        if (second, first) in directed:
+            pairs.add(tuple(sorted((first, second))))
+    return pairs, originals
 
 
 def _components(edges):
@@ -549,33 +631,34 @@ def _components(edges):
                 "as a value that can stand judged as an "
                 "identity, and no component stands computed"
                 ) from None
-    pairs = _mutual_pairs(edges)
+    _judge_graph_edges(edges, "component")
+    pairs, originals = _mutual_pairs(edges)
     parent = {}
 
-    def find(x):
-        parent.setdefault(x, x)
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
+    def find(key):
+        parent.setdefault(key, key)
+        while parent[key] != key:
+            parent[key] = parent[parent[key]]
+            key = parent[key]
+        return key
 
-    members = set()
-    for a, b in pairs:
-        members.add(a)
-        members.add(b)
-        ra, rb = find(a), find(b)
+    member_keys = set()
+    for first, second in pairs:
+        member_keys.add(first)
+        member_keys.add(second)
+        ra, rb = find(first), find(second)
         if ra != rb:
             parent[ra] = rb
     groups = {}
-    for member in members:
-        groups.setdefault(find(member), []).append(member)
+    for key in member_keys:
+        groups.setdefault(find(key), []).append(originals[key])
     edges_by_root = {}
     for edge in edges:
-        voucher = _get(edge, "voucher")
-        vouchee = _get(edge, "vouchee")
-        if voucher in members and vouchee in members:
-            root = find(voucher)
-            if root == find(vouchee):
+        voucher_key = _member_key(_get(edge, "voucher"))
+        vouchee_key = _member_key(_get(edge, "vouchee"))
+        if voucher_key in member_keys and vouchee_key in member_keys:
+            root = find(voucher_key)
+            if root == find(vouchee_key):
                 edges_by_root.setdefault(root, []).append(edge)
     result = []
     for root, group_members in groups.items():
@@ -584,7 +667,8 @@ def _components(edges):
         result.append({
             "members": group_members,
             "edge_count": len(group_edges),
-            "stake_total": sum(_get(edge, "stake", default=0) or 0 for edge in group_edges),
+            "stake_total": sum(
+                _edge_stake_plain(edge) for edge in group_edges),
             "edges": _freeze(group_edges),
         })
     result.sort(
@@ -631,6 +715,8 @@ def realised_degree_distribution(edges, by_epoch=None):
     """The realised degree distribution, by graph and, where epochs
     are supplied, by epoch."""
     def distribution(edge_set):
+        edge_set = list(edge_set)
+        _judge_graph_edges(edge_set, "realised_degree_distribution")
         degree = {}
         for edge in edge_set:
             for agent in (_get(edge, "voucher"), _get(edge, "vouchee")):
@@ -790,12 +876,15 @@ def _stands_count(value):
     can read: a numeric form, bool excluded, standing finite
     and at or above zero. A plain integer stands finite by
     its form, so no float conversion stands attempted on it,
-    and an integer subclass stands judged on its base
-    integer reading."""
+    an integer subclass stands judged on its base integer
+    reading, and a float subclass stands judged on the
+    plain float it stores, never through a comparison
+    reading it supplies."""
     if not _stands_numeric(value):
         return False
     if isinstance(value, float):
-        return math.isfinite(value) and value >= 0
+        plain = _base_number(value)
+        return math.isfinite(plain) and plain >= 0
     return int.__int__(value) >= 0
 
 
@@ -977,11 +1066,13 @@ def band_membership(score, bands, evaluation_order=None):
             "recommendation and not as ruled, and no band stands "
             "returned")
     if not _stands_numeric(score) or (
-            isinstance(score, float) and not math.isfinite(score)):
+            isinstance(score, float)
+            and not math.isfinite(_base_number(score))):
         raise ValueError(
             "band_membership stands refused: the score "
             "stands in no finite numeric form, a score stands "
             "as a finite number, and no band stands returned")
+    score_plain = _base_number(score)
     chosen = None
     chosen_minimum = None
     bands_seen = 0
@@ -989,15 +1080,18 @@ def band_membership(score, bands, evaluation_order=None):
         bands_seen += 1
         if not _stands_numeric(minimum) or (
                 isinstance(minimum, float)
-                and not math.isfinite(minimum)):
+                and not math.isfinite(_base_number(minimum))):
             raise ValueError(
                 "band_membership stands refused: a band "
                 "minimum stands in no finite numeric form, a "
                 "band minimum stands as a finite number, and "
                 "no band stands returned")
-        if score >= minimum and (chosen_minimum is None or minimum > chosen_minimum):
+        minimum_plain = _base_number(minimum)
+        if score_plain >= minimum_plain and (
+                chosen_minimum is None
+                or minimum_plain > chosen_minimum):
             chosen = name
-            chosen_minimum = minimum
+            chosen_minimum = minimum_plain
     if chosen is not None:
         band_standing = (
             "the score reaches the stated minimum of the "
@@ -1023,8 +1117,33 @@ def eligibility(score, bands, evaluation_order=None, panel_minimum=None, cap_max
     """Eligibility judgements for band membership, panel eligibility
     and cap eligibility in one day, all read from the one score."""
     result = band_membership(score, bands, evaluation_order=evaluation_order)
-    result["panel_eligible"] = True if panel_minimum is None else score >= panel_minimum
-    result["cap_eligible"] = True if cap_maximum is None else score <= cap_maximum
+    score_plain = _base_number(score)
+    if panel_minimum is None:
+        result["panel_eligible"] = True
+    else:
+        if not _stands_numeric(panel_minimum) or (
+                isinstance(panel_minimum, float)
+                and not math.isfinite(_base_number(panel_minimum))):
+            raise ValueError(
+                "eligibility stands refused: the panel "
+                "minimum stands in no finite numeric form, "
+                "a panel minimum stands as a finite number, "
+                "and no eligibility stands returned")
+        result["panel_eligible"] = (
+            score_plain >= _base_number(panel_minimum))
+    if cap_maximum is None:
+        result["cap_eligible"] = True
+    else:
+        if not _stands_numeric(cap_maximum) or (
+                isinstance(cap_maximum, float)
+                and not math.isfinite(_base_number(cap_maximum))):
+            raise ValueError(
+                "eligibility stands refused: the cap "
+                "maximum stands in no finite numeric form, "
+                "a cap maximum stands as a finite number, "
+                "and no eligibility stands returned")
+        result["cap_eligible"] = (
+            score_plain <= _base_number(cap_maximum))
     return result
 
 
@@ -1300,7 +1419,10 @@ def gate_passing_share(eligible, passing, epoch=None):
     stands counted once, as the passing side already stands
     read as a set. A mixed handing, one side a count and the
     other a set, and a count below zero stand refused in
-    named form."""
+    named form. A passing count above the eligible count
+    stands refused in named form as well: a passing count
+    stands as a part of the eligible count, and the share
+    stands inside the closed unit range from zero to one."""
     eligible_is_count = (
         isinstance(eligible, int)
         and not isinstance(eligible, bool))
@@ -1314,15 +1436,25 @@ def gate_passing_share(eligible, passing, epoch=None):
                 "and passing handings stand in mixed form, the "
                 "share stands computed from two counts or from "
                 "two identity sets, and no share stands returned")
-        if eligible < 0 or passing < 0:
+        eligible_plain = _base_number(eligible)
+        passing_plain = _base_number(passing)
+        if eligible_plain < 0 or passing_plain < 0:
             raise ValueError(
                 "gate_passing_share stands refused: a count "
                 "handing stands below zero, a count stands read "
                 "as a population count, and no share stands "
                 "returned")
-        if eligible == 0:
+        if eligible_plain == 0:
             return UNKNOWN_SHARE
-        share = proportion_record(passing, eligible)
+        if passing_plain > eligible_plain:
+            raise ValueError(
+                "gate_passing_share stands refused: the "
+                "passing count stands above the eligible "
+                "count, a passing count stands as a part of "
+                "the eligible count, the share stands inside "
+                "the closed unit range from zero to one, and "
+                "no share stands returned")
+        share = proportion_record(passing_plain, eligible_plain)
         share["epoch"] = epoch
         share["computed_by"] = "MOD-05 Parley Core"
         return share
@@ -1433,7 +1565,24 @@ def score_bearing_figure(envelope_value, share):
             "score_bearing_figure stands refused: "
             + _score_share_ground(share)
             + ", and no score bearing figure stands returned")
-    return envelope_value * dict.__getitem__(share, "numerator") / dict.__getitem__(share, "denominator")
+    numerator_plain = _base_number(dict.__getitem__(share, "numerator"))
+    denominator_plain = _base_number(
+        dict.__getitem__(share, "denominator"))
+    if numerator_plain > denominator_plain:
+        raise ValueError(
+            "score_bearing_figure stands refused: the share "
+            "stands above one, a share stands inside the "
+            "closed unit range from zero to one, and no "
+            "score bearing figure stands returned")
+    envelope_plain = _base_number(envelope_value) if isinstance(
+        envelope_value, (int, float)) and not isinstance(
+        envelope_value, bool) else None
+    if isinstance(envelope_plain, int) and isinstance(
+            numerator_plain, int) and isinstance(
+            denominator_plain, int):
+        return Fraction(
+            envelope_plain * numerator_plain, denominator_plain)
+    return envelope_value * numerator_plain / denominator_plain
 
 
 def population_figure(envelope_value, shares, record_state=None):
@@ -1457,7 +1606,10 @@ def population_figure(envelope_value, shares, record_state=None):
     corrected = []
     for share in shares:
         first = score_bearing_figure(envelope_value, share)
-        corrected.append(first * dict.__getitem__(share, "numerator") / dict.__getitem__(share, "denominator"))
+        corrected.append(
+            first
+            * _base_number(dict.__getitem__(share, "numerator"))
+            / _base_number(dict.__getitem__(share, "denominator")))
     average = sum(corrected) / len(corrected) if corrected else 0
     return {
         "per_epoch_corrected": corrected,

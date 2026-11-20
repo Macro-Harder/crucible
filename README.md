@@ -59,7 +59,7 @@ Executable runs stand gated on DQ7-02. No adoption record for the DQ7-02 gate st
 
 ## Surface guide
 
-The package carries fifteen modules, mod01 to mod14 and mod16, exporting 658 names in total on the summed basis, the sum of the fifteen module export lists.
+The package carries fifteen modules, mod01 to mod14 and mod16, exporting 660 names in total on the summed basis, the sum of the fifteen module export lists.
 
 | Module | Purpose |
 |---|---|

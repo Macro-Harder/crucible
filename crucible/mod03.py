@@ -1965,7 +1965,10 @@ def build_cast(point, archetype_records, stream_state=None,
 
     The point names the population and the archetype mix. The mix
     counts must sum to the population, and every archetype in the mix
-    must stand in the records supplied. The strategy class for a run is
+    must stand in the records supplied. The population stands bounded
+    by the largest population of the canonical scale set this module
+    states, and a population past that bound stands refused in named
+    form. The strategy class for a run is
     fixed in advance: a cast with no strategy class stated does not
     build. Cast order is a deterministic function of the stream state
     values handed in: where cast values stand supplied, one per agent,
@@ -1999,6 +2002,14 @@ def build_cast(point, archetype_records, stream_state=None,
         raise NamedGeneratorFailure(
             "cast rejected: the population the point states is not "
             "a non negative whole count: " + _refusal_repr(population))
+    population_bound = max(scale_populations())
+    if population > population_bound:
+        raise NamedGeneratorFailure(
+            "cast rejected: the population the point states stands "
+            "past the stated population bound of "
+            + str(population_bound) + ", the largest population of "
+            "the canonical scale set this module states: "
+            + _refusal_repr(population))
     for mix_identifier, mix_count in mix_items:
         if isinstance(mix_count, bool) or not isinstance(
                 mix_count, int) or mix_count < 0:
@@ -2247,7 +2258,12 @@ def construct_farm(member_ids, farm_size=None, edges=None):
 
     Returns the farm identities with their members and the internal
     edge count per farm identity, the count the run record carries.
-    With no edges stated, every internal count stands at zero.
+    With no edges stated, every internal count stands at zero. Where
+    no farm size stands stated and the member set stands non empty,
+    no farms stand constructed and the answer states the standing
+    of the member set: the members stand named in
+    unplaced_member_ids, with the standing stated in
+    member_set_standing.
 
     The member set and the edge set stand read through their base
     class iteration, an edge pair stands read through the base
@@ -2342,10 +2358,17 @@ def construct_farm(member_ids, farm_size=None, edges=None):
         if farm_id is not None and farm_id == farm_of.get(
                 _stored_member_key(second)):
             counts[farm_id] += 1
-    return {
+    answer = {
         "farms": farms,
         "internal_edge_count_per_farm_identity": counts,
     }
+    if not farm_size and members:
+        answer["unplaced_member_ids"] = list(members)
+        answer["member_set_standing"] = (
+            "no farm size stands stated, so no farms stand "
+            "constructed and the handed members stand unplaced, "
+            "named in unplaced_member_ids")
+    return answer
 
 
 def build_farm(member_ids, farm_size=None, edges=None):

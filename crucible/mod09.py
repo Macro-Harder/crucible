@@ -149,11 +149,29 @@ class NamedAttackerFailure(Exception):
     """An attacker seat failure stated by name."""
 
 
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing argument handing in the named
+form of this module instead of escaping as bare interpreter
+text at the call itself."""
+
+
 def _stands_numeric(value):
     """Return whether a value stands in numeric form, a boolean
     standing in no numeric form for this module."""
     return isinstance(value, (int, float)) and not isinstance(
         value, bool)
+
+
+def _stands_finite(value):
+    """Return whether a numeric value stands finite, judged
+    without a float conversion: a plain integer stands finite
+    at any size, and a float stands judged by its own finite
+    reading."""
+    plain = _plain_number(value)
+    if isinstance(plain, (int, Fraction)):
+        return True
+    return math.isfinite(plain)
 
 
 def _base_dict_get(mapping, key, default=None):
@@ -233,6 +251,8 @@ def _plain_number(value):
         return int.__int__(value)
     if isinstance(value, float):
         return float.__float__(value)
+    if isinstance(value, Fraction):
+        return Fraction(value.numerator, value.denominator)
     return complex.__complex__(value)
 
 
@@ -766,8 +786,10 @@ def make_strategy(identifier, in_protocol_payoff=0,
     The in protocol payoff stands refused in this module named
     failure form where it stands in no finite numeric form, the
     form the payoff doors of this module state. Where a handed
-    external profit range stands in no usable sequence form, the
-    record carries the substituted range [0] and states the
+    external profit range stands in no usable sequence form, or
+    where a member of the range stands in no usable numeric form
+    (no finite number in the numeric form this module judges),
+    the record carries the substituted range [0] and states the
     substitution on the record itself, in its standing sentence
     and in its external_profit_range_substituted field. A range
     handed as None stands as no range handed, and its [0] stands
@@ -782,6 +804,11 @@ def make_strategy(identifier, in_protocol_payoff=0,
             "stands in no finite numeric form: "
             + _stored_form_repr(in_protocol_payoff))
     stored_range = _base_sequence(external_profit_range)
+    members_usable = bool(stored_range) and all(
+        _stands_numeric(member) and _stands_finite(member)
+        for member in stored_range)
+    if stored_range and not members_usable:
+        stored_range = []
     substituted = (
         external_profit_range is not None and not stored_range)
     record = {
@@ -827,11 +854,22 @@ def conditional_briber_strategy(in_protocol_payoff=0,
     return strategy
 
 
-def attacker_payoff(strategy, external_profit_value):
+def attacker_payoff(strategy=_ARGUMENT_NOT_HANDED,
+                    external_profit_value=_ARGUMENT_NOT_HANDED):
     """An attacker payoff: its in protocol payoff plus its
     external profit parameter, in simulated units only. A strategy
     standing in no record form, or carrying no numeric in protocol
-    payoff, fails by name in this module failure form."""
+    payoff, fails by name in this module failure form. A handing
+    missing its strategy or its external profit value fails by
+    name in the same form."""
+    if (strategy is _ARGUMENT_NOT_HANDED
+            or external_profit_value is _ARGUMENT_NOT_HANDED):
+        raise NamedAttackerFailure(
+            "attacker payoff rejected: a payoff stands "
+            "computed with its strategy and its external "
+            "profit value handed in, a handing stands "
+            "missing, and no payoff stands computed"
+        )
     if not isinstance(strategy, dict) or (
             not _base_dict_contains(strategy, "in_protocol_payoff")):
         raise NamedAttackerFailure(
@@ -853,7 +891,7 @@ def attacker_payoff(strategy, external_profit_value):
             "stands in no numeric form: "
             + _stored_form_repr(external_profit_value)
         )
-    if not math.isfinite(in_protocol) or not math.isfinite(
+    if not _stands_finite(in_protocol) or not _stands_finite(
             external_profit_value):
         raise NamedAttackerFailure(
             "attacker payoff rejected: a payoff part stands in no "
@@ -1468,8 +1506,18 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
             if cost is None or _plain_number(cost) == 0 or (
                     harm is None):
                 continue
-            factor = _plain_number(harm) / _plain_number(cost)
-        if not _stands_numeric(factor) or not math.isfinite(factor):
+            harm_plain = _plain_number(harm)
+            cost_plain = _plain_number(cost)
+            if isinstance(harm_plain, int) and isinstance(
+                    cost_plain, int):
+                try:
+                    factor = harm_plain / cost_plain
+                except OverflowError:
+                    factor = Fraction(harm_plain, cost_plain)
+            else:
+                factor = harm_plain / cost_plain
+        if not (_stands_numeric(factor) or isinstance(
+                factor, Fraction)) or not _stands_finite(factor):
             raise NamedAttackerFailure(
                 "bond parameter search rejected: a griefing factor "
                 "stands in no finite numeric form: "
@@ -1501,8 +1549,10 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
     }
 
 
-def build_search_record(run_carriage, points_tried,
-                        per_point_outcome, bond_candidates,
+def build_search_record(run_carriage=_ARGUMENT_NOT_HANDED,
+                        points_tried=_ARGUMENT_NOT_HANDED,
+                        per_point_outcome=_ARGUMENT_NOT_HANDED,
+                        bond_candidates=_ARGUMENT_NOT_HANDED,
                         griefing_evaluator=None, budget=None,
                         neighbourhood=None, starting_points=None,
                         order_of_search=None, adaptations=None,
@@ -1514,7 +1564,20 @@ def build_search_record(run_carriage, points_tried,
     record field list in full, the bond parameter search limb, and
     the case uses of the run, each F-26 use standing as a strategy
     search point only with both C-7 standings carried beside it.
+    A handing missing any of its run carriage, its points tried,
+    its per point outcome, or its bond candidates stands refused
+    in the named form of this module.
     """
+    if any(part is _ARGUMENT_NOT_HANDED for part in (
+            run_carriage, points_tried, per_point_outcome,
+            bond_candidates)):
+        raise NamedAttackerFailure(
+            "search record rejected: a search record stands "
+            "built with its run carriage, its points tried, "
+            "its per point outcome, and its bond candidates "
+            "all handed in, a handing stands missing among "
+            "them, and no search record stands built"
+        )
     uses = []
     for use in _base_items(case_uses):
         entry = _stored_copy(use)
@@ -1565,9 +1628,14 @@ def build_search_record(run_carriage, points_tried,
     return record
 
 
-def run_search(run_carriage, points_tried, per_point_outcome,
-               bond_candidates, **kwargs):
-    """Run the seat search for one run and return its record."""
+def run_search(run_carriage=_ARGUMENT_NOT_HANDED,
+               points_tried=_ARGUMENT_NOT_HANDED,
+               per_point_outcome=_ARGUMENT_NOT_HANDED,
+               bond_candidates=_ARGUMENT_NOT_HANDED, **kwargs):
+    """Run the seat search for one run and return its record.
+    A handing missing any of its stated arguments travels to
+    the search record door, which refuses it in the named form
+    of this module."""
     return build_search_record(
         run_carriage, points_tried, per_point_outcome,
         bond_candidates, **kwargs)

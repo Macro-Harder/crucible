@@ -21,6 +21,12 @@ from fractions import Fraction
 
 from crucible import mod01
 
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing or extra argument handing in
+the named form of this module instead of escaping as bare
+interpreter text at the call itself."""
+
 OPEN_SEMANTIC_ITEMS = tuple("OS-%d" % n for n in range(1, 15))
 
 SEAM_GAP_COUNTS = {"creation": 7, "release": 6, "slash execution": 8}
@@ -490,10 +496,13 @@ def validate_dependency_record(record):
     return joint in ([], ["MOD-07"])
 
 
-def make_adapter_choice(choice_identifier, reading_applied,
-                        parameter_or_rule_point_affected,
-                        governing_text_version,
-                        escrow_variant_and_fold_version,
+def make_adapter_choice(choice_identifier=_ARGUMENT_NOT_HANDED,
+                        reading_applied=_ARGUMENT_NOT_HANDED,
+                        parameter_or_rule_point_affected=(
+                            _ARGUMENT_NOT_HANDED),
+                        governing_text_version=_ARGUMENT_NOT_HANDED,
+                        escrow_variant_and_fold_version=(
+                            _ARGUMENT_NOT_HANDED),
                         parley_test_total_source=None,
                         dependence_marks=None, approval=None,
                         drives=None, ruling_references=None):
@@ -502,7 +511,21 @@ def make_adapter_choice(choice_identifier, reading_applied,
     system. The approval stands as its own part of the record: the
     choice, its effects, and its approver, named before a run may
     use the choice. The drives list names only decision level
-    computed values."""
+    computed values. A handing missing any of the five stated
+    parts stands refused in the named form of this module."""
+    if any(part is _ARGUMENT_NOT_HANDED for part in (
+            choice_identifier, reading_applied,
+            parameter_or_rule_point_affected,
+            governing_text_version,
+            escrow_variant_and_fold_version)):
+        raise ValueError(
+            "make_adapter_choice stands refused: a choice "
+            "stands made with its choice identifier, its "
+            "reading applied, its parameter or rule point "
+            "affected, its governing text version, and its "
+            "escrow variant and fold version all handed in, "
+            "a handing stands missing among them, and no "
+            "choice stands made")
     for part in (approval, dependence_marks, drives,
                  ruling_references):
         if part is not None:
@@ -607,10 +630,19 @@ def append_reading(log, choice):
     return updated
 
 
-def reading_for_result(log, choice_identifier):
+def reading_for_result(log=_ARGUMENT_NOT_HANDED,
+                       choice_identifier=_ARGUMENT_NOT_HANDED):
     """Return the entry a result carries, named by its choice
     identifier, and never the latest entry in the log for its rule
-    point."""
+    point. A handing missing its log or its choice identifier
+    stands refused in the named form of this module."""
+    if (log is _ARGUMENT_NOT_HANDED
+            or choice_identifier is _ARGUMENT_NOT_HANDED):
+        raise ValueError(
+            "reading_for_result stands refused: a reading "
+            "stands read with its log and its choice "
+            "identifier handed in, a handing stands missing, "
+            "and no reading stands returned")
     entries = _base_sequence(log) if isinstance(
         log, (list, tuple, set, frozenset)) else log
     for entry in entries:
@@ -672,11 +704,18 @@ def validate_adapter_choice(choice):
     return choice_approval_stands(choice)
 
 
-def seam_status():
+def seam_status(*args, **kwargs):
     """Return the seam status field in its present form, stated
     plainly, in pay now form only. Dual reporting, restatement,
     and any pooled before and after claim stand as a named bound
-    and stand outside this field."""
+    and stand outside this field. An argument handed to this
+    act, which takes none, stands refused in the named form of
+    this module."""
+    if args or kwargs:
+        raise ValueError(
+            "seam_status stands refused: the seam status "
+            "stands taken with no handing, an argument stands "
+            "handed in, and no seam status stands returned")
     return {
         "seam_status": COMPUTED_NOT_SETTLED,
         "stated_plainly": True,

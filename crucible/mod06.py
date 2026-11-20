@@ -121,6 +121,13 @@ class GuessedAnswer(Exception):
     """No case encodes a guess at any item from DQ-5 to DQ-30."""
 
 
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing argument handing in the named
+form of this module instead of escaping as bare interpreter
+text at the call itself."""
+
+
 def _get(record, *names, default=None):
     if isinstance(record, dict):
         for name in names:
@@ -3096,6 +3103,19 @@ def _run_instruction_act(name, variant="B-4", context=None):
                 "stands in no usable form, a cost stands as a number "
                 "at or above zero in finite form, and no request "
                 "stands opened")
+        for cost_value in (stated_value, true_value):
+            try:
+                carried = float(cost_value)
+            except Exception:
+                carried = None
+            if carried is None or carried != carried or carried in (
+                    float("inf"), float("-inf")):
+                raise ValueError(
+                    "open_request stands refused in named form: a "
+                    "cost stands in no float carryable form, the one "
+                    "stated bar the stated cost and the true cost "
+                    "stand judged on alike, and no request stands "
+                    "opened")
         if true_value == 0:
             raise ValueError("open_request stands refused in named form: the true cost stands at zero, so no accuracy form stands")
         try:
@@ -3213,7 +3233,10 @@ def pause_value_in_force(variant="B-4", stated_value=None):
 
 def validate_pause_result(result):
     """A pause related result stating no per variant pause value
-    fails validation."""
+    fails validation. The variant stands judged against the
+    documented variant set, B-3 and B-4: a result whose variant
+    stands outside that set, or states no variant, fails
+    validation, whatever pause value it carries."""
     if not isinstance(result, dict):
         return False
     value = dict.get(result, "per_variant_pause_value")
@@ -3226,6 +3249,8 @@ def validate_pause_result(result):
     variant = dict.get(result, "variant")
     if variant is None and isinstance(dict.get(result, "payload"), dict):
         variant = dict.get(dict.get(result, "payload"), "variant")
+    if not _base_member(variant, ("B-3", "B-4")):
+        return False
     if variant == "B-4":
         if not isinstance(value, dict):
             return False
@@ -3417,9 +3442,21 @@ def validate_dq_arrival_table(rows):
     return True
 
 
-def enter_ruling(rows, item, ruling_text):
+def enter_ruling(rows=_ARGUMENT_NOT_HANDED,
+                 item=_ARGUMENT_NOT_HANDED,
+                 ruling_text=_ARGUMENT_NOT_HANDED):
     """Enter a ruling in the final column of its row, verbatim,
-    when the ruling for that item arrives."""
+    when the ruling for that item arrives. A handing missing
+    any of its rows, its item, or its ruling text stands
+    refused in the named form of this module."""
+    if (rows is _ARGUMENT_NOT_HANDED
+            or item is _ARGUMENT_NOT_HANDED
+            or ruling_text is _ARGUMENT_NOT_HANDED):
+        raise ValueError(
+            "enter_ruling stands refused: a ruling stands "
+            "entered with its rows, its item, and its ruling "
+            "text all handed in, a handing stands missing "
+            "among them, and no ruling stands entered")
     updated = _undirected_copy(rows)
     for row in updated:
         if row.get("item") == item:

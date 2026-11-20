@@ -37,6 +37,13 @@ class NamedReplicationFailure(Exception):
     """A failure stated by name, never a silent gap."""
 
 
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing argument handing in the named
+form of this module instead of escaping as bare interpreter
+text at the call itself."""
+
+
 def _freeze(value, _memo=None):
     """Copy a value through base class readings only.
 
@@ -871,20 +878,40 @@ def _comparability_value(record, item):
 def _comparability(first, second):
     """The contracts C-02 and C-03 comparability check, in the
     consolidated form: the items the plan names, read from both
-    records, with every differing item named."""
-    differing = [
+    records, with every differing item named. Only an item
+    standing present on at least one of the records handed in
+    stands judged: an item absent on both sides stands in no
+    judged form, counts neither as agreement nor as difference,
+    and does not stand named as checked. Where no item stands
+    present on either record, the record states the undelivered
+    standing in place of a comparability verdict, and no
+    equality stands certified on the comparability limb."""
+    judged = [
         item for item in COMPARABILITY_ITEMS
+        if _comparability_value(first, item) is not None
+        or _comparability_value(second, item) is not None
+    ]
+    differing = [
+        item for item in judged
         if not _strict_eq(
             _comparability_value(first, item),
             _comparability_value(second, item))
     ]
     record = {
-        "comparable": not differing,
+        "comparable": (not differing) if judged else None,
         "not_comparable": bool(differing),
-        "items_checked": list(COMPARABILITY_ITEMS),
+        "items_checked": list(judged),
+        "judged_items": list(judged),
         "differing_items": differing,
         "not_comparable_on": differing,
     }
+    if not judged:
+        record["comparison_standing"] = (
+            "undelivered: no comparability item stands present "
+            "on either record handed in, and no comparability "
+            "equality stands certified")
+        record["comparability_standing"] = record[
+            "comparison_standing"]
     return differing, record
 
 
@@ -942,7 +969,10 @@ def replay_check(first, second):
     records agree on every comparability item of contracts C-02
     and C-03; a differing item records the pair as not comparable
     on that item and no equality observation stands reported from
-    it. A differing comparison returns the consolidated first
+    it. An item absent on both records stands unjudged and counts
+    as no agreement, and where no comparability item stands
+    present on either record the comparability limb states the
+    undelivered standing and certifies no equality. A differing comparison returns the consolidated first
     divergence record, and a comparison with no difference returns
     the consolidated no difference report, each in the form the
     resume check returns for its state limb."""
@@ -1027,13 +1057,14 @@ def replay_check(first, second):
         "marked_non_deterministic": not deterministic,
         "hash_equality_claimed": False,
         "detection_state_completeness_claimed": False,
-        "comparable": True,
+        "comparable": comp_record["comparable"],
         "not_comparable": False,
         "not_comparable_on": [],
         "comparability_differing_items": [],
         "comparability": comp_record,
         "comparability_record": comp_record,
-        "equality_observation_reported": True,
+        "equality_observation_reported": bool(
+            comp_record["items_checked"]),
         "first_divergence": differing[0] if differing else None,
         "divergence_record": divergence_record,
         "no_difference_report": no_difference_report,
@@ -1119,7 +1150,8 @@ def detection_comparison_points():
     return list(DETECTION_COMPARISON_POINTS)
 
 
-def resume_check(original, resumed):
+def resume_check(original=_ARGUMENT_NOT_HANDED,
+                 resumed=_ARGUMENT_NOT_HANDED):
     """Compare a resumed run with the uninterrupted run inside the
     stated scope: the same state on every part of the non
     detection state, over the AC-1 field list with the detection
@@ -1140,6 +1172,12 @@ def resume_check(original, resumed):
     C-02 and C-03; a differing item records the pair as not
     comparable on that item and no equality observation stands
     reported from it."""
+    if (original is _ARGUMENT_NOT_HANDED
+            or resumed is _ARGUMENT_NOT_HANDED):
+        raise NamedReplicationFailure(
+            "resume check requires its original and resumed "
+            "records: a record handing stands missing, and no "
+            "resume check stands performed")
     fields = ac1_field_list()
     original_record = original if isinstance(original, dict) else {}
     resumed_record = resumed if isinstance(resumed, dict) else {}
@@ -1230,13 +1268,14 @@ def resume_check(original, resumed):
         "detection_scope": "verdict level only",
         "promoted_to_full_retention": failed,
         "witness_use_barred": failed,
-        "comparable": True,
+        "comparable": comp_record["comparable"],
         "not_comparable": False,
         "not_comparable_on": [],
         "comparability_differing_items": [],
         "comparability": comp_record,
         "comparability_record": comp_record,
-        "equality_observation_reported": True,
+        "equality_observation_reported": bool(
+            comp_record["items_checked"]),
     }
 
 
@@ -1546,10 +1585,15 @@ def validate_verdict_record(record):
         dict.get(record, "standard_applied"), "exact replay alone")
 
 
-def publishable_on_replication(claim, verdict):
+def publishable_on_replication(claim=_ARGUMENT_NOT_HANDED,
+                               verdict=_ARGUMENT_NOT_HANDED):
     """Return True only where the Reporter may publish a claim as
     resting on replication: a verdict record for that claim must
-    stand, with the outcome rests."""
+    stand, with the outcome rests. A handing missing its claim
+    or its verdict answers False, the judged form of this act."""
+    if (claim is _ARGUMENT_NOT_HANDED
+            or verdict is _ARGUMENT_NOT_HANDED):
+        return False
     if not isinstance(verdict, dict):
         return False
     verdict_claim = dict.get(verdict, "claim_identifier")

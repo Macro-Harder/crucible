@@ -124,8 +124,8 @@ class GatedRun(NamedFailure):
     gate = GATE_EXECUTABLE_RUNS
 
 
-def _gated_message(act):
-    return (
+def _gated_message(act, extra=()):
+    message = (
         GATED_FAILURE_NAME + ": " + act + " stands gated on "
         + GATE_EXECUTABLE_RUNS
         + ". No adoption record stands for this gate, so nothing was "
@@ -133,6 +133,13 @@ def _gated_message(act):
         "the block sits with the decision on the "
         + GATE_EXECUTABLE_RUNS + " adoption record."
     )
+    if extra:
+        message += (
+            " The keyword handings " + ", ".join(sorted(extra))
+            + " stand outside the stated form of this door and "
+            "stand not taken; this door takes no adoption record "
+            "and no seed as a keyword handing.")
+    return message
 
 
 def _freeze(value, _memo=None):
@@ -2377,7 +2384,7 @@ class TickEngine:
         return self.run(*args, **kwargs)
 
     def run(self, *args, **kwargs):
-        raise GatedRun(_gated_message("executable runs"))
+        raise GatedRun(_gated_message("executable runs", kwargs))
 
 
 def run(*args, **kwargs):

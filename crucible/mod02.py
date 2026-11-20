@@ -1173,50 +1173,76 @@ def _derive_seed_input_ground(value):
         "parameter values stand as a record of text values")
 
 
-def derive_seed(derivation_input=None, **_ignored):
+def _name_extra_handings(refusal, extra):
+    """State extra keyword handings on a gated refusal.
+
+    A keyword handing outside the stated form of a gated door
+    stands named on the refusal, in unexpected_keyword_handings
+    and in words, and stands not taken: the gate itself stands
+    untouched, no seed stands drawn, and DQ7-02 stands not
+    circumvented. A refusal with no extra handing stands
+    returned unchanged."""
+    if extra:
+        names = sorted(extra)
+        refusal["unexpected_keyword_handings"] = names
+        refusal["extra_handing_note"] = (
+            "The keyword handings " + ", ".join(names)
+            + " stand outside the stated form of this door and "
+            "stand not taken; this door takes no adoption record "
+            "and no seed as a keyword handing.")
+    return refusal
+
+
+def derive_seed(derivation_input=None, **_extra):
     """Derivation entry point. Gated: returns the gated refusal.
 
     A derivation input handed in that stands in no complete
     derivation input form returns a named input failure naming
     the ground, before the gate answer, in the form the MOD-12
     start doors state. No input and a complete input each
-    return the gated refusal. No seed stands drawn in any
+    return the gated refusal. An extra keyword handing stands
+    named on the refusal in the form _name_extra_handings
+    states, and stands not taken. No seed stands drawn in any
     case, and DQ7-02 stands not circumvented."""
     if derivation_input is not None and not validate_derivation_input(
             derivation_input):
         ground = _derive_seed_input_ground(derivation_input)
-        return {
+        return _name_extra_handings({
             "status": "input failure",
             "form": "named input failure",
             "action": "derive seed",
             "failure": "named input failure: " + ground,
             "ground_in_words": ground,
             "next_step": (
-                "Correct the named input and call derive seed "
-                "again; no seed stands drawn."),
+                "Next step: correct the named input and call "
+                "derive seed again; no seed stands drawn."),
             "seed_drawn": False,
-        }
-    return gated_refusal("derive seed")
+        }, _extra)
+    return _name_extra_handings(gated_refusal("derive seed"), _extra)
 
 
-def derive_stream_seed(derivation_input=None, **_ignored):
+def derive_stream_seed(derivation_input=None, **_extra):
     """Stream seed entry point. Gated: returns the gated refusal."""
-    return gated_refusal("derive stream seed")
+    return _name_extra_handings(
+        gated_refusal("derive stream seed"), _extra)
 
 
-def derive_stream_state(derivation_inputs=None, **_ignored):
+def derive_stream_state(derivation_inputs=None, **_extra):
     """Stream state entry point. Gated: returns the gated refusal."""
-    return gated_refusal("derive stream state")
+    return _name_extra_handings(
+        gated_refusal("derive stream state"), _extra)
 
 
-def advance_stream_state(state=None, **_ignored):
+def advance_stream_state(state=None, **_extra):
     """Stream advance entry point. Gated: returns the gated refusal."""
-    return gated_refusal("advance stream state")
+    return _name_extra_handings(
+        gated_refusal("advance stream state"), _extra)
 
 
-def request_generator(_request=None, **_ignored):
+def request_generator(_request=None, **_extra):
     """Generator supply entry point. Gated: returns the refusal."""
-    return gated_refusal("supply generator")
+    return _name_extra_handings(
+        gated_refusal("supply generator"), _extra)
 
 
 def initial_stream_state(stream_class=None, carried_positions=0):
@@ -1260,6 +1286,16 @@ def draw_from_stream(stream_class=None, position=None,
     try:
         position_value = _position_value(position)
     except (ValueError, TypeError):
+        plain_position = _plain_number(position)
+        if plain_position is not None and not isinstance(
+                position, bool) and not isinstance(
+                plain_position, complex):
+            raise ValueError(
+                "draw_from_stream stands refused: the position "
+                "argument stands as a number in no admitted "
+                "position form: " + _sentence_form(position)
+                + "; a position stands as a whole number at or "
+                "above zero, and no draw stands made") from None
         raise ValueError(
             "draw_from_stream stands refused: the position argument "
             "stands in no numeric form: " + _sentence_form(position)
@@ -1426,7 +1462,13 @@ def _position_value(value):
         text = str.__str__(value)
         if text and all(
                 character in "0123456789" for character in text):
-            return int(text)
+            if len(text) <= 4000:
+                return int(text)
+            whole = 0
+            for start in range(0, len(text), 1000):
+                chunk = text[start:start + 1000]
+                whole = whole * 10 ** len(chunk) + int(chunk)
+            return whole
         raise ValueError(_POSITION_REFUSAL)
     plain = _plain_number(value)
     if plain is not None:

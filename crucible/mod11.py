@@ -25,6 +25,12 @@ from crucible import mod01
 from crucible import mod10
 from crucible import mod13
 
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing argument handing in the named
+form of this module instead of escaping as bare interpreter
+text at the call itself."""
+
 HEADLINE_UNIT_FIELDS = mod01.form_fields("16")
 REGISTRY_FIELDS = mod01.form_fields("22")
 
@@ -631,7 +637,9 @@ def _registry_amended_failures(entry):
     return failures
 
 
-def judge_registry_entry(entry, compiler, checker, run_log=None):
+def judge_registry_entry(entry=_ARGUMENT_NOT_HANDED,
+                         compiler=_ARGUMENT_NOT_HANDED,
+                         checker=_ARGUMENT_NOT_HANDED, run_log=None):
     """Judge one SweepFamilyRegistry entry by phase, as the
     Reporter acting as family registrar: the before runs fields
     for lateness, the after runs fields for completeness, the
@@ -663,6 +671,14 @@ def judge_registry_entry(entry, compiler, checker, run_log=None):
     read from the entry claim_identifier field, or its claim_id
     field where that stands, so a saved or handed on result
     stands tied to its claim from the result itself."""
+    if (entry is _ARGUMENT_NOT_HANDED
+            or compiler is _ARGUMENT_NOT_HANDED
+            or checker is _ARGUMENT_NOT_HANDED):
+        raise ValueError(
+            "judge_registry_entry stands refused: an entry "
+            "stands judged with its entry, its compiler, and "
+            "its checker handed in, a handing stands missing "
+            "among them, and no entry stands judged")
     same_person = _registry_same_person(compiler, checker)
     phases = {}
     if isinstance(entry, dict):
@@ -2683,7 +2699,18 @@ def first_sentence(text):
     text the claim stores where it carries a stored text, and
     through the module safe string form where it carries
     none, never through a string reading the claim itself
-    supplies."""
+    supplies. A handing that carries no text at all, no value,
+    a plain number, a boolean, or a container form handed in
+    place of a claim text, stands refused in named form: no
+    sentence stands fabricated from a handing in no text
+    form."""
+    if text is None or isinstance(
+            text, (bool, int, float, complex, Decimal, Fraction,
+                   dict, list, tuple, set, frozenset)):
+        raise ValueError(
+            "first_sentence stands refused: the handing carries "
+            "no text, a claim text stands required, and no "
+            "sentence stands returned") from None
     return _stored_str(text).split(".", 1)[0]
 
 
@@ -2723,6 +2750,21 @@ def moved_reading(delta, reporting_resolution):
             "reporting resolution stand in no number form, plain "
             "numbers stand required, and no moved reading stands "
             "returned") from None
+    if (isinstance(plain_delta, float)
+            and not math.isfinite(plain_delta)) or (
+            isinstance(plain_resolution, float)
+            and not math.isfinite(plain_resolution)):
+        raise ValueError(
+            "moved_reading stands refused: the change and the "
+            "reporting resolution stand in no finite form, "
+            "finite plain numbers stand required, and no moved "
+            "reading stands returned") from None
+    if plain_resolution <= 0:
+        raise ValueError(
+            "moved_reading stands refused: the reporting "
+            "resolution stands in no admissible form, a "
+            "resolution above zero stands required, and no "
+            "moved reading stands returned") from None
     return abs(plain_delta) >= plain_resolution
 
 
@@ -2829,7 +2871,9 @@ def _plain_number_value(value):
     return float.__float__(value)
 
 
-def honest_loss_rate_h1(submitted, accepted_by_submission_period):
+def honest_loss_rate_h1(submitted=_ARGUMENT_NOT_HANDED,
+                        accepted_by_submission_period=(
+                            _ARGUMENT_NOT_HANDED)):
     """The honest loss rate in the decided H1 form: the period
     subtraction, with each accepted unit attributed to the period
     in which it was submitted. So attributed, the subtraction
@@ -2840,6 +2884,14 @@ def honest_loss_rate_h1(submitted, accepted_by_submission_period):
     an accepted count above the submitted count, or a submitted
     count of zero, which carries no population a rate can stand
     on. No clamp stands applied in silence to any such pair."""
+    if (submitted is _ARGUMENT_NOT_HANDED
+            or accepted_by_submission_period
+            is _ARGUMENT_NOT_HANDED):
+        raise ValueError(
+            "honest_loss_rate_h1 stands refused: the submitted "
+            "and accepted counts stand handed in, a count "
+            "handing stands missing, and no loss rate stands "
+            "computed") from None
     submitted_count = _whole_number_count(submitted)
     accepted_count = _whole_number_count(
         accepted_by_submission_period)
@@ -2917,11 +2969,19 @@ def point_standing(replicate_count):
     }
 
 
-def classify_run_outcome(run_length_in_days, regime_class):
+def classify_run_outcome(run_length_in_days=_ARGUMENT_NOT_HANDED,
+                         regime_class=_ARGUMENT_NOT_HANDED):
     """Classify one run outcome. A run shorter than 30 simulated
     days is not classifiable as attacker winning under the final
     30 day rule: its outcome stands recorded as horizon
     insufficient and contributes to no transition figure."""
+    if (run_length_in_days is _ARGUMENT_NOT_HANDED
+            or regime_class is _ARGUMENT_NOT_HANDED):
+        raise ValueError(
+            "classify_run_outcome stands refused: an outcome "
+            "stands classified with its run length in days "
+            "and its regime class handed in, a handing stands "
+            "missing, and no outcome stands classified") from None
     run_days = _whole_number_count(run_length_in_days)
     if run_days is None:
         raise ValueError(
@@ -2940,6 +3000,15 @@ def classify_run_outcome(run_length_in_days, regime_class):
             "outcome": "horizon insufficient",
             "contributes_to_transition_figure": False,
         }
+    regime_text = _registry_stored_text(regime_class)
+    if not isinstance(regime_class, (str, bytes, bytearray,
+                                     memoryview)) \
+            or regime_text is None or not str.strip(regime_text):
+        raise ValueError(
+            "classify_run_outcome stands refused: the regime "
+            "class stands in no judged form, a regime class "
+            "stands as a non empty text name, and no outcome "
+            "stands classified") from None
     return {
         "outcome": regime_class,
         "contributes_to_transition_figure": True,
@@ -2986,9 +3055,19 @@ def transition_figure(replicates):
     competing = 0
     censored = 0
     for replicate in counted_replicates:
-        if dict.get(replicate, "competing_exit") if isinstance(replicate, dict) else replicate.get("competing_exit"):
-            competing += 1
-            continue
+        if _stored_pair_present(replicate, "competing_exit"):
+            competing_value = _registry_stored_value(
+                replicate, "competing_exit")
+            if not isinstance(competing_value, bool):
+                raise ValueError(
+                    "transition_figure stands refused: a "
+                    "replicate competing exit field stands in "
+                    "no boolean form, a competing exit stands "
+                    "as a boolean, and no transition figure "
+                    "stands computed")
+            if competing_value:
+                competing += 1
+                continue
         regime = dict.get(replicate, "first_terminal_regime") if isinstance(replicate, dict) else replicate.get("first_terminal_regime")
         if regime is None:
             censored += 1
@@ -3046,6 +3125,23 @@ def location_for_endpoint(figure, regime, band_endpoint):
     plain_endpoint = _plain_number_value(band_endpoint)
     if plain_share is None or plain_endpoint is None:
         return None
+    if (isinstance(plain_share, float)
+            and not math.isfinite(plain_share)) or (
+            isinstance(plain_endpoint, float)
+            and not math.isfinite(plain_endpoint)):
+        raise ValueError(
+            "location_for_endpoint stands refused: the share "
+            "and the endpoint stand in no finite form, finite "
+            "plain numbers stand required, and no location "
+            "stands returned") from None
+    if plain_share < 0 or plain_share > 1 or \
+            plain_endpoint < 0 or plain_endpoint > 1:
+        raise ValueError(
+            "location_for_endpoint stands refused: the share "
+            "and the endpoint stand outside the closed range "
+            "from zero to one, a share and an endpoint stand "
+            "inside that range, and no location stands "
+            "returned") from None
     if plain_share < plain_endpoint:
         return None
     return {"regime": regime, "endpoint": band_endpoint,
@@ -3058,8 +3154,36 @@ def record_first_observed(previous_evaluation_day, observed_day,
     interval from the previous daily evaluation to the evaluation
     at which it was first observed, never as an exact event time.
     A condition first seen on the last day of a run has its
-    interval closed only by the horizon."""
+    interval closed only by the horizon. The day pair stands
+    judged in form and in order: every day stands as a whole
+    number of days at or above zero, and the interval opens
+    no later than it closes, or the record stands refused in
+    named form."""
+    previous_day = _whole_number_count(previous_evaluation_day)
+    observed = _whole_number_count(observed_day)
+    horizon_day = _whole_number_count(horizon)
+    if previous_day is None or observed is None \
+            or horizon_day is None:
+        raise ValueError(
+            "record_first_observed stands refused: a day of "
+            "the observation time pair stands in no whole "
+            "number form, whole numbers of days stand "
+            "required, and no observation time stands "
+            "recorded") from None
+    if previous_day < 0 or observed < 0 or horizon_day < 0:
+        raise ValueError(
+            "record_first_observed stands refused: a day of "
+            "the observation time pair stands negative, a day "
+            "stands at or above zero, and no observation time "
+            "stands recorded") from None
     close = horizon if is_last_day else observed_day
+    plain_close = horizon_day if is_last_day else observed
+    if previous_day > plain_close:
+        raise ValueError(
+            "record_first_observed stands refused: the "
+            "interval opens after it closes, an interval "
+            "opens no later than it closes, and no "
+            "observation time stands recorded") from None
     return {
         "interval": (previous_evaluation_day, close),
         "form": "interval from previous daily evaluation",
@@ -3075,7 +3199,21 @@ def validate_observation_time(record):
     if dict.get(record, "exact_event_time") is not None:
         return False
     interval = dict.get(record, "interval")
-    return isinstance(interval, (list, tuple)) and (list.__len__(interval) if isinstance(interval, list) else tuple.__len__(interval)) == 2
+    if not isinstance(interval, (list, tuple)) or (list.__len__(interval) if isinstance(interval, list) else tuple.__len__(interval)) != 2:
+        return False
+    opening = _whole_number_count(
+        list.__getitem__(interval, 0)
+        if isinstance(interval, list)
+        else tuple.__getitem__(interval, 0))
+    closing = _whole_number_count(
+        list.__getitem__(interval, 1)
+        if isinstance(interval, list)
+        else tuple.__getitem__(interval, 1))
+    if opening is None or closing is None:
+        return False
+    if opening < 0 or closing < 0:
+        return False
+    return opening <= closing
 
 
 def _grid_pair(location, act):
@@ -3283,8 +3421,17 @@ def reporter_inputs_for_family(retained_records):
     """Return the Reporter inputs of one family as carried through
     the retained records at S-10: the divergence count computed at
     S-04 as it stands, or the blocked family mark where it stands,
-    naming the affected family and the affected share."""
-    records = retained_records if isinstance(retained_records, dict) else {}
+    naming the affected family and the affected share. A
+    handing in no record form stands refused in named form,
+    so no reader mistakes an unread handing for a genuine
+    record carrying neither field."""
+    if not isinstance(retained_records, dict):
+        raise ValueError(
+            "reporter_inputs_for_family stands refused: the "
+            "retained records stand in no record form, a "
+            "record of retained records stands required, and "
+            "no reporter inputs stand returned") from None
+    records = retained_records
     return {
         "divergence_count": _quoted_copy(
             dict.get(records, "divergence_count")),
@@ -3344,14 +3491,25 @@ def share_report_stands(inputs, share):
     return True
 
 
-def build_headline_unit_from_run(run_id, values, store_kind="sweep",
+def build_headline_unit_from_run(run_id=_ARGUMENT_NOT_HANDED,
+                                 values=_ARGUMENT_NOT_HANDED,
+                                 store_kind="sweep",
                                  family_record=None):
     """Build one headline unit from the retained records of one
     run, resolving the run record in one lookup through the
     Recorder store reading path. Where the record does not
     resolve, no unit stands built and the failure stands returned
     as a named failure and recorded in the family record where
-    one stands handed in."""
+    one stands handed in. A handing missing its run identifier
+    or its values stands refused in the named form of this
+    module, before any lookup stands attempted."""
+    if (run_id is _ARGUMENT_NOT_HANDED
+            or values is _ARGUMENT_NOT_HANDED):
+        raise ValueError(
+            "build_headline_unit_from_run stands refused: a "
+            "unit stands built from a run with its run "
+            "identifier and its values handed in, a handing "
+            "stands missing, and no unit stands built")
     try:
         record = mod10.store_lookup(store_kinds=(store_kind,), key=run_id)
     except mod10.LookupFailure:
@@ -3376,10 +3534,14 @@ def build_headline_unit_from_run(run_id, values, store_kind="sweep",
             family_record.setdefault("named_failures", []).append(
                 _quoted_copy(failure))
         return {"built": False, "failure": failure, "unit": None}
-    if isinstance(values, dict):
-        unit_values = {key: item for key, item in dict.items(values)}
-    else:
-        unit_values = {}
+    if not isinstance(values, dict):
+        # A handing in no record form stands delivered in the
+        # direct door named form, stating its true ground: the
+        # direct door refusal for the identical handing, raised
+        # whole, never coerced to an empty mapping whose first
+        # absent field would misstate the ground.
+        make_headline_unit(values)
+    unit_values = {key: item for key, item in dict.items(values)}
     unit_values.setdefault(
         "run_registry_line",
         "run record " + _safe_str(run_id) + " read in one lookup")
@@ -3389,7 +3551,21 @@ def build_headline_unit_from_run(run_id, values, store_kind="sweep",
         "inside_unit": True,
     }
     unit_values["checkability_fields"] = provenance
-    unit = make_headline_unit(unit_values)
+    try:
+        unit = make_headline_unit(unit_values)
+    except ValueError as error:
+        if "field absent" not in _safe_str(error):
+            raise
+        failure = {
+            "name": _safe_str(error),
+            "run_status": "failed",
+            "complete": False,
+            "run_identifier": run_id,
+        }
+        if isinstance(family_record, dict):
+            family_record.setdefault("named_failures", []).append(
+                _quoted_copy(failure))
+        return {"built": False, "failure": failure, "unit": None}
     return {"built": True, "failure": None, "unit": unit}
 
 
@@ -3471,7 +3647,8 @@ def _stored_identifier_form(value, _depth=0, _seen=None):
     return ("kind", type(value).__name__)
 
 
-def weekly_count(summary_records, week):
+def weekly_count(summary_records=_ARGUMENT_NOT_HANDED,
+                 week=_ARGUMENT_NOT_HANDED):
     """Compute the weekly headline reading load from the stored
     summary records alone: distinct headline unit identifiers
     whose witness records fall in the week, one unit counting
@@ -3504,7 +3681,19 @@ def weekly_count(summary_records, week):
     identifier standing in no headline unit
     identifier form stands refused in named form, as the weekly
     container of this module refuses it, so no count stands
-    stated over unvalidated contents."""
+    stated over unvalidated contents. The distinctness scan
+    carries a stated growth form: each identifier stands
+    judged once against the distinct identifiers already
+    counted through a set keyed on the stored form of the
+    identifier, so the scan stands linear in the identifiers
+    counted."""
+    if (summary_records is _ARGUMENT_NOT_HANDED
+            or week is _ARGUMENT_NOT_HANDED):
+        raise ValueError(
+            "weekly_count stands refused: a handing stands "
+            "missing: the summary records and the week stand "
+            "required, and no weekly count stands certified "
+            "without them")
     if summary_records is None:
         raise ValueError(
             "weekly_count stands refused: no summary_records "
@@ -3522,16 +3711,28 @@ def weekly_count(summary_records, week):
             "argument stands in no list form: a list of summary "
             "records stands required, and no weekly count stands "
             "certified without it")
+    if isinstance(week, float) and not math.isfinite(week):
+        raise ValueError(
+            "weekly_count stands refused: the week stands in "
+            "no comparable form, a week stands as a finite "
+            "value, and no weekly count stands certified "
+            "without it")
     identifiers = []
-    seen_texts = []
+    seen_texts = set()
     for record in _base_iter(summary_records):
         if not isinstance(record, dict) or not _stored_pair_present(
                 record, "week"):
             raise ValueError(
                 "summary record carries no week field, so its "
                 "weekly headline count cannot stand read")
-        if not _week_stands_equal(
-                _registry_stored_value(record, "week"), week):
+        stored_week = _registry_stored_value(record, "week")
+        if isinstance(stored_week, float) and not math.isfinite(
+                stored_week):
+            raise ValueError(
+                "summary record carries a week standing in no "
+                "comparable form, and no weekly count stands "
+                "certified without it")
+        if not _week_stands_equal(stored_week, week):
             continue
         if not _stored_pair_present(
                 record, "headline_unit_identifiers"):
@@ -3573,7 +3774,7 @@ def weekly_count(summary_records, week):
                     "form, and no count stands stated over "
                     "unvalidated contents: " + rendered)
             if key not in seen_texts:
-                seen_texts.append(key)
+                seen_texts.add(key)
                 identifiers.append(identifier)
     return len(identifiers)
 
@@ -3836,10 +4037,18 @@ def next_weekly_container(week, previous_container, new_units):
         week, released + _stored_unit_list(new_units))
 
 
-def claim_enters_family(family_record, claim, results_seen):
+def claim_enters_family(family_record=_ARGUMENT_NOT_HANDED,
+                        claim=_ARGUMENT_NOT_HANDED,
+                        results_seen=_ARGUMENT_NOT_HANDED):
     """Return True only where a claim may enter a family: the
     family stands fixed before runs, and no claim enters the
-    family after results are seen."""
+    family after results are seen. A handing missing any of
+    its family record, its claim, or its results seen standing
+    answers False, the judged form of this act."""
+    if (family_record is _ARGUMENT_NOT_HANDED
+            or claim is _ARGUMENT_NOT_HANDED
+            or results_seen is _ARGUMENT_NOT_HANDED):
+        return False
     if results_seen:
         return False
     if not isinstance(family_record, dict):

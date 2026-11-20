@@ -62,6 +62,8 @@ __all__ = [
     "ProvenanceBlock",
     "VersionStamp",
     "BRIEF_SHAPE_CROSS_REFERENCE",
+    "build_run_record",
+    "build_sweep_point",
     "brief_shape_for_form",
     "StatedJudgement",
     "canonical_form_for_field",
@@ -584,12 +586,41 @@ def _fid(form_id):
     return ""
 
 
+def _identifier_non_text_class(form_id):
+    """The class name of a handed form identifier that stands
+    in a non text class whose rendering carries no class mark
+    (FW3-55): an integer, a float, a boolean, or no value,
+    among others. A text handing carries no class ground, and
+    a bytes form renders with its class marks standing, so
+    neither stands under this ground."""
+    if isinstance(form_id, str):
+        return None
+    if isinstance(form_id, (bytes, bytearray, memoryview)):
+        return None
+    return type(form_id).__name__
+
+
 def _unknown_form_refusal(act, form_id):
     """The named refusal the form lookup doors deliver for an
     identifier naming no form (FW-24): the refusal names the
     identifier as handed, states that no form stands under
     it, and states the next step, in the form the sibling
-    door minimal_valid_instance states."""
+    door minimal_valid_instance states. Where the identifier
+    stands handed in a non text class whose rendering
+    carries no class mark, the refusal states the class
+    ground truly instead (FW3-55): the fault stands as the
+    class of the handing, not as the value it names."""
+    class_name = _identifier_non_text_class(form_id)
+    if class_name is not None:
+        return ValueError(
+            act + " stands refused: form identifier "
+            + _safe_str(form_id)
+            + " stands handed in a non text form, the "
+            + class_name
+            + " form, where a form identifier stands as text; "
+            "next step: hand the identifier as text, one of "
+            "the identifiers FORM_IDS states, and no answer "
+            "stands returned at this door")
     return ValueError(
         act + " stands refused: form identifier "
         + _safe_str(form_id)
@@ -1026,7 +1057,7 @@ def _build_form(form_id, values):
     return record
 
 
-def build_sweep_point(**values):
+def build_sweep_point(*args, **values):
     """Build one SweepPoint record, Form 2, from user supplied fields.
 
     Arguments: any of the Form 2 fields a user supplies, named in
@@ -1045,12 +1076,23 @@ def build_sweep_point(**values):
     the Form 2 field list.
     Failure: a named ValueError for a field the form does not
     name. Form 2 carries no system filled field and no seed
-    field, so no other refusal stands on this path.
+    field, so no other refusal stands on this path. A whole
+    record handing, one positional mapping carrying the
+    fields, stands refused in the same named form (FW3-51):
+    the fields of a record stand handed as named arguments
+    at this door.
     """
+    if args:
+        raise ValueError(
+            "build_sweep_point stands refused: the fields of "
+            "a record stand handed as named arguments at this "
+            "door, and a whole record handing stands in no "
+            "builder form; next step: hand each field as a "
+            "named argument, and no record stands built")
     return _build_form("2", values)
 
 
-def build_run_record(**values):
+def build_run_record(*args, **values):
     """Build one RunRecord record, Form 4, from user supplied fields.
 
     Arguments: any of the Form 4 fields a user supplies, named in
@@ -1071,7 +1113,18 @@ def build_run_record(**values):
     a system filled field stands handed in, and a named
     ValueError for a field the form does not name; on every
     refusal no record stands built and no seed stands drawn.
+    A whole record handing, one positional mapping carrying
+    the fields, stands refused in the same named form
+    (FW3-51): the fields of a record stand handed as named
+    arguments at this door.
     """
+    if args:
+        raise ValueError(
+            "build_run_record stands refused: the fields of "
+            "a record stand handed as named arguments at this "
+            "door, and a whole record handing stands in no "
+            "builder form; next step: hand each field as a "
+            "named argument, and no record stands built")
     return _build_form("4", values)
 
 
@@ -4096,6 +4149,106 @@ def _width_failure_sentence():
         "and validate each part")
 
 
+_VALIDATE_BYTE_BOUND = 1000000
+
+
+def _value_byte_count(value):
+    """The byte count of one text or bytes value, read through
+    base class readings only: a text value through the bytes
+    of its stored text, and a bytes form through its stored
+    length. A value in any other form carries no byte count
+    here and stands counted by the entry form alone."""
+    if isinstance(value, str):
+        text = str.__str__(value)
+        try:
+            return len(text.encode("utf-8", "ignore"))
+        except Exception:
+            return str.__len__(text)
+    if isinstance(value, (bytes, bytearray)):
+        return len(value)
+    if isinstance(value, memoryview):
+        return len(memoryview.tobytes(value))
+    return 0
+
+
+def _record_byte_past_bound(instance):
+    """Whether one record instance stands past the stated
+    validation byte bound of 1000000 bytes (FW3-12), beside
+    the entry bound the width guard states. The bytes stand
+    counted across every text and bytes value in the
+    instance, keys and values alike, through base class
+    readings only, and the walk stops at the bound, so the
+    judgement itself stands bounded by the bound."""
+    total = 0
+    seen = set()
+    stack = [instance]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (str, bytes, bytearray, memoryview)):
+            total += _value_byte_count(node)
+            if total > _VALIDATE_BYTE_BOUND:
+                return True
+            continue
+        if not isinstance(node, (dict, list, tuple, set, frozenset)):
+            continue
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, dict):
+            for key in dict.__iter__(node):
+                stack.append(key)
+                stack.append(dict.__getitem__(node, key))
+        else:
+            stack.extend(list(_base_iter(node)))
+    return False
+
+
+def _byte_failure_sentence():
+    return _failure_sentence(
+        "record byte size",
+        "the record carries more than the stated byte bound "
+        "of 1000000 bytes, counting the bytes of every text "
+        "and bytes value the record carries, so the record "
+        "stands refused at validation in the stated byte form "
+        "beside the entry form",
+        "hand a record carrying no more than the stated "
+        "byte bound of 1000000 bytes, or split the record "
+        "and validate each part")
+
+
+_RUN_NUMERIC_FIELD_MINIMA = (
+    ("population_size", 1),
+    ("run_length_in_days", 1),
+    ("replicate_index", 0),
+)
+
+
+def _numeric_field_judged(field, value):
+    """Whether one numeric field value of a run record stands
+    in its stated form (FW3-18): a whole number at or above
+    the stated minimum of its field, read on its stored
+    form, or the placeholder template standing the product
+    own minimal instance carries. A boolean, a non finite
+    or fractional number, a negative count, and any text
+    beside the placeholder standing stand in no judged
+    form."""
+    minimum = dict(_RUN_NUMERIC_FIELD_MINIMA)[field]
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return int.__ge__(value, minimum)
+    if isinstance(value, float):
+        if value != value:
+            return False
+        if value == float("inf") or value == float("-inf"):
+            return False
+        return float.is_integer(value) and value >= minimum
+    if isinstance(value, str):
+        dress = _stored_text_dress(value)
+        return dress is not None and _stands_placeholder_text(dress)
+    return False
+
+
 def _validate_record_inner(form_id, instance):
     """Validate one record instance against its form.
 
@@ -4112,6 +4265,21 @@ def _validate_record_inner(form_id, instance):
         return False
     if _record_width_past_bound(instance):
         return False
+    if _record_byte_past_bound(instance):
+        return False
+    if fid in ("2", "4"):
+        # The numeric fields of a run record stand judged in
+        # their stated forms (FW3-18): a population, a run
+        # length, or a replicate index in no judged form
+        # fails validation here, as it stands named at the
+        # failure door.
+        for _num_field, _minimum in _RUN_NUMERIC_FIELD_MINIMA:
+            _num_value = _stored_pairs_value(
+                instance, _num_field, _STORED_MISSING)
+            if _num_value is not _STORED_MISSING and (
+                    _num_value is not None) and not (
+                    _numeric_field_judged(_num_field, _num_value)):
+                return False
     # The required field presence act reads the stored keys of
     # the record through base dict operations: the pairs the
     # record stores stand iterated directly, and a field stands
@@ -4614,6 +4782,16 @@ def _additional_diagnosed_failure_entries(
 def _record_validation_failures(form_id, instance):
     fid = _fid(form_id)
     if fid not in _FORM_SPECS:
+        class_name = _identifier_non_text_class(form_id)
+        if class_name is not None:
+            return [_failure_sentence(
+                "form identifier " + _safe_str(form_id),
+                "the identifier stands handed in a non text "
+                "form, the " + class_name + " form, where a "
+                "form identifier stands as text, so no field "
+                "list stands to check the record against",
+                "hand the identifier as text, one of the "
+                "identifiers in FORM_IDS")]
         return [_failure_sentence(
             "form identifier " + _safe_str(form_id),
             "no form stands under that identifier, so no field "
@@ -4623,6 +4801,8 @@ def _record_validation_failures(form_id, instance):
             "character")]
     if _record_width_past_bound(instance):
         return [_width_failure_sentence()]
+    if _record_byte_past_bound(instance):
+        return [_byte_failure_sentence()]
     if not isinstance(instance, dict):
         return [_failure_sentence(
             "record",
@@ -4663,6 +4843,22 @@ def _record_validation_failures(form_id, instance):
                 "remove the field " + field + " from the record, "
                 "leaving it unfilled, and no seed stands drawn "
                 "or assigned for it"))
+    if fid in ("2", "4"):
+        # The numeric field entries (FW3-18), in the same
+        # judged form the inner judgement applies.
+        for num_field, minimum in _RUN_NUMERIC_FIELD_MINIMA:
+            found, value = present_value(num_field)
+            if found and value is not None and not (
+                    _numeric_field_judged(num_field, value)):
+                failures.append(_failure_sentence(
+                    num_field,
+                    "the field stands as a whole number at or "
+                    "above " + str(minimum) + " on this form, "
+                    "or at the placeholder template standing, "
+                    "and the value the record carries on it "
+                    "stands in no judged form",
+                    "supply the field " + num_field + " as a "
+                    "whole number at or above " + str(minimum)))
     for condition in _conditions_for(fid):
         disc_found, disc_value = present_value(
             condition["discriminator"])
@@ -4685,6 +4881,9 @@ def _record_validation_failures(form_id, instance):
         allowed.update(COMPLETENESS_FIELDS)
     if fid == "36":
         allowed.add("entry_kind")
+    folded_targets = [
+        _folded_money_key(field) for field in allowed]
+
     def key_names_a_field(key):
         plain = _stored_text(key)
         if plain is not None and any(
@@ -4699,9 +4898,34 @@ def _record_validation_failures(form_id, instance):
                 str.__eq__(dress, field) for field in allowed):
             return True
         try:
-            for field in allowed:
-                if _folded_key_matches(
-                        key, _folded_money_key(field)):
+            if isinstance(key, (tuple, list, set, frozenset)):
+                for target in folded_targets:
+                    if _folded_key_matches(key, target):
+                        return True
+                return False
+            # The stated cost form of this door (FW3-13): the
+            # folded variants of one handed key stand computed
+            # once for the key, and the folded targets of the
+            # form fields stand computed once for the call, so
+            # the work of one call stands bounded by the keys
+            # handed in, never by the keys multiplied by the
+            # fields of the form. The judgements taken stand
+            # as the folded match act takes them, limb for
+            # limb: the spanning bar reading, the variant
+            # membership, and the every reading match.
+            variants = _folded_key_variants(key)
+            for target in folded_targets:
+                if target in variants:
+                    return True
+            for target in folded_targets:
+                if _seg_spanning_barred(
+                        key, (), (),
+                        (target,) + (
+                            ("realmani",)
+                            if target == "realmoney" else ()),
+                        ()):
+                    return True
+                if _matches_under_every_reading(key, target):
                     return True
         except Exception:
             return False
