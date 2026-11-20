@@ -938,6 +938,80 @@ def _sentence_form(value, _depth=0):
     return type(value).__name__
 
 
+def _bounded_echo(rendered):
+    """Bound one rendered handed value for a refusal sentence
+    (FW4-10): a rendering standing at 120 characters or fewer
+    stands whole; a longer rendering stands as its first 120
+    characters beside a length statement naming the standing
+    length of the handed value and the 120 character bound, so
+    no refusal message grows with the handing past that bound
+    and the ground of the refusal stands readable at its head."""
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
+
+
+def _draw_position_render(value):
+    """Render a handed draw position for a refusal sentence,
+    through the sentence form where that form stands, and
+    through a kind and bound statement where the sentence
+    form itself raises, as it does for an integer past the
+    digit limit, so no bare interpreter sentence escapes.
+    The rendering stands bounded in the FW4-10 form, so no
+    draw refusal grows with the handing past that bound
+    (FW5-08)."""
+    try:
+        rendered = _sentence_form(value)
+    except Exception:
+        rendered = type(value).__name__ + " past the digit limit"
+    return _bounded_echo(rendered)
+
+
+def _negative_digit_text(value):
+    """Return whether a handed value stands as digit text
+    carrying a negative sign: a minus sign followed by one
+    or more plain digits, judged on the stored text."""
+    if not isinstance(value, str):
+        return False
+    stored = str.__str__(value)
+    if len(stored) < 2 or stored[0] != "-":
+        return False
+    return all(character in "0123456789" for character in stored[1:])
+
+
+def _judge_candidate_key(key):
+    """Judge one candidate field name key before any digit
+    text conversion of it. A text key stands admitted on its
+    stored text. A plain number key stands admitted where
+    its digit text stands inside the digit limit. Any other
+    key, and an integer key past the digit limit, stands
+    refused in the named encode form."""
+    if isinstance(key, str):
+        return
+    plain = _plain_number(key)
+    if plain is not None:
+        if isinstance(plain, int) and plain.bit_length() > 14000:
+            raise ValueError(
+                "encode_candidate_input stands refused: the "
+                "field name key stands in no field name form: "
+                "an integer past the digit limit; a candidate "
+                "input stands as a mapping of field names to "
+                "recorded string values, and no encoding "
+                "stands returned")
+        return
+    raise ValueError(
+        "encode_candidate_input stands refused: the field "
+        "name key stands in no field name form: "
+        + type(key).__name__
+        + "; a candidate input stands as a mapping of field "
+        "names to recorded string values, and no encoding "
+        "stands returned")
+
+
 def make_derivation_input(derivation_version=None, domain=None,
                           root_seed_reference=None,
                           scenario_identifier=None, run_identifier=None,
@@ -952,7 +1026,7 @@ def make_derivation_input(derivation_version=None, domain=None,
     if not validate_domain(domain):
         raise ValueError(
             "domain outside the two value vocabulary: "
-            + _sentence_text(domain)
+            + _bounded_echo(_sentence_text(domain))
             + "; a domain stands among screening and held out "
             "confirmation")
     if parameter_values is None:
@@ -1181,9 +1255,12 @@ def _name_extra_handings(refusal, extra):
     and in words, and stands not taken: the gate itself stands
     untouched, no seed stands drawn, and DQ7-02 stands not
     circumvented. A refusal with no extra handing stands
-    returned unchanged."""
+    returned unchanged. Each handed name stands rendered in
+    the bounded form of FW4-10, so the telling of the gate
+    refusal surface stands bounded however long a handed name
+    stands (FW5-08)."""
     if extra:
-        names = sorted(extra)
+        names = [_bounded_echo(name) for name in sorted(extra)]
         refusal["unexpected_keyword_handings"] = names
         refusal["extra_handing_note"] = (
             "The keyword handings " + ", ".join(names)
@@ -1298,6 +1375,14 @@ def draw_from_stream(stream_class=None, position=None,
     try:
         position_value = _position_value(position)
     except (ValueError, TypeError):
+        if _negative_digit_text(position):
+            raise ValueError(
+                "draw_from_stream stands refused: the position "
+                "argument stands below zero: "
+                + _draw_position_render(position)
+                + "; a position stands as a whole number at or "
+                "above zero, and the handed position stands "
+                "below zero, and no draw stands made") from None
         plain_position = _plain_number(position)
         if plain_position is not None and not isinstance(
                 position, bool) and not isinstance(
@@ -1305,21 +1390,36 @@ def draw_from_stream(stream_class=None, position=None,
             raise ValueError(
                 "draw_from_stream stands refused: the position "
                 "argument stands as a number in no admitted "
-                "position form: " + _sentence_form(position)
+                "position form: " + _draw_position_render(position)
                 + "; a position stands as a whole number at or "
                 "above zero, and no draw stands made") from None
         raise ValueError(
             "draw_from_stream stands refused: the position argument "
-            "stands in no numeric form: " + _sentence_form(position)
+            "stands in no numeric form: "
+            + _draw_position_render(position)
             + "; a position stands as a number, and no draw "
             "stands made") from None
     try:
         carried_value = _position_value(carried_positions)
     except (ValueError, TypeError):
+        plain_carried = _plain_number(carried_positions)
+        if _negative_digit_text(carried_positions) or (
+                plain_carried is not None
+                and isinstance(plain_carried, int)
+                and not isinstance(carried_positions, bool)
+                and plain_carried < 0):
+            raise ValueError(
+                "draw_from_stream stands refused: the carried "
+                "positions argument stands below zero: "
+                + _draw_position_render(carried_positions)
+                + "; a position stands as a whole number at or "
+                "above zero, and the handed carried positions "
+                "stand below zero, and no draw stands made"
+                ) from None
         raise ValueError(
             "draw_from_stream stands refused: the carried positions "
             "argument stands in no numeric form: "
-            + _sentence_form(carried_positions)
+            + _draw_position_render(carried_positions)
             + "; carried positions stand as a number, and no draw "
             "stands made") from None
     if position_value >= carried_value:
@@ -1367,6 +1467,8 @@ def encode_candidate_input(values):
             "string values, and no encoding stands returned")
     parts = []
     stored_pairs = list(dict.items(values))
+    for stored_key, _stored_raw in stored_pairs:
+        _judge_candidate_key(stored_key)
     stored_pairs.sort(key=lambda pair: _stored_name(pair[0]))
     for key, raw in stored_pairs:
         name = _stored_name(key)

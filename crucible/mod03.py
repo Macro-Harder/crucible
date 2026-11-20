@@ -1770,7 +1770,39 @@ def make_archetype_record(archetype_id=None, behaviour=None,
     mapping, its parameter rows, and its generator signature. No rule
     state and no strategy stands in the record. The strategy class
     for a run is stated on the cast, never in an archetype record.
+
+    The archetype identifier handing stands judged on the text
+    it stores, read through the base string reading, in the
+    identity form the retention and strategy doors of this
+    product state. A handing carrying no identifier, a handing
+    standing in no identifier form because it stands in no text
+    form, and a handing whose stored text stands as whitespace
+    only each stand refused in the named failure form, and no
+    record stands built on any of them.
     """
+    if archetype_id is None:
+        raise NamedGeneratorFailure(
+            "archetype record rejected: identity less record: "
+            "no archetype identifier stands on the handing, and "
+            "no record stands built")
+    if not isinstance(archetype_id, str):
+        raise NamedGeneratorFailure(
+            "archetype record rejected: identity less record: "
+            "the archetype identifier stands in no identifier "
+            "form: an archetype identifier in text form stands "
+            "required, and no record stands built")
+    stored_identifier = _stored_text(archetype_id)
+    if str.__len__(stored_identifier) == 0:
+        raise NamedGeneratorFailure(
+            "archetype record rejected: identity less record: "
+            "no archetype identifier stands on the handing, and "
+            "no record stands built")
+    if str.__len__(stored_identifier.strip()) == 0:
+        raise NamedGeneratorFailure(
+            "archetype record rejected: identity less record: "
+            "the archetype identifier stands as whitespace only, "
+            "which stands as no identifier, and no record stands "
+            "built")
     memo = {}
     rows = _guarded_copy(parameter_rows or (), memo)
     if not isinstance(rows, list):
@@ -1940,16 +1972,29 @@ def _guard_farm_size(farm_size, form):
     None stands as no farm size stated and reads as zero. Every
     other form that is not a non negative whole count, including
     a boolean, a fractional number, and a text form, fails in
-    the named failure form.
+    the named failure form. The size stands judged on the plain
+    value it stores, read through the base int reading, and the
+    plain value stands returned, so no comparison reading the
+    handing itself supplies directs the judgement: a negative
+    size in dressed int subclass form, whose own comparisons
+    answer that it stands at or above zero, stands refused on
+    its stored value, and a positive size whose own comparisons
+    answer that it stands below zero stands served whole on
+    its stored value.
     """
     if farm_size is None:
         return 0
     if isinstance(farm_size, bool) or not isinstance(
-            farm_size, int) or farm_size < 0:
+            farm_size, int):
         raise NamedGeneratorFailure(
             form + ": the farm size is not a non negative whole "
             "count: " + _refusal_repr(farm_size))
-    return farm_size
+    plain_size = int.__int__(farm_size)
+    if int.__lt__(plain_size, 0):
+        raise NamedGeneratorFailure(
+            form + ": the farm size is not a non negative whole "
+            "count: " + _refusal_repr(farm_size))
+    return plain_size
 
 
 def _records_by_id(archetype_records):
@@ -2283,6 +2328,22 @@ def construct_farm(member_ids, farm_size=None, edges=None):
     position, so the membership lists state the same population
     the farm membership carriage keys, one farm standing per
     member.
+
+    A member handing in no identifier form stands refused in
+    the named failure form, and no farm stands built: a member
+    standing absent, a member whose stored text stands empty,
+    and a member whose stored text stands as whitespace only
+    each carry no identifier, judged on the stored text of the
+    member, read through the base string reading, in the
+    identity form the retention and strategy doors of this
+    product state. Members standing in identifier bearing
+    forms this product serves, text members and plain scalar
+    and other object members alike, stand untouched by the
+    judgement. The farm size guard stands judged first and the
+    member identity judgement second, both before any farm
+    stands built, so a handing failing both grounds stands
+    refused on the farm size ground and neither refusal masks
+    the other.
     """
     if member_ids is None:
         members = []
@@ -2303,6 +2364,25 @@ def construct_farm(member_ids, farm_size=None, edges=None):
             distinct_members.append(member)
     members = distinct_members
     farm_size = _guard_farm_size(farm_size, "farm rejected")
+    for member in members:
+        if member is None:
+            raise NamedGeneratorFailure(
+                "farm rejected: identity less member: a member "
+                "handing carries no identifier: the member stands "
+                "absent, and no farm stands built")
+        if isinstance(member, str):
+            stored_member = _stored_text(member)
+            if str.__len__(stored_member) == 0:
+                raise NamedGeneratorFailure(
+                    "farm rejected: identity less member: a member "
+                    "handing carries no identifier: the member text "
+                    "stands empty, and no farm stands built")
+            if str.__len__(stored_member.strip()) == 0:
+                raise NamedGeneratorFailure(
+                    "farm rejected: identity less member: a member "
+                    "handing carries no identifier: the member text "
+                    "stands as whitespace only, which stands as no "
+                    "identifier, and no farm stands built")
     if not farm_size:
         farms = []
         farm_of = {_stored_member_key(member): None

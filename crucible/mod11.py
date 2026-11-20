@@ -243,10 +243,69 @@ def _form_repr(value, _depth=0, _seen=None):
     return type(value).__name__
 
 
+def _retirement_list_shape_ground(fixture):
+    """The shape ground on which one handed list fixture stands
+    outside the form the retirement doors can judge, or None
+    where the list stands inside that form: the list carries a
+    cycle, or the list stands deeper than the depth bound of
+    100 this module states. The walk is iterative over dict,
+    list, tuple, set, and frozenset parts, read through base
+    class operations, in the posture the MOD-10 gate epoch
+    shape act states, so a cyclic or over deep list stands
+    judged here and never as a bare RecursionError in the
+    stored text reading the refusal sentence builds (FW5-11)."""
+    done = {}
+    path = set()
+    stack = [(fixture, 0, False)]
+    while stack:
+        node, depth, exiting = stack.pop()
+        if exiting:
+            path.discard(id(node))
+            if id(node) not in done or depth > done[id(node)]:
+                done[id(node)] = depth
+            continue
+        if not isinstance(node, (dict, list, tuple, set, frozenset)):
+            continue
+        if id(node) in path:
+            return "cyclic"
+        if depth > 100:
+            return "depth"
+        if id(node) in done and done[id(node)] >= depth:
+            continue
+        path.add(id(node))
+        stack.append((node, depth, True))
+        if isinstance(node, dict):
+            children = list(dict.keys(node)) + list(dict.values(node))
+        else:
+            children = list(_base_iter(node))
+        for child in children:
+            stack.append((child, depth + 1, False))
+    return None
+
+
 def retirement_verdicts(fixture):
     """Return the per check verdicts of the retirement test for a
     fixture, over all fifteen checks T-01 to T-15 in the version of
-    the report format paper pinned in the family record."""
+    the report format paper pinned in the family record. A list
+    fixture stands judged for cycle and depth before the act,
+    and a cyclic or over deep list stands refused in the named
+    form of this door, stating the ground and that no verdict
+    stands returned (FW5-11)."""
+    if isinstance(fixture, list):
+        shape_ground = _retirement_list_shape_ground(fixture)
+        if shape_ground == "cyclic":
+            raise ValueError(
+                "retirement verdicts in named form: the fixture "
+                "handed for the retirement verdicts stands in a "
+                "cyclic form, and no verdict stands returned; "
+                "next step: hand a fixture carrying no cycle")
+        if shape_ground == "depth":
+            raise ValueError(
+                "retirement verdicts in named form: the fixture "
+                "handed for the retirement verdicts stands deeper "
+                "than the depth bound of 100, and no verdict "
+                "stands returned; next step: hand a fixture "
+                "standing within the depth bound of 100")
     if _verdict_text_stands(fixture, "F-01"):
         return dict(_F01_VERDICTS)
     if _verdict_text_stands(fixture, "F-02") \
@@ -727,13 +786,41 @@ def validate_registry_entry(entry, compiler, checker, run_log=None):
         entry, compiler, checker, run_log=run_log)["valid"]
 
 
-def make_headline_unit(values):
+def _bounded_echo(rendered):
+    """Bound one rendered handed value for a refusal sentence
+    (FW4-10): a rendering standing at 120 characters or fewer
+    stands whole; a longer rendering stands as its first 120
+    characters beside a length statement naming the standing
+    length of the handed value and the 120 character bound, so
+    no refusal message grows with the handing past that bound
+    and the ground of the refusal stands readable at its head."""
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
+
+
+def make_headline_unit(values=_ARGUMENT_NOT_HANDED):
     """Build one HeadlineResultUnit in the fixed Shape 15 field
     order. The unit is a closed unit: every field required, no
     field beyond the fourteen, quotable whole or not at all.
     Every field value stands copied through base class readings
     only, in the form quote_headline_unit copies by, so no copy
-    protocol a part supplies is ever invoked at the build."""
+    protocol a part supplies is ever invoked at the build. A
+    handing missing its values stands refused in the named
+    form of this module, stating the door, the ground, and the
+    next step (FW5-10)."""
+    if values is _ARGUMENT_NOT_HANDED:
+        raise ValueError(
+            "make_headline_unit stands refused: this door "
+            "stands handed the values, a handing stands "
+            "missing among the values, and no unit stands "
+            "built; next step: hand the values, a field "
+            "mapping of the closed unit, and call the door "
+            "again")
     if not isinstance(values, dict):
         raise ValueError(
             "make_headline_unit stands refused: the headline unit "
@@ -760,7 +847,8 @@ def make_headline_unit(values):
         raise ValueError(
             "make_headline_unit stands refused: fields beyond the "
             "closed unit: "
-            + ", ".join(_stored_str(key) for key in extra)
+            + ", ".join(
+                _bounded_echo(_stored_str(key)) for key in extra)
             + ", and no unit stands built")
     unit = {}
     for field in HEADLINE_UNIT_FIELDS:

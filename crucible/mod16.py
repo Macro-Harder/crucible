@@ -262,6 +262,42 @@ def _whole_number_value(value):
     return int.__int__(value)
 
 
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing argument handing in the named
+form of this module instead of escaping as bare interpreter
+text at the call itself (FW5-10)."""
+
+
+def _missing_fixture_failure():
+    """The named fixture lookup failure for a fixture_record
+    handing that stands missing altogether (FW5-10): the door,
+    the ground, and the next step stand stated, and no fixture
+    record stands returned."""
+    failure = FixtureLookupFailure.__new__(FixtureLookupFailure)
+    failure.fixture_id = None
+    failure.failure = {
+        "name": "fixture lookup failure",
+        "module": "MOD-16",
+        "fixture": None,
+        "ground": (
+            "a handing stands missing for the fixture "
+            "identifier at fixture_record"),
+        "run_status": "failed",
+        "complete": False,
+    }
+    KeyError.__init__(
+        failure,
+        "fixture lookup failure: fixture_record stands "
+        "refused: this door stands handed the fixture "
+        "identifier, a handing stands missing for the fixture "
+        "identifier, and no fixture record stands returned. "
+        "Next step: hand one of the 30 standing fixture "
+        "identifiers, as fixture_inventory states them, and "
+        "call the door again.")
+    return failure
+
+
 class FixtureLookupFailure(KeyError):
     """A named failure for a fixture that does not resolve in the
     inventory. The failure value stands on the exception in the
@@ -289,10 +325,15 @@ class FixtureLookupFailure(KeyError):
             "fixture identifiers and hand one of them.")
 
 
-def fixture_record(fixture_id):
+def fixture_record(fixture_id=_ARGUMENT_NOT_HANDED):
     """Return the integration record line of one fixture. A
     fixture identifier that stands in no inventory line raises
-    the named fixture lookup failure, never a bare key error."""
+    the named fixture lookup failure, never a bare key error.
+    A handing missing its fixture identifier stands refused
+    in the same named form, stating the door, the ground, and
+    the next step (FW5-10)."""
+    if fixture_id is _ARGUMENT_NOT_HANDED:
+        raise _missing_fixture_failure()
     for line in fixture_inventory():
         if _stored_texts_equal(line["fixture"], fixture_id):
             return line

@@ -2865,10 +2865,20 @@ def _barred_payload_item(payload):
     return found[0] if found else "a barred value"
 
 
-def escrow_result(kind, variant="B-4", payload=None, contract_state=None):
+def escrow_result(kind=_ARGUMENT_NOT_HANDED, variant="B-4", payload=None, contract_state=None):
     """One escrow bearing result. Every such result carries the
     core only qualifier reading true, the K1 and L2 state carriage
-    Shape 9 requires, and the verification limit statement."""
+    Shape 9 requires, and the verification limit statement. A
+    handing missing its kind stands refused in the named form
+    of this module, stating the door, the ground, and the next
+    step (FW5-10)."""
+    if kind is _ARGUMENT_NOT_HANDED:
+        raise ValueError(
+            "escrow_result stands refused: an escrow result "
+            "stands built with its kind handed in, a handing "
+            "stands missing for the kind, and no escrow result "
+            "stands returned; next step: hand the kind and "
+            "call the door again")
     if not _base_member(variant, ("B-3", "B-4")):
         raise ValueError(
             "escrow_result stands refused: the escrow variant stands outside the B-3 and B-4 set: "
@@ -2913,12 +2923,12 @@ def escrow_contract_state(contract_identifier, variant="B-4", lien_state="no lie
     if not _base_member(variant, ("B-3", "B-4")):
         raise ValueError(
             "escrow_contract_state stands refused: the escrow variant "
-            "stands outside the B-3 and B-4 set: " + _sentence_text(variant)
+            "stands outside the B-3 and B-4 set: " + _bounded_echo(_sentence_text(variant))
             + ", and no escrow contract state stands returned")
     if not _base_member(lien_state, mod01.LIEN_STATES):
         raise ValueError(
             "escrow_contract_state stands refused: the lien state "
-            "stands outside the closed four value set: " + _sentence_text(lien_state)
+            "stands outside the closed four value set: " + _bounded_echo(_sentence_text(lien_state))
             + ", and no escrow contract state stands returned")
     state = {
         "contract_identifier": _undirected_copy(contract_identifier),
@@ -3080,9 +3090,9 @@ def _run_instruction_act(name, variant="B-4", context=None):
         or _reads_as_excluded_profile(name)
         or _reads_as_excluded_profile(context.get("profile"))
     ):
-        raise ExcludedSubpath("a construction excluded on a DQ ground stays excluded on that ground: " + name_text)
+        raise ExcludedSubpath("a construction excluded on a DQ ground stays excluded on that ground: " + _bounded_echo(name_text))
     if judged_name is None or judged_name not in _ALLOWED:
-        raise UnnamedInstruction("instruction stands unnamed in the cited set of 12 core instructions, with no exercised case standing for it: " + name_text + ", and no instruction stands run")
+        raise UnnamedInstruction("instruction stands unnamed in the cited set of 12 core instructions, with no exercised case standing for it: " + _bounded_echo(name_text) + ", and no instruction stands run")
     item = _ALLOWED[judged_name].split(",")[0]
     result_payload = {"instruction": judged_name, "dq_item": _ALLOWED[judged_name]}
     result_payload["contested_entries"] = contested_entries_for(item)

@@ -197,6 +197,13 @@ class NamedDetectionFailure(Exception):
     """A detection failure stated by name, under Contract E."""
 
 
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing argument handing in the named
+form of this module instead of escaping as bare interpreter
+text at the call itself (FW5-10)."""
+
+
 class SilentUseMovement(NamedDetectionFailure):
     """A table value moved between uses without both uses named."""
 
@@ -2030,7 +2037,9 @@ def accept_detection_input(record):
     if not keys.issubset(allowed):
         raise NamedDetectionFailure(
             "delivery rejected: fields outside DetectionInput: "
-            + ", ".join(sorted(_sentence_text(k) for k in keys - allowed))
+            + ", ".join(sorted(
+                _bounded_echo(_sentence_text(k))
+                for k in keys - allowed))
         )
     for field in ("agent_identifier", "day", "feature_values"):
         if field not in keys or dict.get(values, field) is None:
@@ -2287,9 +2296,19 @@ def score_day(records, society_state=None, mode="conformance",
     }
 
 
-def score(record_or_records, society_state=None, mode="conformance",
+def score(record_or_records=_ARGUMENT_NOT_HANDED, society_state=None, mode="conformance",
           uses=None, run_identifier=None):
-    """Score one DetectionInput record or one day of records."""
+    """Score one DetectionInput record or one day of records.
+    A handing missing its record or records stands refused in
+    the named form of this module, stating the door, the
+    ground, and the next step (FW5-10)."""
+    if record_or_records is _ARGUMENT_NOT_HANDED:
+        raise NamedDetectionFailure(
+            "score stands refused: this door stands handed "
+            "the record or records, a handing stands missing "
+            "among the record or records; next step: hand the "
+            "record or records and call the door again, and "
+            "no answer stands returned at this door")
     if record_or_records is None:
         raise NamedDetectionFailure(
             "delivery rejected: the record is not a DetectionInput "

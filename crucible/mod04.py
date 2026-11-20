@@ -124,6 +124,23 @@ class GatedRun(NamedFailure):
     gate = GATE_EXECUTABLE_RUNS
 
 
+def _bounded_echo(rendered):
+    """Bound one rendered handed value for a refusal sentence
+    (FW4-10): a rendering standing at 120 characters or fewer
+    stands whole; a longer rendering stands as its first 120
+    characters beside a length statement naming the standing
+    length of the handed value and the 120 character bound, so
+    no refusal message grows with the handing past that bound
+    and the ground of the refusal stands readable at its head."""
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
+
+
 def _gated_message(act, extra=()):
     message = (
         GATED_FAILURE_NAME + ": " + act + " stands gated on "
@@ -135,7 +152,8 @@ def _gated_message(act, extra=()):
     )
     if extra:
         message += (
-            " The keyword handings " + ", ".join(sorted(extra))
+            " The keyword handings "
+            + ", ".join(_bounded_echo(name) for name in sorted(extra))
             + " stand outside the stated form of this door and "
             "stand not taken; this door takes no adoption record "
             "and no seed as a keyword handing.")

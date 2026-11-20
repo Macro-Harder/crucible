@@ -51,6 +51,13 @@ _NAMED_FAILURE_CLASS_NAMES = frozenset((
 ))
 
 
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing argument handing in the named
+form of this module instead of escaping as bare interpreter
+text at the call itself (FW5-10)."""
+
+
 _FREEZE_DEPTH_BOUND = 100
 
 _FREEZE_TOO_DEEP = (
@@ -368,6 +375,23 @@ def _vocabulary_text(value):
     return _safe_text(value)
 
 
+def _bounded_echo(rendered):
+    """Bound one rendered handed value for a refusal sentence
+    (FW4-10): a rendering standing at 120 characters or fewer
+    stands whole; a longer rendering stands as its first 120
+    characters beside a length statement naming the standing
+    length of the handed value and the 120 character bound, so
+    no refusal message grows with the handing past that bound
+    and the ground of the refusal stands readable at its head."""
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
+
+
 def _key_error_message_text(raw_message):
     """The sentence a KeyError family failure carries, with
     the repr escapes the interpreter supplies inside its
@@ -505,10 +529,31 @@ def error_carriage(failure, run_id=None, stage=None):
     return carriage
 
 
-def run_command(command, payload=None, run_id=None):
+def run_command(command=_ARGUMENT_NOT_HANDED, payload=None, run_id=None):
     """Run one shell command. The command carries its inputs to
     its named module and returns that module outputs, or its
-    named failure in the error carriage form."""
+    named failure in the error carriage form. A handing
+    missing its command stands refused in the same carriage
+    form, stating the door, the ground, and the next step
+    (FW5-10)."""
+    if command is _ARGUMENT_NOT_HANDED:
+        return error_carriage(
+            NamedShellFailure(
+                "run_command stands refused: this door stands "
+                "handed the command, a handing stands missing "
+                "for the command, and no shell command stands "
+                "run; next step: hand the command, one of the "
+                "shell commands, and call the door again"),
+            run_id=run_id, stage=None)
+    # The carriage stage names the command in bounded rendering
+    # form (FW5-08): a command standing as text stands rendered
+    # as its stored text bounded in the FW4-10 form, so no
+    # refusal carriage of this door grows with the handing; a
+    # command in any other form stands carried as handed, in
+    # the standing form of the carriage.
+    stage_value = (
+        _bounded_echo(_stored_text(command))
+        if isinstance(command, str) else command)
     if payload is None:
         payload = {}
     if not isinstance(payload, dict):
@@ -518,7 +563,7 @@ def run_command(command, payload=None, run_id=None):
                 "in no dict form: a mapping in dict form of input "
                 "fields stands required as the payload of every "
                 "shell command"),
-            run_id=run_id, stage=command)
+            run_id=run_id, stage=stage_value)
     if isinstance(command, (bytes, bytearray, memoryview)) and (
             _stored_text(command) in (
                 "start_run", "start_sweep", "read_store",
@@ -532,7 +577,7 @@ def run_command(command, payload=None, run_id=None):
                 "naming one of the shell commands, a command handed "
                 "in buffer form stands in no command form, and no "
                 "shell command stands run"),
-            run_id=run_id, stage=command)
+            run_id=run_id, stage=stage_value)
     command_text = (
         _stored_text(command) if isinstance(command, str) else None)
     try:
@@ -612,14 +657,14 @@ def run_command(command, payload=None, run_id=None):
                 "week": dict.get(payload, "week"),
             }
         raise NamedShellFailure(
-            "unknown shell command: " + _safe_text(command)
+            "unknown shell command: " + _bounded_echo(_safe_text(command))
             + "; the shell commands stand as start_run, start_sweep, "
             "read_store, write_store, run_pilot, assemble_report, "
             "outside_call_check, store_kind_check, "
             "weekly_headline_count, and flag_evaluation, and no "
             "shell command stands run")
     except NamedShellFailure as failure:
-        carriage = error_carriage(failure, run_id=run_id, stage=command)
+        carriage = error_carriage(failure, run_id=run_id, stage=stage_value)
         if command_text == "assemble_report":
             carriage["not_built"] = True
             carriage["stands_on_record"] = (
@@ -631,7 +676,7 @@ def run_command(command, payload=None, run_id=None):
                 "and procedure rates, under the pilot confined label")
         return carriage
     except Exception as failure:
-        return error_carriage(failure, run_id=run_id, stage=command)
+        return error_carriage(failure, run_id=run_id, stage=stage_value)
 
 
 # ---------------------------------------------------------------------------
@@ -946,7 +991,7 @@ def _screen_pilot_artefact(value, _depth=0, _seen=None, _walked=None, _path="roo
         walked[(id(value), _depth)] = True
 
 
-def pilot_run(use, artefact=None):
+def pilot_run(use=_ARGUMENT_NOT_HANDED, artefact=None):
     """Run the purpose built run for one of its three uses only:
     timing, conformance, and procedure rates. Every pilot output
     carries its confinement label in the same artefact as the
@@ -960,11 +1005,21 @@ def pilot_run(use, artefact=None):
     apart under _freeze, in the posture of settlement S-1,
     never as the handed object itself, so a mutation of either
     side after the run stands in neither the other side nor
-    the delivered record."""
+    the delivered record. A handing missing its use stands
+    refused in the named form of this module, stating the
+    door, the ground, and the next step (FW5-10)."""
+    if use is _ARGUMENT_NOT_HANDED:
+        raise NamedShellFailure(
+            "pilot_run stands refused: this door stands "
+            "handed the use, a handing stands missing for "
+            "the use, and no pilot run stands performed; "
+            "next step: hand the use, one of timing, "
+            "conformance, and procedure rates, and call "
+            "the door again")
     use_text = str.__str__(use) if isinstance(use, str) else None
     if use_text is None or use_text not in PILOT_USES:
         raise NamedShellFailure(
-            "pilot use outside timing, conformance, and procedure rates: " + _safe_text(use)
+            "pilot use outside timing, conformance, and procedure rates: " + _bounded_echo(_safe_text(use))
         )
     _screen_pilot_artefact(artefact)
     output = _freeze(artefact) if isinstance(artefact, dict) else {"figure": _freeze(artefact)}

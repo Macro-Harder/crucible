@@ -717,6 +717,73 @@ def _catalogue_order_key(name):
     return (2, type(name).__name__, _catalogue_repr(name))
 
 
+class _CatalogueIndexMiss(Exception):
+    """No index key stands for a handed identifier, in the
+    standing of _catalogue_index_key."""
+
+
+def _catalogue_index_key(value, _depth=0, _seen=None):
+    """Return a hashable key standing for one identifier under
+    the stored form membership judgement of this module, so the
+    strategy catalogue membership act of FW5-07 can stand in an
+    index in place of a scan of every identifier already listed.
+    Two identifiers stand under the one key exactly where the
+    stored match and stored equality readings of this module
+    judge them equal: a text identifier by the plain text it
+    stores, a buffer identifier by the plain bytes it stores, a
+    boolean and every value in no stated form by its identity, a
+    number by the plain number it stores, a list or a tuple by
+    the keys of its stored parts in stored order, a set or a
+    frozenset by the keys of its stored parts in any order, and
+    a mapping by the keys of its stored pairs. Every part of the
+    key stands read through the base class reading of its form,
+    never through a hash or equality reading a handed identifier
+    itself supplies. A number standing apart from itself, the
+    NaN form, stands under no key, because the stored form
+    judgement holds it equal to nothing, not even itself. A
+    container standing past a depth of 100, or standing again on
+    its own walk path, stands under no key either, and the
+    catalogue act judges such a handing through the stored form
+    scan, as it judged every handing before this cure."""
+    if isinstance(value, str):
+        return ("text", str.__str__(value))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return ("buffer", bytes(value))
+    if isinstance(value, bool):
+        return ("identity", id(value))
+    if isinstance(value, (int, float, complex)):
+        plain = _plain_number(value)
+        if plain != plain:
+            raise _CatalogueIndexMiss
+        return ("number", plain)
+    if isinstance(value, (list, tuple, set, frozenset, dict)):
+        if _depth > 100 or (
+                _seen is not None and id(value) in _seen):
+            raise _CatalogueIndexMiss
+        seen = (_seen or frozenset()) | {id(value)}
+        if isinstance(value, list):
+            return ("list", tuple(
+                _catalogue_index_key(part, _depth + 1, seen)
+                for part in list.__iter__(value)))
+        if isinstance(value, tuple):
+            return ("tuple", tuple(
+                _catalogue_index_key(part, _depth + 1, seen)
+                for part in tuple.__iter__(value)))
+        if isinstance(value, (set, frozenset)):
+            parts = [
+                _catalogue_index_key(part, _depth + 1, seen)
+                for part in (
+                    set.__iter__(value) if isinstance(value, set)
+                    else frozenset.__iter__(value))]
+            return ("set", frozenset(parts), len(parts))
+        pairs = [
+            (_catalogue_index_key(key, _depth + 1, seen),
+             _catalogue_index_key(item, _depth + 1, seen))
+            for key, item in list(dict.items(value))]
+        return ("dict", frozenset(pairs), len(pairs))
+    return ("identity", id(value))
+
+
 def strategy_catalogue(extra_identifiers=None):
     """The strategy catalogue standing for this seat.
 
@@ -733,21 +800,56 @@ def strategy_catalogue(extra_identifiers=None):
     reading the container itself supplies, and identifiers handed
     as one bare text or buffer value stand as the one identifier
     handed, never read character by character. Whether an identifier
-    already stands listed stands judged through _base_contains
-    on the stored forms of the listed identifiers, as every
-    other membership judgement of this module stands judged,
-    never through an equality reading a handed identifier
-    itself supplies.
+    already stands listed stands judged on the stored forms of
+    the listed identifiers, as every other membership judgement
+    of this module stands judged, never through an equality
+    reading a handed identifier itself supplies. The judgement
+    stands taken through the index of _catalogue_index_key
+    (FW5-07), whose keys stand for the stored match and stored
+    equality judgement whole, so the work of one act stands
+    governed by the handing in linear form in place of the
+    square of the handing. A handed identifier in a container
+    form standing under no index key, a cyclic form or a form
+    nested past the stated depth, stands judged through
+    _base_contains over the listed identifiers in its standing
+    form, and a handed number standing under no key, the NaN
+    form, stands listed at every handing, as the stored form
+    judgement holds it equal to nothing.
     """
-    identifiers = list(NAMED_STRATEGIES)
+    identifiers = []
+    index = {}
+    unindexed = []
+
+    def _list_name(name):
+        try:
+            key = _catalogue_index_key(name)
+        except _CatalogueIndexMiss:
+            key = None
+        if key is not None:
+            if key in index:
+                return
+            if unindexed and _base_contains(unindexed, name):
+                return
+            index[key] = True
+            identifiers.append(name)
+            return
+        if isinstance(name, (list, tuple, set, frozenset, dict)):
+            if _base_contains(identifiers, name):
+                return
+            unindexed.append(name)
+            identifiers.append(name)
+            return
+        identifiers.append(name)
+
+    for name in NAMED_STRATEGIES:
+        _list_name(name)
     record = mod03_catalogue_record()
     if isinstance(record, dict):
         for entry in record.get("entries", []):
             if isinstance(entry, dict) and entry.get(
                     "archetype_id") is not None:
                 name = entry["archetype_id"]
-                if not _base_contains(identifiers, name):
-                    identifiers.append(name)
+                _list_name(name)
     if extra_identifiers is None:
         extras = []
     elif isinstance(extra_identifiers, (str, bytes, bytearray,
@@ -762,8 +864,7 @@ def strategy_catalogue(extra_identifiers=None):
     else:
         extras = []
     for name in extras:
-        if not _base_contains(identifiers, name):
-            identifiers.append(name)
+        _list_name(name)
     return {
         "identifiers": identifiers,
         "standing": CATALOGUE_STANDING,

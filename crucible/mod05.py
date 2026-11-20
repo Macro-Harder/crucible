@@ -120,6 +120,24 @@ _EXTENSION_SLICES = (
 )
 
 
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing argument handing in the named
+form of this module instead of escaping as bare interpreter
+text at the call itself (FW5-10)."""
+
+
+def _refuse_argument_handing(door, expected, consequence):
+    """Refuse a missing argument handing at a public act of
+    this module, in named form: the door, the ground, and the
+    next step stand stated (FW5-10)."""
+    raise ValueError(
+        door + " stands refused: this door stands handed "
+        + expected + ", a handing stands missing among "
+        + expected + "; next step: hand " + expected
+        + " and call the door again, and " + consequence)
+
+
 def _stored_list(value):
     """The stored elements of a handed container, read through the
     base iteration of its form, never through an iteration the
@@ -278,9 +296,18 @@ def _proportion_part_ground(part):
     return None
 
 
-def proportion_record(numerator, denominator):
+def proportion_record(numerator=_ARGUMENT_NOT_HANDED, denominator=_ARGUMENT_NOT_HANDED):
     """A proportion stored only with its numerator and denominator
-    stored apart. A proportion without its parts is refused."""
+    stored apart. A proportion without its parts is refused.
+    A handing missing its numerator or its denominator stands
+    refused in the named form of this module, stating the
+    door, the ground, and the next step (FW5-10)."""
+    if (numerator is _ARGUMENT_NOT_HANDED
+            or denominator is _ARGUMENT_NOT_HANDED):
+        _refuse_argument_handing(
+            "proportion_record",
+            "the numerator and the denominator",
+            "no proportion stands stored")
     if numerator is None or denominator is None:
         missing = []
         if numerator is None:
@@ -374,7 +401,7 @@ def validate_proportion(record):
     return True
 
 
-def work_credit(events):
+def work_credit(events=_ARGUMENT_NOT_HANDED):
     """Work and acceptance counters computed from the same events.
 
     Each event is one work completion with its acceptance outcome.
@@ -395,8 +422,15 @@ def work_credit(events):
     and stands computed over no elements, in the stored form
     doctrine the landed tests pin. same_event_set stands
     True only over the events actually read on one of these
-    standings, and no handing stands silently emptied.
+    standings, and no handing stands silently emptied. A
+    handing missing its events stands refused in the named
+    form of this module, stating the door, the ground, and
+    the next step (FW5-10).
     """
+    if events is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "work_credit", "the events",
+            "no work credit stands computed")
     if isinstance(events, (list, tuple, set, frozenset)):
         events = _stored_list(events)
     elif isinstance(events, (str, bytes, bytearray, memoryview, dict)):
@@ -1059,11 +1093,19 @@ def validate_evaluation_order(record):
     return True
 
 
-def band_membership(score, bands, evaluation_order=None):
+def band_membership(score=_ARGUMENT_NOT_HANDED, bands=_ARGUMENT_NOT_HANDED, evaluation_order=None):
     """Band membership read from a score produced through the
     aggregation interface, in the evaluation order the record states.
     Bands are stated as (band name, minimum score) pairs in the
-    record; the highest band whose minimum the score reaches holds."""
+    record; the highest band whose minimum the score reaches holds.
+    A handing missing its score or its bands stands refused in
+    the named form of this module, stating the door, the
+    ground, and the next step (FW5-10)."""
+    if (score is _ARGUMENT_NOT_HANDED
+            or bands is _ARGUMENT_NOT_HANDED):
+        _refuse_argument_handing(
+            "band_membership", "the score and the bands",
+            "no band stands returned")
     order_record = evaluation_order if isinstance(evaluation_order, dict) else evaluation_order_record(evaluation_order)
     if not validate_evaluation_order(order_record):
         if not isinstance(order_record, dict) or not dict.get(order_record, "order"):
@@ -1436,6 +1478,52 @@ def validate_band_transition_result(result):
 # Gate passing share, Contract G and brief section 5.10
 # ---------------------------------------------------------------------------
 
+def _gate_epoch_shape_ground(epoch):
+    """The shape ground on which one handed epoch stands
+    outside the form the gate passing share door can store,
+    or None where the epoch stands inside that form: the
+    epoch carries a cycle, or the epoch stands deeper than
+    the retention bound of 100 the retention doors state.
+    The walk is iterative over dict, list, tuple, set, and
+    frozenset parts, read through base class operations, so
+    a cyclic or over deep epoch stands judged here and
+    never as a bare RecursionError in the act that follows
+    (FW5-06)."""
+    done = {}
+    path = set()
+    stack = [(epoch, 0, False)]
+    while stack:
+        node, depth, exiting = stack.pop()
+        if exiting:
+            path.discard(id(node))
+            if id(node) not in done or depth > done[id(node)]:
+                done[id(node)] = depth
+            continue
+        if not isinstance(node, (dict, list, tuple, set, frozenset)):
+            continue
+        if id(node) in path:
+            return "cyclic"
+        if depth > 100:
+            return "depth"
+        if id(node) in done and done[id(node)] >= depth:
+            continue
+        path.add(id(node))
+        stack.append((node, depth, True))
+        if isinstance(node, dict):
+            children = list(dict.keys(node)) + list(dict.values(node))
+        elif isinstance(node, list):
+            children = list(list.__iter__(node))
+        elif isinstance(node, tuple):
+            children = list(tuple.__iter__(node))
+        elif isinstance(node, set):
+            children = list(set.__iter__(node))
+        else:
+            children = list(frozenset.__iter__(node))
+        for child in children:
+            stack.append((child, depth + 1, False))
+    return None
+
+
 def gate_passing_share(eligible, passing, epoch=None):
     """The gate passing share computed per epoch by this core, as a
     proportion stored with its numerator and denominator apart.
@@ -1454,20 +1542,62 @@ def gate_passing_share(eligible, passing, epoch=None):
     named form. A passing count above the eligible count
     stands refused in named form as well: a passing count
     stands as a part of the eligible count, and the share
-    stands inside the closed unit range from zero to one."""
+    stands inside the closed unit range from zero to one.
+    A handing in neither stated form stands refused in
+    named form (FW5-12). The epoch stands judged for cycle
+    and depth before the record stands built, and a cyclic
+    or over deep epoch stands refused in named form; the
+    epoch stands stored by value, so a later mutation of
+    the handed epoch changes no returned record (FW5-06)."""
     eligible_is_count = (
         isinstance(eligible, int)
         and not isinstance(eligible, bool))
     passing_is_count = (
         isinstance(passing, int)
         and not isinstance(passing, bool))
-    if eligible_is_count or passing_is_count:
-        if not (eligible_is_count and passing_is_count):
+    eligible_is_identity = isinstance(
+        eligible, (list, tuple, set, frozenset))
+    passing_is_identity = isinstance(
+        passing, (list, tuple, set, frozenset))
+    if eligible_is_count != passing_is_count:
+        other_is_identity = (
+            passing_is_identity if eligible_is_count
+            else eligible_is_identity)
+        if other_is_identity:
             raise ValueError(
                 "gate_passing_share stands refused: the eligible "
                 "and passing handings stand in mixed form, the "
                 "share stands computed from two counts or from "
                 "two identity sets, and no share stands returned")
+        raise ValueError(
+            "gate_passing_share stands refused: the eligible "
+            "and passing handings stand in neither stated form, "
+            "the share stands computed from two counts or from "
+            "two identity containers, and no share stands "
+            "returned")
+    if not eligible_is_count and not (
+            eligible_is_identity and passing_is_identity):
+        raise ValueError(
+            "gate_passing_share stands refused: the eligible "
+            "and passing handings stand in neither stated form, "
+            "the share stands computed from two counts or from "
+            "two identity containers, and no share stands "
+            "returned")
+    epoch_ground = _gate_epoch_shape_ground(epoch)
+    if epoch_ground == "cyclic":
+        raise ValueError(
+            "gate_passing_share stands refused: the epoch "
+            "handed for the gate passing share stands in a "
+            "cyclic form, and no share stands returned; next "
+            "step: hand an epoch carrying no cycle")
+    if epoch_ground == "depth":
+        raise ValueError(
+            "gate_passing_share stands refused: the epoch "
+            "handed for the gate passing share stands deeper "
+            "than the retention bound of 100, and no share "
+            "stands returned; next step: hand an epoch "
+            "standing within the depth bound of 100")
+    if eligible_is_count:
         eligible_plain = _base_number(eligible)
         passing_plain = _base_number(passing)
         if eligible_plain < 0 or passing_plain < 0:
@@ -1487,7 +1617,7 @@ def gate_passing_share(eligible, passing, epoch=None):
                 "the closed unit range from zero to one, and "
                 "no share stands returned")
         share = proportion_record(passing_plain, eligible_plain)
-        share["epoch"] = epoch
+        share["epoch"] = _freeze(epoch)
         share["computed_by"] = "MOD-05 Parley Core"
         return share
     eligible = _stored_list(eligible)
@@ -1513,7 +1643,7 @@ def gate_passing_share(eligible, passing, epoch=None):
             population.append(item)
     numerator = sum(1 for item in population if item in passing_set)
     share = proportion_record(numerator, len(population))
-    share["epoch"] = epoch
+    share["epoch"] = _freeze(epoch)
     share["computed_by"] = "MOD-05 Parley Core"
     return share
 
@@ -1736,7 +1866,20 @@ def recompute_share(logged_shares, recomputed_shares):
     """The one fact computed twice check, as a check artefact only.
     It stands held in a separate store position from the logged
     share, its only lawful output is a divergence count, ownership
-    of the share is unchanged, and no second owner is created."""
+    of the share is unchanged, and no second owner is created.
+    Each share handing stands judged for the mapping form the
+    act states before any epoch stands read, and a handing in
+    no mapping form stands refused in named form (FW5-05)."""
+    for handing_name, handing in (
+            ("logged_shares", logged_shares),
+            ("recomputed_shares", recomputed_shares)):
+        if not isinstance(handing, dict):
+            raise ValueError(
+                "recompute_share stands refused: the "
+                + handing_name + " handing stands in no mapping "
+                "form, a share stands recomputed only from two "
+                "mappings of epoch to share, and no share stands "
+                "returned")
     divergent = []
     for epoch in sorted(set(dict.__iter__(logged_shares)) | set(dict.__iter__(recomputed_shares)), key=str):
         if not dict.__contains__(logged_shares, epoch) or not dict.__contains__(recomputed_shares, epoch) or dict.__getitem__(logged_shares, epoch) != dict.__getitem__(recomputed_shares, epoch):

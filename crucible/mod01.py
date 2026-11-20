@@ -4334,6 +4334,28 @@ def _numeric_field_judged(field, value):
     return False
 
 
+def _identifier_field_judged(value):
+    """Whether one identifier field value of a run record stands
+    in identifier form (FW5-13): the text the value stores, read
+    on its stored form, carries identifier characters, so text
+    standing empty and text standing as spacing alone stand in
+    no identifier form, and a value storing no text stands in
+    no identifier form."""
+    stored = _stored_text(value)
+    if stored is None:
+        return False
+    return str.__len__(str.strip(stored)) > 0
+
+
+def _run_status_judged(value):
+    """Whether one run status value of a run record stands in
+    its stated form (FW5-13): the text the value stores stands
+    among the stated status values the module own status act
+    states, completed or failed, read on its stored form, the
+    same judgement validate_run_status applies."""
+    return _stored_text_in(value, ("completed", "failed"))
+
+
 def _validate_record_inner(form_id, instance):
     """Validate one record instance against its form.
 
@@ -4365,6 +4387,25 @@ def _validate_record_inner(form_id, instance):
                     _num_value is not None) and not (
                     _numeric_field_judged(_num_field, _num_value)):
                 return False
+    if fid == "4":
+        # The sweep identifier and the run status of a run
+        # record stand judged in their stated forms (FW5-13):
+        # an identifier standing in no identifier form and a
+        # status standing outside the stated status set fail
+        # validation here, as they stand named at the failure
+        # door.
+        _identifier_value = _stored_pairs_value(
+            instance, "sweep_identifier", _STORED_MISSING)
+        if _identifier_value is not _STORED_MISSING and (
+                _identifier_value is not None) and not (
+                _identifier_field_judged(_identifier_value)):
+            return False
+        _status_value = _stored_pairs_value(
+            instance, "run_status", _STORED_MISSING)
+        if _status_value is not _STORED_MISSING and (
+                _status_value is not None) and not (
+                _run_status_judged(_status_value)):
+            return False
     # The required field presence act reads the stored keys of
     # the record through base dict operations: the pairs the
     # record stores stand iterated directly, and a field stands
@@ -4749,39 +4790,46 @@ def _diagnosed_failure_entries(form_id, instance):
                 _discriminator_of = _condition
             if _condition["field"] == _field:
                 _conditional_of = _condition
+        # The field stands named in the bounded rendering form
+        # of FW4-10 (FW5-08), in the field slot and in the next
+        # step alike, so no failure entry of this door grows
+        # with a handed field name past that bound; a field name
+        # standing at the bound or under it stands whole, as
+        # every stated field name of the forms does.
+        named_field = _bounded_echo(_field)
         if _discriminator_of is not None:
             entries.append(_failure_sentence(
-                _field,
+                named_field,
                 "the field stands as the discriminator of a "
                 "stated condition on this form (" +
                 _discriminator_of["condition"] + "), and a "
                 "discriminator value stands only as a boolean "
                 "on the record, while the value the record "
                 "carries on this field stands as no boolean",
-                "hand the field " + _field + " as a boolean, "
+                "hand the field " + named_field + " as a boolean, "
                 "true or false, as the stated condition for "
                 "it reads"))
         elif _conditional_of is not None:
             entries.append(_failure_sentence(
-                _field,
+                named_field,
                 "the field stands as a conditional field of a "
                 "stated condition on this form (" +
                 _conditional_of["condition"] + "), and the "
                 "value the record carries on this field "
                 "stands outside the stated form for it where "
                 "its condition stands judged with the record",
-                "hand the field " + _field + " in the form "
+                "hand the field " + named_field + " in the form "
                 "the form states for it, or clear the "
                 "condition field " +
                 _conditional_of["discriminator"]
                 + " on the record"))
         else:
             entries.append(_failure_sentence(
-                _field,
+                named_field,
                 "a stated rule of this form for this field "
                 "stands unmet by the value the record carries "
                 "on it",
-                "hand the field " + _field + " with a value "
+                "hand the field " + named_field + " with a value "
                 "in the form the form states for it, in "
                 "form_fields and field_conditions for this "
                 "form"))
@@ -4944,6 +4992,32 @@ def _record_validation_failures(form_id, instance):
                     "stands in no judged form",
                     "supply the field " + num_field + " as a "
                     "whole number at or above " + str(minimum)))
+    if fid == "4":
+        # The sweep identifier and run status entries
+        # (FW5-13), in the same judged forms the inner
+        # judgement applies.
+        found, value = present_value("sweep_identifier")
+        if found and value is not None and not (
+                _identifier_field_judged(value)):
+            failures.append(_failure_sentence(
+                "sweep_identifier",
+                "the field stands in identifier form on this "
+                "form, text carrying an identifier, and the "
+                "value the record carries on it stands in no "
+                "identifier form",
+                "supply the field sweep_identifier as text "
+                "carrying an identifier"))
+        found, value = present_value("run_status")
+        if found and value is not None and not (
+                _run_status_judged(value)):
+            failures.append(_failure_sentence(
+                "run_status",
+                "the field stands as a run status on this form, "
+                "one of the stated values completed or failed, "
+                "and the value the record carries on it stands "
+                "outside that stated set",
+                "supply the field run_status as one of the "
+                "stated values: completed, failed"))
     for condition in _conditions_for(fid):
         disc_found, disc_value = present_value(
             condition["discriminator"])
@@ -5026,11 +5100,12 @@ def _record_validation_failures(form_id, instance):
                 "name every field with a text field name from "
                 "the form field list"))
         elif not key_names_a_field(key):
+            named = _bounded_echo(stored)
             failures.append(_failure_sentence(
-                stored,
+                named,
                 "the form names no such field, so the field "
                 "stands outside the record the form states",
-                "remove the field " + stored + ", or check its "
+                "remove the field " + named + ", or check its "
                 "spelling against the form field list"))
     # Container value in a scalar stated field (Step 16 fix
     # wave 7, row F7-02, ruling T16-73): a value standing in a

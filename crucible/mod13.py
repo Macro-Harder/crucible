@@ -949,7 +949,8 @@ def ac1_field_list():
 # Exact replay, AC-1
 # ---------------------------------------------------------------------------
 
-def replay_check(first, second):
+def replay_check(first=_ARGUMENT_NOT_HANDED,
+                 second=_ARGUMENT_NOT_HANDED):
     """Compare two runs over the AC-1 field list, field for field
     in list order, over the run fact values each run carries under
     those field names. An identical headline unit stands required
@@ -975,7 +976,18 @@ def replay_check(first, second):
     undelivered standing and certifies no equality. A differing comparison returns the consolidated first
     divergence record, and a comparison with no difference returns
     the consolidated no difference report, each in the form the
-    resume check returns for its state limb."""
+    resume check returns for its state limb. A handing missing
+    its first or its second record stands refused in the named
+    form of this module, stating the door, the ground, and the
+    next step (FW5-10)."""
+    if (first is _ARGUMENT_NOT_HANDED
+            or second is _ARGUMENT_NOT_HANDED):
+        raise NamedReplicationFailure(
+            "replay check requires its first and second "
+            "records: a record handing stands missing, and no "
+            "replay check stands performed; next step: hand "
+            "the first and second records and call the door "
+            "again")
     fields = ac1_field_list()
     first_record = first if isinstance(first, dict) else {}
     second_record = second if isinstance(second, dict) else {}

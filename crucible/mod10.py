@@ -320,6 +320,23 @@ def _failure_render(value):
             + " characters and stands rendered to its first "
             "120 characters only]")
 
+
+def _bounded_echo(rendered):
+    """Bound one rendered handed value for a refusal sentence
+    (FW4-10): a rendering standing at 120 characters or fewer
+    stands whole; a longer rendering stands as its first 120
+    characters beside a length statement naming the standing
+    length of the handed value and the 120 character bound, so
+    no refusal message grows with the handing past that bound
+    and the ground of the refusal stands readable at its head."""
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
+
 class LookupFailure(KeyError):
     """A named failure for a record that does not resolve in one
     lookup. The failure value stands on the exception in the form
@@ -3223,23 +3240,50 @@ def _usable_delivery_day(day):
     return True
 
 
+def _plain_component_value(value):
+    """The plain value of one handed component or denominator,
+    read through the base class operations of its form, never
+    through a comparison the handed value supplies (FW5-03).
+    A handed int or float subclass value stands rebuilt as the
+    plain int or float it stores, so a later comparison judges
+    the plain value of the handing. A value in no numeric form
+    stands returned as handed, and the numeric judgement at
+    _components_stand_numeric answers it as before."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return int.__new__(int, int.__int__(value))
+    if isinstance(value, float):
+        return float.__new__(float, float.__float__(value))
+    return value
+
+
 def _components_impossible(record):
     """Whether a daily aggregate row carries an impossible
-    component standing (FW-33): a component below zero, a
-    denominator below zero, or a component above its own
-    denominator, each judged where the field stands present
-    in numeric form."""
+    component standing (FW-33, FW5-03): a component below
+    zero, a denominator at or below zero, or a component
+    above its own denominator, each judged where the field
+    stands present in numeric form, and each judged on the
+    plain value of the handing through _plain_component_value,
+    never through a comparison the handed value supplies, so
+    a component or denominator handed in a dressed subclass
+    form stands judged exactly as its plain twin stands
+    judged."""
     components = dict.get(record, "joint_outcome_components")
     denominators = dict.get(record, "component_denominators")
     if isinstance(components, (list, tuple)):
-        components = list(_base_iter(components))
+        components = [
+            _plain_component_value(value)
+            for value in _base_iter(components)]
     if isinstance(denominators, (list, tuple)):
-        denominators = list(_base_iter(denominators))
+        denominators = [
+            _plain_component_value(value)
+            for value in _base_iter(denominators)]
     if _components_stand_numeric(components):
         if any(value < 0 for value in components):
             return True
     if _components_stand_numeric(denominators):
-        if any(value < 0 for value in denominators):
+        if any(value <= 0 for value in denominators):
             return True
     if _components_stand_numeric(components) \
             and _components_stand_numeric(denominators):
@@ -3264,6 +3308,19 @@ def _file_stamp(path):
         return None
     return (standing.st_ino, standing.st_size,
             standing.st_mtime_ns, standing.st_ctime_ns)
+
+
+_FLUSH_SYNC_BATCH = 32
+"""The batch standing of the file backed store sync (FW5-15):
+one posix.fsync stands paid at most once per this many flushes
+of one store instance, beside the first flush of an instance
+and any flush carrying removal forms, each of which stands
+synced in full. Every flush rewrites the store file whole in
+its sealed single payload form and replaces it in place, so
+the sync of a later flush covers every record the earlier
+flushes of its batch wrote, and no record a sync covers stands
+lost by the batching. The batch bounds the sync cost of bulk
+retention, which otherwise pays one fsync per record."""
 
 
 class RecorderStore:
@@ -3320,6 +3377,7 @@ class RecorderStore:
         self._file_seen = False
         self._file_stamp = None
         self._flush_fragments = {}
+        self._flushes_since_sync = _FLUSH_SYNC_BATCH - 1
         if path and os.path.isdir(path):
             raise _store_file_failure(
                 path,
@@ -3485,6 +3543,20 @@ class RecorderStore:
             + ', "store_kind": ' + json.dumps(self.store_kind) + "}")
 
     def _flush(self, merge_disk=True, remove_forms=()):
+        """Write the store standing to the store file, in the
+        sealed single payload form whole, through a temporary
+        file replaced in place. The sync of the written file
+        stands batched across the flushes of this instance in
+        the standing _FLUSH_SYNC_BATCH states (FW5-15): the
+        first flush of an instance, a flush carrying removal
+        forms, and every _FLUSH_SYNC_BATCH-th flush since the
+        last sync stand synced with posix.fsync before the
+        replace, and the flushes between stand written and
+        replaced without a sync of their own, their records
+        standing covered by the next sync of the batch, since
+        every flush rewrites the whole standing. A flush that
+        fails before its replace leaves the prior store file
+        whole, exactly as before."""
         if not self.path:
             return
         records = None
@@ -3551,12 +3623,19 @@ class RecorderStore:
         tmp_path = (
             self.path + ".tmp-" + str(os.getpid())
             + "-" + str(id(self)))
+        self._flushes_since_sync += 1
+        sync_this_flush = (
+            bool(remove_forms)
+            or self._flushes_since_sync >= _FLUSH_SYNC_BATCH)
         try:
             with open(tmp_path, "w", encoding="utf-8") as handle:
                 handle.write(text)
                 handle.flush()
-                os.fsync(handle.fileno())
+                if sync_this_flush:
+                    os.fsync(handle.fileno())
             os.replace(tmp_path, self.path)
+            if sync_this_flush:
+                self._flushes_since_sync = 0
             self._file_seen = True
             self._file_stamp = _file_stamp(self.path)
         except BaseException:
@@ -3617,7 +3696,7 @@ class RecorderStore:
         if dict.__contains__(self._by_text, rid):
             raise ValueError(
                 "second record for the same run is rejected: "
-                + _vocabulary_text(rid)
+                + _bounded_echo(_vocabulary_text(rid))
                 + "; next step: read the record already retained "
                 "under that identifier through read_run_record, "
                 "or retain this record under a new run identifier")
@@ -4081,9 +4160,9 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
             raise ValueError(
                 "daily aggregate delivery in named form: "
                 "the delivery for viewer "
-                + _vocabulary_text(dict.get(delivery, "viewer_id"))
+                + _bounded_echo(_vocabulary_text(dict.get(delivery, "viewer_id")))
                 + " carries no usable day (day "
-                + _stored_repr(dict.get(delivery, "simulated_day"))
+                + _bounded_echo(_stored_repr(dict.get(delivery, "simulated_day")))
                 + "), and that delivery stands not retained")
         for field in ("joint_outcome_components",
                       "component_denominators"):
@@ -4099,21 +4178,21 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
                     if _numeric_component(component):
                         continue
                     where = (
-                        " for viewer " + _vocabulary_text(dict.get(delivery, "viewer_id"))
-                        + " at day " + _vocabulary_text(dict.get(delivery, "simulated_day")))
+                        " for viewer " + _bounded_echo(_vocabulary_text(dict.get(delivery, "viewer_id")))
+                        + " at day " + _bounded_echo(_vocabulary_text(dict.get(delivery, "simulated_day"))))
                     if isinstance(component, (int, float)) and not isinstance(
                             component, bool):
                         raise ValueError(
                             "daily aggregate delivery in named form: "
                             "the " + field + " of the delivery" + where
                             + " stand in a non finite numeric form "
-                            "(component " + _stored_repr(component)
+                            "(component " + _bounded_echo(_stored_repr(component))
                             + "), and that delivery stands not retained")
                     raise ValueError(
                         "daily aggregate delivery in named form: the "
                         + field + " of the delivery" + where
                         + " stand in a non numeric form (component "
-                        + _stored_repr(component)
+                        + _bounded_echo(_stored_repr(component))
                         + "), and that delivery stands not retained")
         judged = {}
         for field in ("joint_outcome_components",
@@ -4128,20 +4207,20 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
                 "daily aggregate delivery in named form: the "
                 "joint outcome components of the delivery for "
                 "viewer "
-                + _vocabulary_text(dict.get(delivery, "viewer_id"))
+                + _bounded_echo(_vocabulary_text(dict.get(delivery, "viewer_id")))
                 + " at day "
-                + _vocabulary_text(dict.get(delivery, "simulated_day"))
+                + _bounded_echo(_vocabulary_text(dict.get(delivery, "simulated_day")))
                 + " stand impossible in the form the module "
                 "validator states (a component below zero, a "
-                "denominator below zero, or a component above "
-                "its own denominator), and that delivery stands "
-                "not retained")
+                "denominator at or below zero, or a component "
+                "above its own denominator), and that delivery "
+                "stands not retained")
     for delivery in stored_deliveries:
         if not isinstance(delivery, dict):
             continue
         where = (
-            " for viewer " + _vocabulary_text(dict.get(delivery, "viewer_id"))
-            + " at day " + _vocabulary_text(dict.get(delivery, "simulated_day")))
+            " for viewer " + _bounded_echo(_vocabulary_text(dict.get(delivery, "viewer_id")))
+            + " at day " + _bounded_echo(_vocabulary_text(dict.get(delivery, "simulated_day"))))
         if dict.__contains__(delivery, "honest_share"):
             if not _delivery_share_stands(
                     dict.get(delivery, "honest_share")):
@@ -4157,7 +4236,7 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
                     raise ValueError(
                         "daily aggregate delivery in named "
                         "form: the gate passing share for epoch "
-                        + _vocabulary_text(epoch)
+                        + _bounded_echo(_vocabulary_text(epoch))
                         + " of the delivery" + where
                         + " stands in no stated share form, and "
                         "that delivery stands not retained")
@@ -4693,8 +4772,8 @@ def daily_aggregates_validation_failures(aggregates):
                 "validate_daily_aggregates stands refused: "
                 "field joint_outcome_components: a component "
                 "stands below zero, or above its component "
-                "denominator, or a denominator stands below "
-                "zero, and no Recorder daily aggregate row "
+                "denominator, or a denominator stands at or "
+                "below zero, and no Recorder daily aggregate row "
                 "carries an impossible component; next step: "
                 "hand every component between zero and its "
                 "denominator, and no aggregates stand validated")
@@ -4958,7 +5037,7 @@ def record_gate_passing_share(run_id, epoch, share, simulated_day=None):
     if not _delivery_share_stands(share):
         raise ValueError(
             "gate passing share in named form: the share handed "
-            "for epoch " + _stored_repr(epoch)
+            "for epoch " + _bounded_echo(_stored_repr(epoch))
             + " stands in no stated share form, and no gate "
             "passing share stands recorded; next step: hand a "
             "share as a plain number in the closed unit range, "

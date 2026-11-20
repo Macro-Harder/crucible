@@ -467,6 +467,13 @@ class NamedControllerFailure(Exception):
     """A failure stated by name, never a silent correction."""
 
 
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing argument handing in the named
+form of this module instead of escaping as bare interpreter
+text at the call itself (FW5-10)."""
+
+
 def _freeze(value, _memo=None):
     """Copy a value through base class readings only.
 
@@ -783,7 +790,7 @@ _SEAL_NO_HASH_STANDING = (
     "no hash stands computed by this seal")
 
 
-def seal_family_record(record):
+def seal_family_record(record=_ARGUMENT_NOT_HANDED):
     """Seal one family record. The completeness condition stands
     performed before the seal: a record missing any one of the
     completeness items this controller names is refused in the
@@ -829,7 +836,18 @@ def seal_family_record(record):
     record meets the named refusal form and no bare exception
     escapes. The version and hash values stand bound checked
     and copied under the guard before sealing, so nothing the
-    handed record reports seals unguarded or by identity."""
+    handed record reports seals unguarded or by identity.
+    A handing missing its record stands refused in the named
+    form of this module, stating the door, the ground, and
+    the next step (FW5-10)."""
+    if record is _ARGUMENT_NOT_HANDED:
+        raise NamedControllerFailure(
+            "family record cannot seal: a handing stands "
+            "missing for the record, this door stands handed "
+            "the record, and no seal stands written; next "
+            "step: hand a family record, the record "
+            "make_family_record builds, and call the seal "
+            "again")
     if _shape_exceeds_bounds(record):
         raise NamedControllerFailure(_shape_refusal(
             "record", record, "family record cannot seal"))
@@ -2833,6 +2851,23 @@ def _safe_repr(value):
         return object.__repr__(value)
 
 
+def _bounded_echo(rendered):
+    """Bound one rendered handed value for a refusal sentence
+    (FW4-10): a rendering standing at 120 characters or fewer
+    stands whole; a longer rendering stands as its first 120
+    characters beside a length statement naming the standing
+    length of the handed value and the 120 character bound, so
+    no refusal message grows with the handing past that bound
+    and the ground of the refusal stands readable at its head."""
+    if len(rendered) <= 120:
+        return rendered
+    return (rendered[:120]
+            + " [bounded rendering: the handed value stands at "
+            + str(len(rendered))
+            + " characters and stands rendered to its first "
+            "120 characters only]")
+
+
 def _sentence_form(value, _depth=0):
     """Render a handed value for a refusal or failure sentence
     on the form it stands in, for a sentence whose act judges
@@ -3834,7 +3869,7 @@ def start_run(run_class=None, family_id=None, **_extra):
             "start run", "run class missing or outside the stated "
             "classes (screening, confirmation, headline, and "
             "validation): the class stands handed as "
-            + _safe_repr(run_class)
+            + _bounded_echo(_safe_repr(run_class))
             + ", and a run class stands as a text value naming "
             "one of the stated classes"), _extra)
     if not _family_identifier_stands(family_id):
@@ -3842,7 +3877,7 @@ def start_run(run_class=None, family_id=None, **_extra):
             "start run", "family identifier missing or in no "
             "identifier form: a family identifier stands as a "
             "text value carrying identifier text, and the value "
-            "handed stands as " + _safe_repr(family_id)), _extra)
+            "handed stands as " + _bounded_echo(_safe_repr(family_id))), _extra)
     return _name_start_extra_handings(
         _gated_start("start run", run_class=run_class,
                      family_id=family_id), _extra)
