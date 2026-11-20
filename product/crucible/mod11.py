@@ -283,7 +283,8 @@ def _retirement_list_shape_ground(fixture):
     return None
 
 
-def retirement_verdicts(fixture=_ARGUMENT_NOT_HANDED):
+def retirement_verdicts(fixture=_ARGUMENT_NOT_HANDED,
+                        **extra_kwargs):
     """Return the per check verdicts of the retirement test for a
     fixture, over all fifteen checks T-01 to T-15 in the version of
     the report format paper pinned in the family record. A list
@@ -292,7 +293,16 @@ def retirement_verdicts(fixture=_ARGUMENT_NOT_HANDED):
     form of this door, stating the ground and that no verdict
     stands returned (FW5-11). A handing missing its fixture
     stands refused in the named form of this module, stating
-    the door, the ground, and the next step (FW6-03)."""
+    the door, the ground, and the next step (FW6-03). A handing
+    carrying an argument beyond the fixture, in keyword form,
+    stands refused in the same named form (FW7-01)."""
+    if extra_kwargs:
+        raise ValueError(
+            "retirement_verdicts stands refused: this door "
+            "stands handed the fixture, an argument stands "
+            "handed in beyond the fixture, and no verdict "
+            "stands returned; next step: hand the fixture and "
+            "call the door again")
     if fixture is _ARGUMENT_NOT_HANDED:
         raise ValueError(
             "retirement_verdicts stands refused: this door "
@@ -326,12 +336,22 @@ def retirement_verdicts(fixture=_ARGUMENT_NOT_HANDED):
         "verdicts and no tally stand returned")
 
 
-def retirement_tally(fixture=_ARGUMENT_NOT_HANDED):
+def retirement_tally(fixture=_ARGUMENT_NOT_HANDED,
+                     **extra_kwargs):
     """Return the retirement tally of one fixture as its own
     record. The F-01 tally and the EX-01 tally stand apart and
     stand never merged. A handing missing its fixture stands
     refused in the named form of this module, stating the
-    door, the ground, and the next step (FW6-03)."""
+    door, the ground, and the next step (FW6-03). A handing
+    carrying an argument beyond the fixture, in keyword form,
+    stands refused in the same named form (FW7-01)."""
+    if extra_kwargs:
+        raise ValueError(
+            "retirement_tally stands refused: this door "
+            "stands handed the fixture, an argument stands "
+            "handed in beyond the fixture, and no tally stands "
+            "returned; next step: hand the fixture and call "
+            "the door again")
     if fixture is _ARGUMENT_NOT_HANDED:
         raise ValueError(
             "retirement_tally stands refused: this door "
@@ -2787,7 +2807,8 @@ def _headline_unit_refusal(unit):
         "validate as a quotable unit whole, and no unit stands quoted")
 
 
-def quote_headline_unit(unit=_ARGUMENT_NOT_HANDED):
+def quote_headline_unit(unit=_ARGUMENT_NOT_HANDED,
+                        **extra_kwargs):
     """Quote a headline unit whole. A unit that does not validate
     is not quoted at all. The quotation copies the validated unit
     through base class readings only, never through a copy
@@ -2795,7 +2816,15 @@ def quote_headline_unit(unit=_ARGUMENT_NOT_HANDED):
     part stands quoted as a memoryview over fresh bytes holding
     the content it carries, so quotation of a standing unit
     never fails in the copy act itself. A call handing no unit
-    stands refused in the named form of this module (FW6-03)."""
+    stands refused in the named form of this module (FW6-03).
+    A handing carrying an argument beyond the unit, in keyword
+    form, stands refused in the same named form (FW7-01)."""
+    if extra_kwargs:
+        raise ValueError(
+            "quote_headline_unit stands refused: this door stands handed "
+            "the unit, an argument stands handed in beyond the unit, and no "
+            "unit stands quoted; next step: hand the unit and call the "
+            "door again")
     if unit is _ARGUMENT_NOT_HANDED:
         raise ValueError(
             "quote_headline_unit stands refused: this door stands handed "

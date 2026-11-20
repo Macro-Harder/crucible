@@ -951,7 +951,7 @@ def ac1_field_list():
 
 def replay_check(first=_ARGUMENT_NOT_HANDED,
                  second=_ARGUMENT_NOT_HANDED,
-                 *extra_args):
+                 *extra_args, **extra_kwargs):
     """Compare two runs over the AC-1 field list, field for field
     in list order, over the run fact values each run carries under
     those field names. An identical headline unit stands required
@@ -991,7 +991,7 @@ def replay_check(first=_ARGUMENT_NOT_HANDED,
             "replay check stands performed; next step: hand "
             "the first and second records and call the door "
             "again")
-    if extra_args:
+    if extra_args or extra_kwargs:
         raise NamedReplicationFailure(
             "replay check requires its first and second "
             "records: an argument stands handed in beyond the "
@@ -1724,7 +1724,7 @@ def _is_detection_output(record):
 
 def score_detection_outputs(outputs=_ARGUMENT_NOT_HANDED,
                             authored_by=None, knowledge=None,
-                            records_position=None):
+                            records_position=None, **extra_kwargs):
     """Score retained DetectionOutput records after a run, under
     the three separations. The record states who authored the
     profiles, what they could know, and where the records sit, as
@@ -1736,7 +1736,15 @@ def score_detection_outputs(outputs=_ARGUMENT_NOT_HANDED,
     carriage, never as a value taken from an input. A handing
     missing its outputs stands refused in the named form of this
     module, stating the door, the ground, and the next step
-    (FW6-03)."""
+    (FW6-03). A handing carrying an argument beyond the stated
+    handings of this door, in keyword form, stands refused in
+    the same named form (FW7-01)."""
+    if extra_kwargs:
+        raise NamedReplicationFailure(
+            "score detection outputs requires its outputs: an "
+            "argument stands handed in beyond the outputs, "
+            "and no score stands returned; next step: hand "
+            "the outputs and call the door again")
     if outputs is _ARGUMENT_NOT_HANDED:
         raise NamedReplicationFailure(
             "score detection outputs requires its outputs: an "

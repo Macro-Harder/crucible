@@ -1353,11 +1353,25 @@ def request_generator(_request=None, **_extra):
         gated_refusal("supply generator"), _extra)
 
 
-def initial_stream_state(stream_class=None, carried_positions=0):
+def initial_stream_state(stream_class=None, carried_positions=0,
+                         *extra_args, **extra_kwargs):
     """Return a stream state record at its first position.
 
     This is state carriage only. It draws no seed and assigns none.
+    A handing carrying an argument beyond the stream class and
+    the carried positions stands refused in the named form of
+    this module, stating the door, the ground, and the next step
+    (FW7-01).
     """
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "initial_stream_state stands refused: this door "
+            "stands handed the stream class and the carried "
+            "positions, an argument stands handed in beyond "
+            "the stream class and the carried positions, and "
+            "no stream state stands returned; next step: hand "
+            "the stream class and the carried positions and "
+            "call the door again")
     return {
         "stream_class": stream_class,
         "position": 0,
@@ -1481,7 +1495,8 @@ def candidate_separator():
     return _CANDIDATE_SEPARATOR
 
 
-def encode_candidate_input(values=_ARGUMENT_NOT_HANDED):
+def encode_candidate_input(values=_ARGUMENT_NOT_HANDED,
+                           *extra_args, **extra_kwargs):
     """Encode one candidate derivation input in joined input form.
 
     Each field enters as its name and its recorded string value, each
@@ -1493,7 +1508,18 @@ def encode_candidate_input(values=_ARGUMENT_NOT_HANDED):
     seed and adopts no derivation form. A handing missing its
     values stands refused in the named form of this module,
     stating the door, the ground, and the next step (FW6-03).
+    A handing carrying an argument beyond the values, in
+    positional or in keyword form, stands refused in the same
+    named form (FW7-01).
     """
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "encode_candidate_input stands refused: this door "
+            "stands handed the values, an argument stands "
+            "handed in beyond the values, and no encoding "
+            "stands returned; next step: hand the values, a "
+            "mapping of field names to recorded string values, "
+            "and call the door again")
     if values is _ARGUMENT_NOT_HANDED:
         raise ValueError(
             "encode_candidate_input stands refused: this door "

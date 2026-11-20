@@ -3895,7 +3895,7 @@ def start_sweep(family_id=None, **_extra):
             "start sweep", "family identifier missing or in no "
             "identifier form: a family identifier stands as a "
             "text value carrying identifier text, and the value "
-            "handed stands as " + _safe_repr(family_id)), _extra)
+            "handed stands as " + _bounded_echo(_safe_repr(family_id))), _extra)
     return _name_start_extra_handings(
         _gated_start("start sweep", family_id=family_id), _extra)
 

@@ -875,7 +875,8 @@ def strategy_catalogue(extra_identifiers=None):
 
 def make_strategy(identifier=_ARGUMENT_NOT_HANDED,
                   in_protocol_payoff=0,
-                  external_profit_range=None, parameters=None):
+                  external_profit_range=None, parameters=None,
+                  **extra_kwargs):
     """State one attacker strategy record.
 
     Each strategy carries an external profit parameter, in
@@ -892,6 +893,9 @@ def make_strategy(identifier=_ARGUMENT_NOT_HANDED,
     strategy stands built on such a handing. A handing missing
     its identifier stands refused in the same named form,
     stating the door, the ground, and the next step (FW6-03).
+    A handing carrying an argument beyond the stated handings
+    of this door, in keyword form, stands refused in the same
+    named form (FW7-01).
 
     The in protocol payoff stands refused in this module named
     failure form where it stands in no finite numeric form, the
@@ -905,6 +909,13 @@ def make_strategy(identifier=_ARGUMENT_NOT_HANDED,
     handed as None stands as no range handed, and its [0] stands
     as the stated default, unmarked.
     """
+    if extra_kwargs:
+        raise NamedAttackerFailure(
+            "make_strategy stands refused: a strategy stands "
+            "built with its identifier handed in, an argument "
+            "stands handed in beyond the identifier, and no "
+            "strategy stands built; next step: hand the "
+            "identifier and call the door again")
     if identifier is _ARGUMENT_NOT_HANDED:
         raise NamedAttackerFailure(
             "make_strategy stands refused: a strategy stands "

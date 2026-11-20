@@ -541,12 +541,19 @@ def accept_work(events):
 def vouch(voucher=_ARGUMENT_NOT_HANDED, vouchee=_ARGUMENT_NOT_HANDED,
           stake=_ARGUMENT_NOT_HANDED, creation_day=0, lifetime=None,
           score_bearing=True, component_identifier=None,
-          component_definition_version=None):
+          component_definition_version=None, **extra_kwargs):
     """One VouchEdge in Shape 8 form, carrying its component
     identifier under the component definition version in force.
     A handing missing its voucher, its vouchee, or its stake
     stands refused in the named form of this module, stating
-    the door, the ground, and the next step (FW6-03)."""
+    the door, the ground, and the next step (FW6-03). A handing
+    carrying an argument beyond the stated handings of this
+    door, in keyword form, stands refused in the same named
+    form (FW7-01)."""
+    if extra_kwargs:
+        _refuse_argument_handing(
+            "vouch", "the voucher, the vouchee, and the stake",
+            "no vouch stands returned", missing=False)
     if (voucher is _ARGUMENT_NOT_HANDED
             or vouchee is _ARGUMENT_NOT_HANDED
             or stake is _ARGUMENT_NOT_HANDED):
@@ -1558,7 +1565,7 @@ def _gate_epoch_shape_ground(epoch):
 
 def gate_passing_share(eligible=_ARGUMENT_NOT_HANDED,
                        passing=_ARGUMENT_NOT_HANDED, epoch=None,
-                       *extra_args):
+                       *extra_args, **extra_kwargs):
     """The gate passing share computed per epoch by this core, as a
     proportion stored with its numerator and denominator apart.
 
@@ -1594,7 +1601,7 @@ def gate_passing_share(eligible=_ARGUMENT_NOT_HANDED,
             "gate_passing_share",
             "the eligible handing and the passing handing",
             "no share stands returned")
-    if extra_args:
+    if extra_args or extra_kwargs:
         _refuse_argument_handing(
             "gate_passing_share",
             "the eligible handing and the passing handing",
@@ -1699,7 +1706,8 @@ def gate_passing_share(eligible=_ARGUMENT_NOT_HANDED,
 
 
 def compute_share(eligible=_ARGUMENT_NOT_HANDED,
-                  passing=_ARGUMENT_NOT_HANDED, epoch=None):
+                  passing=_ARGUMENT_NOT_HANDED, epoch=None,
+                  **extra_kwargs):
     """The gate passing share of one epoch, at the compute door.
 
         Arguments: eligible, the eligible count or set; passing,
@@ -1711,8 +1719,16 @@ def compute_share(eligible=_ARGUMENT_NOT_HANDED,
         value stands refused at this door in the named form of
         this module, stating the door, the ground, and the next
         step (FW6-03); any other failure of the share act
-        stands as gate_passing_share answers it.
+        stands as gate_passing_share answers it. A handing
+        carrying an argument beyond the eligible, the passing,
+        and the epoch, in keyword form, stands refused at this
+        door in the same named form (FW7-01).
     """
+    if extra_kwargs:
+        _refuse_argument_handing(
+            "compute_share",
+            "the eligible handing and the passing handing",
+            "no share stands returned", missing=False)
     if (eligible is _ARGUMENT_NOT_HANDED
             or passing is _ARGUMENT_NOT_HANDED):
         _refuse_argument_handing(
@@ -1930,7 +1946,7 @@ def recomputation_sample(records):
 
 def recompute_share(logged_shares=_ARGUMENT_NOT_HANDED,
                     recomputed_shares=_ARGUMENT_NOT_HANDED,
-                    *extra_args):
+                    *extra_args, **extra_kwargs):
     """The one fact computed twice check, as a check artefact only.
     It stands held in a separate store position from the logged
     share, its only lawful output is a divergence count, ownership
@@ -1952,7 +1968,7 @@ def recompute_share(logged_shares=_ARGUMENT_NOT_HANDED,
             "recompute_share",
             "the logged shares and the recomputed shares",
             "no share stands returned")
-    if extra_args:
+    if extra_args or extra_kwargs:
         _refuse_argument_handing(
             "recompute_share",
             "the logged shares and the recomputed shares",

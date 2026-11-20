@@ -2910,7 +2910,8 @@ def escrow_result(kind=_ARGUMENT_NOT_HANDED, variant="B-4", payload=None, contra
 def escrow_contract_state(contract_identifier=_ARGUMENT_NOT_HANDED, variant="B-4", lien_state="no lien in force",
                           pause_state=None, lost_contact_clause_on=False,
                           pair_identifiers=None, standard_or_profile_identifier=None,
-                          estimated_cost_value=None, pause_cap_value=None, window_n=None):
+                          estimated_cost_value=None, pause_cap_value=None, window_n=None,
+                          **extra_kwargs):
     """An EscrowContractState in Shape 9 and Form 10 form, carrying
     every Form 10 field group: the pair identifiers, the standard
     or profile identifier, the estimated cost value, the pause
@@ -2922,7 +2923,17 @@ def escrow_contract_state(contract_identifier=_ARGUMENT_NOT_HANDED, variant="B-4
     OP-21 G-10, and no value is invented for it. A handing missing
     its contract identifier stands refused in the named form of
     this module, stating the door, the ground, and the next step
-    (FW6-03)."""
+    (FW6-03). A handing carrying an argument beyond the stated
+    handings of this door, in keyword form, stands refused in
+    the same named form (FW7-01)."""
+    if extra_kwargs:
+        raise ValueError(
+            "escrow_contract_state stands refused: an escrow "
+            "contract state stands built with its contract "
+            "identifier handed in, an argument stands handed "
+            "in beyond the contract identifier, and no escrow "
+            "contract state stands returned; next step: hand "
+            "the contract identifier and call the door again")
     if contract_identifier is _ARGUMENT_NOT_HANDED:
         raise ValueError(
             "escrow_contract_state stands refused: an escrow "
@@ -3065,7 +3076,8 @@ def _accuracy_stands(accuracy):
     return False
 
 
-def run_instruction(name=_ARGUMENT_NOT_HANDED, variant="B-4", context=None):
+def run_instruction(name=_ARGUMENT_NOT_HANDED, variant="B-4", context=None,
+                    **extra_kwargs):
     """Run one exercised instruction case as written, fixture F-21.
 
     Allowed subpaths run as written and claim no DQ answer. Pool
@@ -3074,8 +3086,17 @@ def run_instruction(name=_ARGUMENT_NOT_HANDED, variant="B-4", context=None):
     clock scope reading as an answer is refused as a guess. A
     handing missing its name stands refused in the named form of
     this module, stating the door, the ground, and the next step
-    (FW6-03).
+    (FW6-03). A handing carrying an argument beyond the stated
+    handings of this door, in keyword form, stands refused in
+    the same named form (FW7-01).
     """
+    if extra_kwargs:
+        raise ValueError(
+            "run_instruction stands refused: an instruction "
+            "stands run with its name handed in, an argument "
+            "stands handed in beyond the name, and no "
+            "instruction stands run; next step: hand the name "
+            "and call the door again")
     if name is _ARGUMENT_NOT_HANDED:
         raise ValueError(
             "run_instruction stands refused: an instruction "
