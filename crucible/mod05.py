@@ -370,9 +370,13 @@ def _base_number(part):
     return int.__int__(part)
 
 
-def validate_proportion(record):
+def validate_proportion(record, *extra_args, **extra_kwargs):
     """True only where a proportion stands stored with its numerator
     and denominator apart, and any stored quotient agrees with them."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "validate_proportion", "the record",
+            "no validation stands returned", missing=False)
     if not isinstance(record, dict):
         return False
     if not dict.__contains__(record, "numerator") or not dict.__contains__(record, "denominator"):
@@ -524,7 +528,7 @@ def work_credit(events=_ARGUMENT_NOT_HANDED,
     }
 
 
-def credit_work(events):
+def credit_work(events, *extra_args, **extra_kwargs):
     """The work credit of a set of work events, at the credit door.
 
         Arguments: events, the work events handed in.
@@ -534,10 +538,14 @@ def credit_work(events):
         own; a failure of the credit act stands as work_credit
         answers it.
     """
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "credit_work", "the events",
+            "no work credit stands returned", missing=False)
     return work_credit(events)
 
 
-def accept_work(events):
+def accept_work(events, *extra_args, **extra_kwargs):
     """The work credit of a set of work events, at the accept door.
 
         Arguments: events, the work events handed in.
@@ -547,6 +555,10 @@ def accept_work(events):
         own; a failure of the credit act stands as work_credit
         answers it.
     """
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "accept_work", "the events",
+            "no work credit stands returned", missing=False)
     return work_credit(events)
 
 
@@ -557,7 +569,7 @@ def accept_work(events):
 def vouch(voucher=_ARGUMENT_NOT_HANDED, vouchee=_ARGUMENT_NOT_HANDED,
           stake=_ARGUMENT_NOT_HANDED, creation_day=0, lifetime=None,
           score_bearing=True, component_identifier=None,
-          component_definition_version=None, **extra_kwargs):
+          component_definition_version=None, *extra_args, **extra_kwargs):
     """One VouchEdge in Shape 8 form, carrying its component
     identifier under the component definition version in force.
     A handing missing its voucher, its vouchee, or its stake
@@ -566,7 +578,7 @@ def vouch(voucher=_ARGUMENT_NOT_HANDED, vouchee=_ARGUMENT_NOT_HANDED,
     carrying an argument beyond the stated handings of this
     door, in keyword form, stands refused in the same named
     form (FW7-01)."""
-    if extra_kwargs:
+    if extra_args or extra_kwargs:
         _refuse_argument_handing(
             "vouch", "the voucher, the vouchee, and the stake",
             "no vouch stands returned", missing=False)
@@ -763,9 +775,13 @@ def _components(edges):
     return result
 
 
-def component(edges, component_definition_version=None):
+def component(edges, component_definition_version=None, *extra_args, **extra_kwargs):
     """The component list under one component definition version.
     Component size for the cap counts edges, not stake weight."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "component", "the edges",
+            "no component stands returned", missing=False)
     edges = _stored_list(edges)
     groups = _components(edges)
     largest = max((len(g["members"]) for g in groups), default=0)
@@ -780,10 +796,14 @@ def component(edges, component_definition_version=None):
     }
 
 
-def component_cap_check(edges, cap_edges):
+def component_cap_check(edges, cap_edges, *extra_args, **extra_kwargs):
     """The component cap counts edges, not stake weight: a component
     passes the cap only where its edge count is at or under the cap,
     whatever its stake total."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "component_cap_check", "the edges and the cap edges",
+            "no cap check stands returned", missing=False)
     if not _stands_numeric(cap_edges) or (
             isinstance(cap_edges, float)
             and not math.isfinite(cap_edges)):
@@ -798,9 +818,13 @@ def component_cap_check(edges, cap_edges):
     return True
 
 
-def realised_degree_distribution(edges, by_epoch=None):
+def realised_degree_distribution(edges, by_epoch=None, *extra_args, **extra_kwargs):
     """The realised degree distribution, by graph and, where epochs
     are supplied, by epoch."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "realised_degree_distribution", "the edges",
+            "no degree distribution stands returned", missing=False)
     def distribution(edge_set):
         edge_set = list(edge_set)
         _judge_graph_edges(edge_set, "realised_degree_distribution")
@@ -819,9 +843,13 @@ def realised_degree_distribution(edges, by_epoch=None):
     return result
 
 
-def graph_snapshot(edges, component_definition_version=None, edge_list_reference=None):
+def graph_snapshot(edges, component_definition_version=None, edge_list_reference=None, *extra_args, **extra_kwargs):
     """A GraphSnapshot in Form 9 form, under its component definition
     version, which travels with the snapshot."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "graph_snapshot", "the edges",
+            "no graph snapshot stands returned", missing=False)
     edges = _stored_list(edges)
     comp = component(edges, component_definition_version=component_definition_version)
     return {
@@ -833,10 +861,14 @@ def graph_snapshot(edges, component_definition_version=None, edge_list_reference
     }
 
 
-def validate_graph_snapshot(snapshot, edges):
+def validate_graph_snapshot(snapshot, edges, *extra_args, **extra_kwargs):
     """A snapshot computed under one component definition version
     read against edges under another version fails. The snapshot
     must also agree with its referenced edge list."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "validate_graph_snapshot", "the snapshot and the edges",
+            "no validation stands returned", missing=False)
     if not isinstance(snapshot, dict):
         return False
     edges = _stored_list(edges)
@@ -869,10 +901,14 @@ def validate_graph_snapshot(snapshot, edges):
     )
 
 
-def graph_facts(edges, by_epoch=None, component_definition_version=None):
+def graph_facts(edges, by_epoch=None, component_definition_version=None, *extra_args, **extra_kwargs):
     """The graph facts the core hands on: the edge list reference,
     the component list, the largest mutually vouching component size,
     and the realised degree distribution by graph and by epoch."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "graph_facts", "the edges",
+            "no graph facts stand returned", missing=False)
     edges = _stored_list(edges)
     snapshot = graph_snapshot(
         edges, component_definition_version=component_definition_version)
@@ -886,11 +922,15 @@ def graph_facts(edges, by_epoch=None, component_definition_version=None):
     return facts
 
 
-def feeder_position(feeder, edges):
+def feeder_position(feeder, edges, *extra_args, **extra_kwargs):
     """The one directional feeder fact: whether the feeder appears in
     the largest mutually vouching component figure, in the component
     list, or in neither. A one directional vouch with no return vouch
     places the feeder in neither."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "feeder_position", "the feeder and the edges",
+            "no feeder position stands returned", missing=False)
     groups = _components(_stored_list(edges))
     if not groups:
         return "neither"
@@ -907,7 +947,7 @@ def feeder_position(feeder, edges):
 # Aggregation interface and the recommended candidate, comparison form only
 # ---------------------------------------------------------------------------
 
-def aggregation_interface():
+def aggregation_interface(*extra_args, **extra_kwargs):
     """The standing of the aggregation interface, stated in the open.
 
         Arguments: no argument stands handed in.
@@ -920,6 +960,10 @@ def aggregation_interface():
         failure form is the standing the mapping states, no
         adopted rule and no headline use permitted.
     """
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "aggregation_interface", "no argument",
+            "no interface stands returned", missing=False)
     return {
         "form": "interface",
         "standing": AGGREGATION_STANDING,
@@ -1087,7 +1131,7 @@ def aggregate_reputation(inputs=_ARGUMENT_NOT_HANDED,
     }
 
 
-def aggregation_score(inputs):
+def aggregation_score(inputs, *extra_args, **extra_kwargs):
     """The aggregation score of one set of inputs.
 
         Arguments: inputs, the inputs handed in for scoring.
@@ -1098,10 +1142,14 @@ def aggregation_score(inputs):
         in its named refusal form, and no score stands returned
         for it.
     """
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "aggregation_score", "the inputs",
+            "no score stands returned", missing=False)
     return aggregate_reputation(inputs)
 
 
-def compare_aggregation(inputs):
+def compare_aggregation(inputs, *extra_args, **extra_kwargs):
     """The aggregation comparison of one set of inputs.
 
         Arguments: inputs, the inputs handed in for comparison.
@@ -1112,6 +1160,10 @@ def compare_aggregation(inputs):
         in its named refusal form, and no comparison stands
         returned for it.
     """
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "compare_aggregation", "the inputs",
+            "no comparison stands returned", missing=False)
     return aggregate_reputation(inputs)
 
 
@@ -1119,11 +1171,15 @@ def compare_aggregation(inputs):
 # Bands, caps and eligibility, in the evaluation order the record states
 # ---------------------------------------------------------------------------
 
-def evaluation_order_record(order=None, batch=None):
+def evaluation_order_record(order=None, batch=None, *extra_args, **extra_kwargs):
     """The evaluation order carriage. Order O-1 with a batch of one
     simulated day stands as a recommendation, not a ruling, with
     order O-5 as a named sensitivity arm. Judgement points and gaps
     stand open at NQ-46, open point OP-08."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "evaluation_order_record", "the order and the batch",
+            "no evaluation order record stands returned", missing=False)
     return {
         "order": order,
         "batch": batch if batch is not None else "one simulated day",
@@ -1134,9 +1190,13 @@ def evaluation_order_record(order=None, batch=None):
     }
 
 
-def validate_evaluation_order(record):
+def validate_evaluation_order(record, *extra_args, **extra_kwargs):
     """A run whose order stands unstated fails, and no record may
     present O-1, or any order, as ruled."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "validate_evaluation_order", "the record",
+            "no validation stands returned", missing=False)
     if not isinstance(record, dict):
         return False
     if not dict.get(record, "order"):
@@ -1146,7 +1206,7 @@ def validate_evaluation_order(record):
     return True
 
 
-def band_membership(score=_ARGUMENT_NOT_HANDED, bands=_ARGUMENT_NOT_HANDED, evaluation_order=None):
+def band_membership(score=_ARGUMENT_NOT_HANDED, bands=_ARGUMENT_NOT_HANDED, evaluation_order=None, *extra_args, **extra_kwargs):
     """Band membership read from a score produced through the
     aggregation interface, in the evaluation order the record states.
     Bands are stated as (band name, minimum score) pairs in the
@@ -1154,6 +1214,10 @@ def band_membership(score=_ARGUMENT_NOT_HANDED, bands=_ARGUMENT_NOT_HANDED, eval
     A handing missing its score or its bands stands refused in
     the named form of this module, stating the door, the
     ground, and the next step (FW5-10)."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "band_membership", "the score and the bands",
+            "no band stands returned", missing=False)
     if (score is _ARGUMENT_NOT_HANDED
             or bands is _ARGUMENT_NOT_HANDED):
         _refuse_argument_handing(
@@ -1241,12 +1305,16 @@ def band_membership(score=_ARGUMENT_NOT_HANDED, bands=_ARGUMENT_NOT_HANDED, eval
 
 
 def eligibility(score=_ARGUMENT_NOT_HANDED, bands=_ARGUMENT_NOT_HANDED,
-                evaluation_order=None, panel_minimum=None, cap_maximum=None):
+                evaluation_order=None, panel_minimum=None, cap_maximum=None, *extra_args, **extra_kwargs):
     """Eligibility judgements for band membership, panel eligibility
     and cap eligibility in one day, all read from the one score.
     A handing missing its score or its bands stands refused at
     this door in the named form of this module, stating the
     door, the ground, and the next step (FW6-03)."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "eligibility", "the score and the bands",
+            "no eligibility stands returned", missing=False)
     if (score is _ARGUMENT_NOT_HANDED
             or bands is _ARGUMENT_NOT_HANDED):
         _refuse_argument_handing(
@@ -1283,7 +1351,7 @@ def eligibility(score=_ARGUMENT_NOT_HANDED, bands=_ARGUMENT_NOT_HANDED,
     return result
 
 
-def reputation_and_band_values(agents_scores, bands, viewer=None, evaluation_order=None):
+def reputation_and_band_values(agents_scores, bands, viewer=None, evaluation_order=None, *extra_args, **extra_kwargs):
     """The view edge supply: the reputation and band values this core
     already owns, supplied for assembly into a view by MOD-04,
     without MOD-04 taking over their computation.
@@ -1295,6 +1363,10 @@ def reputation_and_band_values(agents_scores, bands, viewer=None, evaluation_ord
     failure form naming the field, in place of a bare interpreter
     error escaping from the band comparison or the items reading.
     """
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "reputation_and_band_values", "the agent scores and the bands",
+            "no reputation and band values stand returned", missing=False)
     if not isinstance(agents_scores, dict):
         raise ValueError(
             "reputation_and_band_values stands refused: the "
@@ -1335,10 +1407,14 @@ def reputation_and_band_values(agents_scores, bands, viewer=None, evaluation_ord
     return {"viewer": viewer, "values": values}
 
 
-def validate_view_wording(wording):
+def validate_view_wording(wording, *extra_args, **extra_kwargs):
     """The record enforced description of brief section 7 boundaries
     one and two stands permitted for agent held views only, and for
     no wider class, in any position the wording appears."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "validate_view_wording", "the wording",
+            "no validation stands returned", missing=False)
     if not isinstance(wording, dict):
         return False
     if dict.get(wording, "description") != "record enforced":
@@ -1350,11 +1426,15 @@ def validate_view_wording(wording):
 # Decay slices, Candidate 1 carriage and alternation, fixtures F-14 and F-15
 # ---------------------------------------------------------------------------
 
-def decay_slices():
+def decay_slices(*extra_args, **extra_kwargs):
     """The decay slice set of fixture F-14: at least six slices in
     every reported plane, carried variant W-02 folded in as the zero
     decay edge at daily retention 1.0 and not as a separate arm, and
     the two extension slices labelled as an outside range extension."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "decay_slices", "no argument",
+            "no decay slices stand returned", missing=False)
     slices = [dict(item) for item in _DECAY_PLANE]
     slices.append({
         "half_life_days": None,
@@ -1373,11 +1453,15 @@ def decay_slices():
     return slices
 
 
-def decay_result(half_life_days="stated", reported_as=None):
+def decay_result(half_life_days="stated", reported_as=None, *extra_args, **extra_kwargs):
     """One decay arm result. Every decay arm result states on its
     face that neither decay arm tests Candidate 1 as written and
     that the aggregation comparison is unspecified for Candidate 1
     as written, per AC-8."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "decay_result", "the half life and the reported form",
+            "no decay result stands returned", missing=False)
     extension = (
         not isinstance(half_life_days, bool)
         and isinstance(half_life_days, (int, float))
@@ -1401,7 +1485,7 @@ def alternation_result(decay_slice=None, same_or_different_retention=None,
                        bad_phases_before_exclusion=None,
                        ring_highest_band=None,
                        ring_bad_phases_before_exclusion=None,
-                       reported_as=None):
+                       reported_as=None, *extra_args, **extra_kwargs):
     """An alternation result states, from the rule record, whether
     the retention applied to penalised behaviour and to accepted
     good work was the same rate or different rates, and the count
@@ -1409,6 +1493,10 @@ def alternation_result(decay_slice=None, same_or_different_retention=None,
     exclusion. A result reporting neither pin stands as a band
     result under alternation, and not as a result about
     misbehaviour retention."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "alternation_result", "the stated alternation values",
+            "no alternation result stands returned", missing=False)
     pins_stated = same_or_different_retention is not None and prior_bad_phase_count is not None
     result = {
         "decay_slice": decay_slice,
@@ -1432,7 +1520,7 @@ def alternation_result(decay_slice=None, same_or_different_retention=None,
 # Band boundary neighbourhood and transitions, fixture F-28
 # ---------------------------------------------------------------------------
 
-def boundary_neighbourhood(scores, boundary, distance_slices):
+def boundary_neighbourhood(scores, boundary, distance_slices, *extra_args, **extra_kwargs):
     """The boundary neighbourhood counts for one band boundary:
     the count of identities in each stated distance slice above
     and below the boundary, the count crossing the boundary during
@@ -1440,6 +1528,10 @@ def boundary_neighbourhood(scores, boundary, distance_slices):
     units, that crosses the boundary from below. Distances and the
     neighbourhood size stand open, fixed in the family record
     before runs; this function pins the counts, not a distance."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "boundary_neighbourhood", "the scores, the boundary, and the distance slices",
+            "no neighbourhood stands returned", missing=False)
     if not _stands_numeric(boundary) or (
             isinstance(boundary, float)
             and not math.isfinite(boundary)):
@@ -1503,7 +1595,7 @@ def boundary_neighbourhood(scores, boundary, distance_slices):
     }
 
 
-def band_transition(scores, boundary, distance_slices, form="society level"):
+def band_transition(scores, boundary, distance_slices, form="society level", *extra_args, **extra_kwargs):
     """The band transition reading of scores at one boundary.
 
         Arguments: scores, the scores handed in; boundary, the
@@ -1517,14 +1609,22 @@ def band_transition(scores, boundary, distance_slices, form="society level"):
         own; a failure of the neighbourhood reading stands as
         boundary_neighbourhood answers it.
     """
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "band_transition", "the scores, the boundary, and the distance slices",
+            "no band transition stands returned", missing=False)
     result = boundary_neighbourhood(scores, boundary, distance_slices)
     result["form"] = form
     return result
 
 
-def validate_band_transition_result(result):
+def validate_band_transition_result(result, *extra_args, **extra_kwargs):
     """A band transition result without the boundary neighbourhood
     counts has not run the test, in either form."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "validate_band_transition_result", "the result",
+            "no validation stands returned", missing=False)
     if not isinstance(result, dict):
         return False
     if not isinstance(dict.get(result, "counts_per_distance_slice"), dict):
@@ -1730,7 +1830,7 @@ def gate_passing_share(eligible=_ARGUMENT_NOT_HANDED,
 
 def compute_share(eligible=_ARGUMENT_NOT_HANDED,
                   passing=_ARGUMENT_NOT_HANDED, epoch=None,
-                  **extra_kwargs):
+                  *extra_args, **extra_kwargs):
     """The gate passing share of one epoch, at the compute door.
 
         Arguments: eligible, the eligible count or set; passing,
@@ -1747,7 +1847,7 @@ def compute_share(eligible=_ARGUMENT_NOT_HANDED,
         and the epoch, in keyword form, stands refused at this
         door in the same named form (FW7-01).
     """
-    if extra_kwargs:
+    if extra_args or extra_kwargs:
         _refuse_argument_handing(
             "compute_share",
             "the eligible handing and the passing handing",
@@ -1762,12 +1862,16 @@ def compute_share(eligible=_ARGUMENT_NOT_HANDED,
 
 
 def share_for_epoch(epoch=_ARGUMENT_NOT_HANDED, eligible=None,
-                    passing=None):
+                    passing=None, *extra_args, **extra_kwargs):
     """The share for one epoch, or the explicit value unknown where
     no share was computed and delivered for that epoch. Unknown is
     never zero. A handing missing its epoch stands refused in
     the named form of this module, stating the door, the
     ground, and the next step (FW6-03)."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "share_for_epoch", "the epoch",
+            "no share stands returned", missing=False)
     if epoch is _ARGUMENT_NOT_HANDED:
         _refuse_argument_handing(
             "share_for_epoch", "the epoch",
@@ -1777,7 +1881,7 @@ def share_for_epoch(epoch=_ARGUMENT_NOT_HANDED, eligible=None,
     return gate_passing_share(eligible, passing, epoch=epoch)
 
 
-def undelivered_share():
+def undelivered_share(*extra_args, **extra_kwargs):
     """The share value that stands for an undelivered share.
 
         Arguments: no argument stands handed in.
@@ -1787,13 +1891,21 @@ def undelivered_share():
         unknown value is itself the honest standing of an
         undelivered share, never a scored zero.
     """
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "undelivered_share", "no argument",
+            "no share stands returned", missing=False)
     return UNKNOWN_SHARE
 
 
-def validate_logged_share(logged):
+def validate_logged_share(logged, *extra_args, **extra_kwargs):
     """A logged share position holding zero where the share was not
     delivered fails. The explicit value unknown is the only lawful
     undelivered entry."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "validate_logged_share", "the logged share",
+            "no validation stands returned", missing=False)
     if isinstance(logged, dict):
         return validate_proportion(logged)
     return logged == UNKNOWN_SHARE
@@ -1824,9 +1936,13 @@ def _score_share_ground(share):
         "denominator parts apart in valid form")
 
 
-def score_bearing_figure(envelope_value, share):
+def score_bearing_figure(envelope_value, share, *extra_args, **extra_kwargs):
     """The per eligible identity score bearing figure: the envelope
     value multiplied by the share."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "score_bearing_figure", "the envelope value and the share",
+            "no score bearing figure stands returned", missing=False)
     if not validate_proportion(share):
         raise ValueError(
             "score_bearing_figure stands refused: "
@@ -1852,12 +1968,16 @@ def score_bearing_figure(envelope_value, share):
     return envelope_value * numerator_plain / denominator_plain
 
 
-def population_figure(envelope_value, shares, record_state=None):
+def population_figure(envelope_value, shares, record_state=None, *extra_args, **extra_kwargs):
     """A population figure under the double application rule: per
     epoch, the score bearing figure multiplied by the share again,
     and the population average as the mean of the corrected per
     epoch figures, as the final step. The derivation names its
     record state. A single application figure is not this figure."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "population_figure", "the envelope value and the shares",
+            "no population figure stands returned", missing=False)
     if record_state is None:
         raise ValueError(
             "population_figure stands refused: the record_state "
@@ -1886,11 +2006,15 @@ def population_figure(envelope_value, shares, record_state=None):
     }
 
 
-def cost_statement_valid(record):
+def cost_statement_valid(record, *extra_args, **extra_kwargs):
     """A run missing the share log or the realised degree
     distribution log is invalid for any cost statement, per AC-5,
     and no cost statement assumes the share. The share itself
     stands unfitted in every assumption set."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "cost_statement_valid", "the record",
+            "no validity stands returned", missing=False)
     if not isinstance(record, dict):
         return False
     if not dict.__contains__(record, "share_log") or dict.__getitem__(record, "share_log") is None:
@@ -1919,7 +2043,7 @@ def cost_statement_valid(record):
     return True
 
 
-def cost_statement(record):
+def cost_statement(record, *extra_args, **extra_kwargs):
     """The cost statement standing of one record.
 
         Arguments: record, the record handed in for judgement.
@@ -1929,10 +2053,14 @@ def cost_statement(record):
         record whose cost statement stands invalid answers with
         valid standing False in the mapping.
     """
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "cost_statement", "the record",
+            "no cost statement stands returned", missing=False)
     return {"valid": cost_statement_valid(record)}
 
 
-def validate_run_share_logs(record):
+def validate_run_share_logs(record, *extra_args, **extra_kwargs):
     """Whether the share logs of one record stand valid.
 
         Arguments: record, the record handed in for judgement.
@@ -1942,6 +2070,10 @@ def validate_run_share_logs(record):
         Failure: no exception stands raised for an invalid
         record; the failure form is the bare False return.
     """
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "validate_run_share_logs", "the record",
+            "no validation stands returned", missing=False)
     return cost_statement_valid(record)
 
 
@@ -1949,11 +2081,15 @@ def validate_run_share_logs(record):
 # Recomputation check, picked proposal CR8B-06, sample per Manager Entry 21
 # ---------------------------------------------------------------------------
 
-def recomputation_sample(records):
+def recomputation_sample(records, *extra_args, **extra_kwargs):
     """The sample rule settled at Manager Entry 21 for R1-035: the
     full set where the set holds 200 records or fewer; above that,
     10 percent of the set with a floor of 200 records, selected by
     deterministic stride from the record order."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "recomputation_sample", "the records",
+            "no recomputation sample stands returned", missing=False)
     records = _stored_list(records)
     if len(records) <= 200:
         return records
@@ -2031,10 +2167,14 @@ def recompute_share(logged_shares=_ARGUMENT_NOT_HANDED,
     }
 
 
-def validate_report_reading(divergence_count, resolved=False):
+def validate_report_reading(divergence_count, resolved=False, *extra_args, **extra_kwargs):
     """While a nonzero divergence count stands unresolved, no report
     reads the affected share, and no result resting on that share,
     as standing as reported."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "validate_report_reading", "the divergence count",
+            "no validation stands returned", missing=False)
     if divergence_count and divergence_count != 0 and not resolved:
         return False
     return True
@@ -3622,21 +3762,29 @@ def _panel_carries_barred(value, _depth=0, _seen=None, _path="",
     return False
 
 
-def panel_inputs(case):
+def panel_inputs(case, *extra_args, **extra_kwargs):
     """The panel inputs of an adjudication case, with the ground
     truth label reference held apart from them. One barred key
     rule stands for the former and the validator alike, read
     recursively at every depth: ground truth keys, derived ground
     truth keys, and the membership, label, and honesty keys never
     stand in a formed panel set."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "panel_inputs", "the case",
+            "no panel inputs stand returned", missing=False)
     if isinstance(case, dict):
         return _panel_clean(case)
     return _panel_clean(dict(case))
 
 
-def validate_panel_inputs(inputs):
+def validate_panel_inputs(inputs, *extra_args, **extra_kwargs):
     """A panel input set containing the ground truth label, or a
     field derived from it, at any depth, fails."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "validate_panel_inputs", "the inputs",
+            "no validation stands returned", missing=False)
     if not isinstance(inputs, dict):
         return False
     try:
@@ -3734,12 +3882,16 @@ def _sentence_repr(value):
 
 
 def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
-               error_direction=None, outcome=None, derived_from=None):
+               error_direction=None, outcome=None, derived_from=None, *extra_args, **extra_kwargs):
     """A behavioural adjudication outcome at decision record level.
     The outcome travels with the arbiter accuracy value applied,
     its assumption set and row reference, and the error direction
     named beside the value. The accuracy value may not be derived
     from panel size, band gates, or fee size."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "adjudicate", "the case and its stated adjudication values",
+            "no adjudication stands returned", missing=False)
     def fail(message):
         error = ValueError(message)
         error.failure_class = adjudication_input_failure_class()
@@ -3820,7 +3972,7 @@ def adjudicate(case, accuracy_value=None, assumption_set=None, row=None,
     }
 
 
-def adjudication_outcome(case, **kwargs):
+def adjudication_outcome(case, *extra_args, **kwargs):
     """The adjudication outcome of one case.
 
         Arguments: case, the adjudication case handed in, with
@@ -3832,10 +3984,16 @@ def adjudication_outcome(case, **kwargs):
         own; a failure of the adjudication stands as adjudicate
         answers it, in its named form.
     """
+    if extra_args or set(kwargs) - {
+            "accuracy_value", "assumption_set", "row",
+            "error_direction", "outcome", "derived_from"}:
+        _refuse_argument_handing(
+            "adjudication_outcome", "the case",
+            "no adjudication outcome stands returned", missing=False)
     return adjudicate(case, **kwargs)
 
 
-def challenge_outcome(case, **kwargs):
+def challenge_outcome(case, *extra_args, **kwargs):
     """The challenge outcome of one case.
 
         Arguments: case, the challenge case handed in, with the
@@ -3847,19 +4005,33 @@ def challenge_outcome(case, **kwargs):
         own; a failure of the adjudication stands as adjudicate
         answers it, in its named form.
     """
+    if extra_args or set(kwargs) - {
+            "accuracy_value", "assumption_set", "row",
+            "error_direction", "outcome", "derived_from"}:
+        _refuse_argument_handing(
+            "challenge_outcome", "the case",
+            "no challenge outcome stands returned", missing=False)
     return adjudicate(case, **kwargs)
 
 
-def adjudication_input_failure_class():
+def adjudication_input_failure_class(*extra_args, **extra_kwargs):
     """Manager Entry 6: the MOD-05 challenge or adjudication input
     failure is recorded in the run record only. It does not set the
     run status to failed."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "adjudication_input_failure_class", "no argument",
+            "no failure class stands returned", missing=False)
     return {"recorded_in": "run record only", "run_status": None}
 
 
-def excluded_class_counts(cases):
+def excluded_class_counts(cases, *extra_args, **extra_kwargs):
     """The excluded adjudication class counts and shares for the
     four excluded classes, carried in every run record."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "excluded_class_counts", "the cases",
+            "no class counts stand returned", missing=False)
     cases = list(cases)
     counts = {name: 0 for name in EXCLUDED_CLASSES}
     for case in cases:
@@ -3887,19 +4059,27 @@ def excluded_class_counts(cases):
     }
 
 
-def accuracy_ranges_stand_unmerged(ranges):
+def accuracy_ranges_stand_unmerged(ranges, *extra_args, **extra_kwargs):
     """The four set ranges beside the accuracy points stand
     unmerged: exactly four ranges, kept apart, never one range."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "accuracy_ranges_stand_unmerged", "the ranges",
+            "no standing stands returned", missing=False)
     ranges = list(ranges)
     return len(ranges) == 4 and len({str(item) for item in ranges}) == 4
 
 
-def validate_headline_adjudication_claim(family_record, run_record):
+def validate_headline_adjudication_claim(family_record, run_record, *extra_args, **extra_kwargs):
     """A family record that fixes no excluded share threshold
     supports no headline adjudication claim. A claim fails
     validation where the total excluded share passes the fixed
     threshold, or where the adjacent arbitrated share for the
     forged vouch basis is above zero while NQ-56 stands open."""
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "validate_headline_adjudication_claim", "the family record and the run record",
+            "no validation stands returned", missing=False)
     if not isinstance(family_record, dict) or not isinstance(run_record, dict):
         return False
     threshold = dict.get(family_record, "excluded_share_threshold")

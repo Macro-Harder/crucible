@@ -556,14 +556,29 @@ def _carry_text(value):
     return value
 
 
-def mod03_catalogue_record(records=None):
+def mod03_catalogue_record(records=None, *extra_args,
+                           **extra_kwargs):
     """Return the catalogue record the Society Generator delivers."""
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "mod03_catalogue_record stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     return _mod03.catalogue_record(records)
 
 
-def catalogue_gaps():
+def catalogue_gaps(*extra_args, **extra_kwargs):
     """The OP-11 gaps, carried open by name, from their single
     owner in MOD-03."""
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "catalogue_gaps stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     return tuple(_mod03.catalogue_gaps())
 
 
@@ -784,7 +799,8 @@ def _catalogue_index_key(value, _depth=0, _seen=None):
     return ("identity", id(value))
 
 
-def strategy_catalogue(extra_identifiers=None):
+def strategy_catalogue(extra_identifiers=None, *extra_args,
+                       **extra_kwargs):
     """The strategy catalogue standing for this seat.
 
     Strategy identifiers stand drawn from the catalogue record the
@@ -816,6 +832,13 @@ def strategy_catalogue(extra_identifiers=None):
     form, stands listed at every handing, as the stored form
     judgement holds it equal to nothing.
     """
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "strategy_catalogue stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     identifiers = []
     index = {}
     unindexed = []
@@ -876,7 +899,7 @@ def strategy_catalogue(extra_identifiers=None):
 def make_strategy(identifier=_ARGUMENT_NOT_HANDED,
                   in_protocol_payoff=0,
                   external_profit_range=None, parameters=None,
-                  **extra_kwargs):
+                  *extra_args, **extra_kwargs):
     """State one attacker strategy record.
 
     Each strategy carries an external profit parameter, in
@@ -909,7 +932,7 @@ def make_strategy(identifier=_ARGUMENT_NOT_HANDED,
     handed as None stands as no range handed, and its [0] stands
     as the stated default, unmarked.
     """
-    if extra_kwargs:
+    if extra_args or extra_kwargs:
         raise NamedAttackerFailure(
             "make_strategy stands refused: a strategy stands "
             "built with its identifier handed in, an argument "
@@ -983,13 +1006,21 @@ def make_strategy(identifier=_ARGUMENT_NOT_HANDED,
 
 
 def conditional_briber_strategy(in_protocol_payoff=0,
-                                external_profit_range=None):
+                                external_profit_range=None,
+                                *extra_args, **extra_kwargs):
     """The conditional briber, the one named strategy of this seat.
 
     It pays a bribed party only on a stated losing outcome and
     reimburses collaborators on failure, in the P plus epsilon
     form.
     """
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "conditional_briber_strategy stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     strategy = make_strategy(
         "conditional briber",
         in_protocol_payoff=in_protocol_payoff,
@@ -1251,7 +1282,8 @@ def _render_safe_copy(value, _depth=0, _seen=None):
     return value
 
 
-def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
+def sweep_external_profit(strategy, largest_in_protocol_payoff=None,
+                          *extra_args, **extra_kwargs):
     """Sweep the external profit parameter over its stated range.
 
     The stated range includes zero and at least one value above
@@ -1259,6 +1291,13 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
     stated range carries no such value stands rejected, because
     its sweep would not cover the range the seat requires.
     """
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "sweep_external_profit stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     if not isinstance(strategy, dict):
         raise NamedAttackerFailure(
             "external profit sweep rejected: the strategy stands "
@@ -1318,7 +1357,8 @@ def sweep_external_profit(strategy, largest_in_protocol_payoff=None):
 def run_record_carriage(strategy_class, ladder_position,
                         catalogue_version_or_hash,
                         ladder_definition_pointer,
-                        ladder_definition_version, strategies=None):
+                        ladder_definition_version, strategies=None,
+                        *extra_args, **extra_kwargs):
     """The run record carriage of one search bearing run.
 
     The record carries the fixed strategy class, the ladder
@@ -1327,6 +1367,13 @@ def run_record_carriage(strategy_class, ladder_position,
     version in force, beside the strategies exercised, each drawn
     from the fixed class.
     """
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "run_record_carriage stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     if strategy_class is None:
         raise NamedAttackerFailure(
             "run record rejected: no fixed strategy class stands "
@@ -1410,7 +1457,16 @@ def run_record_carriage(strategy_class, ladder_position,
     }
 
 
-def search_record_validation_failures(record, fixed_class=None):
+def search_record_validation_failures(record, fixed_class=None,
+                                      *extra_args,
+                                      **extra_kwargs):
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "search_record_validation_failures stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     failures = []
     if not isinstance(record, dict):
         return ["the search record stands in no record form"]
@@ -1523,12 +1579,22 @@ def search_record_validation_failures(record, fixed_class=None):
     return failures
 
 
-def validate_search_record_with_reason(record, fixed_class=None):
+def validate_search_record_with_reason(record, fixed_class=None,
+                                       *extra_args,
+                                       **extra_kwargs):
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "validate_search_record_with_reason stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     failures = search_record_validation_failures(record, fixed_class)
     return (not failures, failures)
 
 
-def validate_search_record(record, fixed_class=None):
+def validate_search_record(record, fixed_class=None,
+                           *extra_args, **extra_kwargs):
     """Check one search record against the seat bars.
 
     A record fails where a strategy stands introduced mid run,
@@ -1543,6 +1609,13 @@ def validate_search_record(record, fixed_class=None):
     kind coverage act below reads its handed records the same
     way.
     """
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "validate_search_record stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     if not isinstance(record, dict):
         return False
     missing = object()
@@ -1622,13 +1695,21 @@ def validate_search_record(record, fixed_class=None):
     return True
 
 
-def stopping_rule_state(ladder_position):
+def stopping_rule_state(ladder_position, *extra_args,
+                        **extra_kwargs):
     """The stopping rule standing at one ladder position.
 
     The readout point stands at rung 6 completion. A position
     below that point is not a readout point, and no readout at
     such a position is reported as established.
     """
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "stopping_rule_state stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     complete = (
         isinstance(ladder_position, int)
         and not isinstance(ladder_position, bool)
@@ -1649,7 +1730,8 @@ def stopping_rule_state(ladder_position):
     return state
 
 
-def bond_search(parameter_candidates, griefing_evaluator=None):
+def bond_search(parameter_candidates, griefing_evaluator=None,
+                *extra_args, **extra_kwargs):
     """Run one optimisation search over the bond parameter space.
 
     The search stands above the fixed search ladder, over the lien
@@ -1663,6 +1745,13 @@ def bond_search(parameter_candidates, griefing_evaluator=None):
     stands unscored. This search changes no bond parameter from
     its unsettled standing.
     """
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "bond_search stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     if parameter_candidates is not None and not isinstance(
             parameter_candidates, (list, tuple)):
         raise NamedAttackerFailure(
@@ -1744,7 +1833,8 @@ def build_search_record(run_carriage=_ARGUMENT_NOT_HANDED,
                         neighbourhood=None, starting_points=None,
                         order_of_search=None, adaptations=None,
                         case_uses=None, mid_run_strategies=None,
-                        external_profit_swept_values=None):
+                        external_profit_swept_values=None,
+                        *extra_args, **extra_kwargs):
     """Assemble one search bearing run record in full.
 
     The record carries the run record carriage, the R20-B search
@@ -1755,6 +1845,13 @@ def build_search_record(run_carriage=_ARGUMENT_NOT_HANDED,
     its per point outcome, or its bond candidates stands refused
     in the named form of this module.
     """
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "build_search_record stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     if any(part is _ARGUMENT_NOT_HANDED for part in (
             run_carriage, points_tried, per_point_outcome,
             bond_candidates)):
@@ -1818,18 +1915,53 @@ def build_search_record(run_carriage=_ARGUMENT_NOT_HANDED,
 def run_search(run_carriage=_ARGUMENT_NOT_HANDED,
                points_tried=_ARGUMENT_NOT_HANDED,
                per_point_outcome=_ARGUMENT_NOT_HANDED,
-               bond_candidates=_ARGUMENT_NOT_HANDED, **kwargs):
+               bond_candidates=_ARGUMENT_NOT_HANDED, *extra_args,
+               **kwargs):
     """Run the seat search for one run and return its record.
     A handing missing any of its stated arguments travels to
     the search record door, which refuses it in the named form
     of this module."""
+    _run_search_forwarded = (
+        "griefing_evaluator", "budget", "neighbourhood",
+        "starting_points", "order_of_search", "adaptations",
+        "case_uses", "mid_run_strategies",
+        "external_profit_swept_values")
+    if extra_args or any(
+            key not in _run_search_forwarded for key in kwargs):
+        raise NamedAttackerFailure(
+            "run_search stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     return build_search_record(
         run_carriage, points_tried, per_point_outcome,
         bond_candidates, **kwargs)
 
 
 def search(*args, **kwargs):
-    """Alias of run_search, in the suite entry name form."""
+    """Alias of run_search, in the suite entry name form.
+
+    A handing carrying an argument beyond the named
+    parameters of the door it aliases, in positional
+    form or in keyword form, stands refused in the
+    named form of this module, stating the door, the
+    beyond ground, and the next step (FW10-01).
+    """
+    _search_named = (
+        "run_carriage", "points_tried", "per_point_outcome",
+        "bond_candidates", "griefing_evaluator", "budget",
+        "neighbourhood", "starting_points", "order_of_search",
+        "adaptations", "case_uses", "mid_run_strategies",
+        "external_profit_swept_values")
+    if len(args) > 4 or any(
+            key not in _search_named for key in kwargs):
+        raise NamedAttackerFailure(
+            "search stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     return run_search(*args, **kwargs)
 
 
@@ -2110,7 +2242,8 @@ def _recorded_outcome_state(carriage, _depth=0):
 
 
 def readout(search_record, found_failure=True, wording="",
-            established=False):
+            established=False, *extra_args,
+            **extra_kwargs):
     """State one readout reporting an attacker search result.
 
     The readout unit carries the coverage sentence in the same
@@ -2136,6 +2269,13 @@ def readout(search_record, found_failure=True, wording="",
     wording stores in text, buffer, list, tuple, set, frozenset,
     or dict form, in normalised whitespace and hyphen dress.
     """
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "readout stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     if not isinstance(search_record, dict):
         raise NamedAttackerFailure(
             "readout rejected: no search record stands supplied for "
@@ -2223,7 +2363,8 @@ def readout(search_record, found_failure=True, wording="",
     return unit
 
 
-def attacker_cost_summary(witness_run):
+def attacker_cost_summary(witness_run, *extra_args,
+                          **extra_kwargs):
     """The attacker cost summary of INV8B-14 for one witness run.
 
     A descriptive figure beside the witness, priced per failure
@@ -2239,6 +2380,13 @@ def attacker_cost_summary(witness_run):
     value, in place of a verdict reading as a classification
     that stood and did not change.
     """
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "attacker_cost_summary stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     if not isinstance(witness_run, dict):
         raise NamedAttackerFailure(
             "attacker cost summary rejected: the witness run "
@@ -2284,8 +2432,16 @@ def attacker_cost_summary(witness_run):
     }
 
 
-def witness_carriage(witness_run, envelope_claim_names_witness=True):
+def witness_carriage(witness_run, envelope_claim_names_witness=True,
+                     *extra_args, **extra_kwargs):
     """The witness carriage this slice supplies for one run."""
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "witness_carriage stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     if not isinstance(witness_run, dict):
         raise NamedAttackerFailure(
             "witness carriage rejected: the witness run stands in "
@@ -2303,13 +2459,22 @@ def witness_carriage(witness_run, envelope_claim_names_witness=True):
     return carriage
 
 
-def search_record_covers_hostile_kinds(record, family_record_kinds):
+def search_record_covers_hostile_kinds(record, family_record_kinds,
+                                       *extra_args,
+                                       **extra_kwargs):
     """Check the hostile input family carriage of one record.
 
     Each kind stands with a magnitude or range fixed in the family
     record before runs. A kind run below its fixed magnitude does
     not count as run.
     """
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "search_record_covers_hostile_kinds stands refused: an argument stands "
+            "handed in beyond the stated arguments of "
+            "the door, and no result stands served; "
+            "next step: hand the stated arguments of "
+            "the door and call the door again")
     covered = {}
     runs = _base_dict_get(record, "hostile_kind_runs", {}) if (
         isinstance(record, dict)) else {}
