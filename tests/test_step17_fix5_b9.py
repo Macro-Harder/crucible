@@ -112,7 +112,7 @@ class TestFW508Mod02Draw(unittest.TestCase):
             mod02.draw_from_stream(
                 position=-(10 ** 4000), state=self.state)
         assert_bounded(self, str(caught.exception),
-                       "stands as a number in no admitted position form")
+                       "the position argument stands below zero")
 
     def test_defect_negative_digit_text_bounded(self):
         with self.assertRaises(ValueError) as caught:

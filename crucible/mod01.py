@@ -778,10 +778,17 @@ BRIEF_SHAPE_CROSS_REFERENCE = {
 }
 
 
-def brief_shape_for_form(form_id):
+def brief_shape_for_form(form_id=_ARGUMENT_NOT_HANDED):
     """The numbered brief Shape one product Form answers, as
     BRIEF_SHAPE_CROSS_REFERENCE states it, or None where the
-    Form carries no numbered brief Shape of its own."""
+    Form carries no numbered brief Shape of its own. A handing
+    missing its form identifier stands refused in the named
+    form of this module, stating the door, the ground, and
+    the next step (FW6-03)."""
+    if form_id is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "brief_shape_for_form", "the form identifier",
+            True, False)
     entry = BRIEF_SHAPE_CROSS_REFERENCE.get(_fid(form_id))
     if entry is None:
         raise _unknown_form_refusal(
@@ -789,7 +796,7 @@ def brief_shape_for_form(form_id):
     return entry["brief_shape"]
 
 
-def form_ids_for_brief_shape(shape):
+def form_ids_for_brief_shape(shape=_ARGUMENT_NOT_HANDED):
     """The product Form numbers answering one numbered brief
     Shape, as BRIEF_SHAPE_CROSS_REFERENCE states them. Brief
     Shape 8 answers with two Forms, ("8", "9"); every other
@@ -800,7 +807,13 @@ def form_ids_for_brief_shape(shape):
     form list stands returned. A shape handed in a non text
     form stands refused on the handing form ground, naming
     the form handed and the text standing of a brief shape
-    identifier."""
+    identifier. A handing missing its brief shape identifier
+    stands refused in the named form of this module, stating
+    the door, the ground, and the next step (FW6-03)."""
+    if shape is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "form_ids_for_brief_shape",
+            "the brief shape identifier", True, False)
     class_name = _identifier_non_text_class(shape)
     if class_name is not None:
         raise ValueError(
@@ -1127,8 +1140,15 @@ def _build_form(form_id, values):
                 "run, and a user building this record supplies no "
                 "value for it; no record stands built")
         if field not in ownership["user_supplies"]:
+            # The field stands named in the bounded rendering
+            # form of FW4-10 (FW6-04): a handed field name stands
+            # rendered at 120 characters beside a length
+            # statement, so this refusal message does not grow
+            # with the handing past that bound; a field name
+            # standing at the bound or under it stands whole.
             raise ValueError(
-                "unknown field for Form " + form_id + ": " + str(field)
+                "unknown field for Form " + form_id + ": "
+                + _bounded_echo(_safe_str(field))
                 + "; the fields a user supplies stand named in "
                 "FORM_FIELD_OWNERSHIP, and no record stands built")
     record = minimal_valid_instance(form_id)
@@ -3351,11 +3371,20 @@ def reserved_matter_values():
     return RESERVED_MATTER_VALUES
 
 
-def validate_family_seal_match(manifest, record):
+def validate_family_seal_match(manifest=_ARGUMENT_NOT_HANDED,
+                               record=_ARGUMENT_NOT_HANDED):
     """Seal matching as a recorded value comparison: the run record
     family version and family manifest hash must match the sealed
     family record hash and version on the manifest, in the plan
-    named fields of Forms 23 and 4."""
+    named fields of Forms 23 and 4. An argument handing stands
+    required at this door (FW6-03): a handing stands missing
+    where the manifest or the record stands not handed in, and
+    the refusal stands in the named form of this module,
+    stating the door, the ground, and the next step."""
+    if manifest is _ARGUMENT_NOT_HANDED or record is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "validate_family_seal_match", "the manifest and the record",
+            True, False)
     if not isinstance(manifest, dict) or not isinstance(record, dict):
         return False
     version = _stored_pairs_value(manifest, "family_version")
@@ -3992,7 +4021,7 @@ def _family_refusal_standing(extra_fields, order_barred, order_text):
     return "not reportable: " + "; ".join(parts)
 
 
-def family_reportable_standing(record):
+def family_reportable_standing(record=_ARGUMENT_NOT_HANDED):
     """The reportable standing of one family record as a stated
     result: the completeness bar judgement, the standing it rests
     on, and the fields in each standing, in place of an
@@ -4005,7 +4034,14 @@ def family_reportable_standing(record):
     carrying a field outside the form fields and the named
     carriage keys, or carrying the barred prototype order value,
     stands refused here and the refusal stands named in the
-    standing (fix wave 2, rows F2-01 and F2-03)."""
+    standing (fix wave 2, rows F2-01 and F2-03). An argument
+    handing stands required at this door (FW6-03): a handing
+    stands missing where the record stands not handed in, and
+    the refusal stands in the named form of this module,
+    stating the door, the ground, and the next step."""
+    if record is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "family_reportable_standing", "the record", True, False)
     if not isinstance(record, dict):
         return {
             "supports_reportable_run": False,
@@ -5389,13 +5425,22 @@ def _record_validation_failures(form_id, instance):
     return failures
 
 
-def record_validation_failures(form_id, instance):
+def record_validation_failures(form_id=_ARGUMENT_NOT_HANDED,
+                               instance=_ARGUMENT_NOT_HANDED):
     """Every reason a record does not stand valid against its
     form, as a list of named failures. Each failure names the
     field, the rule the field breaks, and the next step for the
     operator. An empty list stands for a record that stands
     valid. This door never raises for a record that merely
-    fails validation."""
+    fails validation. An argument handing stands required at
+    this door (FW6-03): a handing stands missing where the
+    form identifier or the record stands not handed in, and
+    the refusal stands in the named form of this module,
+    stating the door, the ground, and the next step."""
+    if form_id is _ARGUMENT_NOT_HANDED or instance is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "record_validation_failures",
+            "the form identifier and the record", True, False)
     return list(_record_validation_failures(form_id, instance))
 
 

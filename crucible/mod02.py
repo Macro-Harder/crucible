@@ -78,6 +78,12 @@ _BARRED_DERIVATION_TEXTS = (
     "random starting point in a shared sequence",
 )
 
+_ARGUMENT_NOT_HANDED = object()
+"""The standing of an argument no handing stands made for, so a
+public act can refuse a missing argument handing in the named
+form of this module instead of escaping as bare interpreter
+text at the call itself (FW6-03)."""
+
 
 SeedDerivationInput = _mod01.SeedDerivationInput
 StreamSet = _mod01.StreamSet
@@ -1016,13 +1022,26 @@ def make_derivation_input(derivation_version=None, domain=None,
                           root_seed_reference=None,
                           scenario_identifier=None, run_identifier=None,
                           stream_class_identifier=None,
-                          parameter_values=None):
+                          parameter_values=None, **_extra):
     """Build one SeedDerivationInput value in the Shape 5 field order.
 
     Every parameter value that enters the derivation enters as a
     recorded string. A value that is not a string, including any
-    binary float rendering, is refused at this boundary.
+    binary float rendering, is refused at this boundary. A keyword
+    handing outside the stated form of this door stands refused
+    in the named form of the door, stating the ground and that no
+    derivation input stands built, with each handed name rendered
+    in the bounded form of FW4-10 (FW6-04).
     """
+    if _extra:
+        names = [_bounded_echo(name) for name in sorted(_extra)]
+        raise ValueError(
+            "make_derivation_input stands refused: the keyword "
+            "handings " + ", ".join(names)
+            + " stand outside the stated form of this door and "
+            "stand not taken; no derivation input stands built; "
+            "next step: hand only the stated fields of this door "
+            "and call the door again")
     if not validate_domain(domain):
         raise ValueError(
             "domain outside the two value vocabulary: "
@@ -1334,11 +1353,25 @@ def request_generator(_request=None, **_extra):
         gated_refusal("supply generator"), _extra)
 
 
-def initial_stream_state(stream_class=None, carried_positions=0):
+def initial_stream_state(stream_class=None, carried_positions=0,
+                         *extra_args, **extra_kwargs):
     """Return a stream state record at its first position.
 
     This is state carriage only. It draws no seed and assigns none.
+    A handing carrying an argument beyond the stream class and
+    the carried positions stands refused in the named form of
+    this module, stating the door, the ground, and the next step
+    (FW7-01).
     """
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "initial_stream_state stands refused: this door "
+            "stands handed the stream class and the carried "
+            "positions, an argument stands handed in beyond "
+            "the stream class and the carried positions, and "
+            "no stream state stands returned; next step: hand "
+            "the stream class and the carried positions and "
+            "call the door again")
     return {
         "stream_class": stream_class,
         "position": 0,
@@ -1387,6 +1420,20 @@ def draw_from_stream(stream_class=None, position=None,
         if plain_position is not None and not isinstance(
                 position, bool) and not isinstance(
                 plain_position, complex):
+            try:
+                whole_position = int(plain_position)
+                stands_whole = plain_position == whole_position
+            except Exception:
+                stands_whole = False
+                whole_position = 0
+            if stands_whole and whole_position < 0:
+                raise ValueError(
+                    "draw_from_stream stands refused: the position "
+                    "argument stands below zero: "
+                    + _draw_position_render(position)
+                    + "; a position stands as a whole number at or "
+                    "above zero, and the handed position stands "
+                    "below zero, and no draw stands made") from None
             raise ValueError(
                 "draw_from_stream stands refused: the position "
                 "argument stands as a number in no admitted "
@@ -1448,7 +1495,8 @@ def candidate_separator():
     return _CANDIDATE_SEPARATOR
 
 
-def encode_candidate_input(values):
+def encode_candidate_input(values=_ARGUMENT_NOT_HANDED,
+                           *extra_args, **extra_kwargs):
     """Encode one candidate derivation input in joined input form.
 
     Each field enters as its name and its recorded string value, each
@@ -1457,8 +1505,29 @@ def encode_candidate_input(values):
     values, values holding the separator, and values whose plain
     concatenation coincides across different field splits. This is a
     candidate encoding for the adoption test only. It derives no
-    seed and adopts no derivation form.
+    seed and adopts no derivation form. A handing missing its
+    values stands refused in the named form of this module,
+    stating the door, the ground, and the next step (FW6-03).
+    A handing carrying an argument beyond the values, in
+    positional or in keyword form, stands refused in the same
+    named form (FW7-01).
     """
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "encode_candidate_input stands refused: this door "
+            "stands handed the values, an argument stands "
+            "handed in beyond the values, and no encoding "
+            "stands returned; next step: hand the values, a "
+            "mapping of field names to recorded string values, "
+            "and call the door again")
+    if values is _ARGUMENT_NOT_HANDED:
+        raise ValueError(
+            "encode_candidate_input stands refused: this door "
+            "stands handed the values, a handing stands missing "
+            "among the values, and no encoding stands returned; "
+            "next step: hand the values, a mapping of field "
+            "names to recorded string values, and call the "
+            "door again")
     if not isinstance(values, dict):
         raise ValueError(
             "encode_candidate_input stands refused: candidate "

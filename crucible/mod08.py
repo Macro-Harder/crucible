@@ -2015,7 +2015,8 @@ def _stored_name_member(value, names):
         str.__eq__(text, name) is True for name in names)
 
 
-def accept_detection_input(record):
+def accept_detection_input(record=_ARGUMENT_NOT_HANDED,
+                           **extra_kwargs):
     """Accept one DetectionInput record and return a normalised copy.
 
     The copy carries the agent identifier, the day, the feature
@@ -2025,8 +2026,27 @@ def accept_detection_input(record):
     that key is read as the same field and normalised to the Form 19
     name. Any other agent level form is rejected, and any record
     carrying a barred key at any depth is rejected, because the
-    projection contract strips such keys before delivery.
+    projection contract strips such keys before delivery. A handing
+    missing its record stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW6-03). A handing carrying an argument beyond the record,
+    in keyword form, stands refused in the same named form
+    (FW7-01).
     """
+    if extra_kwargs:
+        raise NamedDetectionFailure(
+            "accept_detection_input stands refused: this door "
+            "stands handed the record, an argument stands "
+            "handed in beyond the record; next step: hand the "
+            "record and call the door again, and no answer "
+            "stands returned at this door")
+    if record is _ARGUMENT_NOT_HANDED:
+        raise NamedDetectionFailure(
+            "accept_detection_input stands refused: this door "
+            "stands handed the record, a handing stands missing "
+            "among the record; next step: hand the record and "
+            "call the door again, and no answer stands returned "
+            "at this door")
     values = _record_values(record)
     if values is None:
         raise NamedDetectionFailure(
@@ -2208,8 +2228,9 @@ DETECTION_STANDING_STATEMENT = (
     "stands, and no verdict rule at OP-16 stands fixed")
 
 
-def score_day(records, society_state=None, mode="conformance",
-              uses=None, run_identifier=None):
+def score_day(records=_ARGUMENT_NOT_HANDED, society_state=None,
+              mode="conformance", uses=None, run_identifier=None,
+              **extra_kwargs):
     """Run one daily scoring pass over DetectionInput records.
 
     Returns verdict states and accumulator updates by agent and day,
@@ -2220,8 +2241,27 @@ def score_day(records, society_state=None, mode="conformance",
     society state snapshot is supplied, it is compared before and
     after the pass: scoring writes to no trust state, and a
     difference outside the detection state marks the run invalid
-    for detection reporting in the returned record.
+    for detection reporting in the returned record. A handing
+    missing its records stands refused in the named form of this
+    module, stating the door, the ground, and the next step
+    (FW6-03). A handing carrying an argument beyond the stated
+    handings of this door, in keyword form, stands refused in
+    the same named form (FW7-01).
     """
+    if extra_kwargs:
+        raise NamedDetectionFailure(
+            "score_day stands refused: this door stands handed "
+            "the records, an argument stands handed in beyond "
+            "the records; next step: hand the records and call "
+            "the door again, and no answer stands returned at "
+            "this door")
+    if records is _ARGUMENT_NOT_HANDED:
+        raise NamedDetectionFailure(
+            "score_day stands refused: this door stands handed "
+            "the records, a handing stands missing among the "
+            "records; next step: hand the records and call the "
+            "door again, and no answer stands returned at this "
+            "door")
     if not isinstance(records, (list, tuple)):
         raise NamedDetectionFailure(
             "delivery rejected: the records for one day stand in "
@@ -2229,7 +2269,8 @@ def score_day(records, society_state=None, mode="conformance",
         )
     if not _stored_name_member(mode, USES):
         raise NamedDetectionFailure(
-            "scoring mode stands unnamed: " + _sentence_text(mode)
+            "scoring mode stands unnamed: "
+            + _bounded_echo(_sentence_text(mode))
         )
     if uses is None:
         named_uses = [mode]

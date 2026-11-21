@@ -4104,7 +4104,8 @@ def _delivery_share_stands(value):
     return False
 
 
-def retain_daily_aggregate_deliveries(run_id, deliveries):
+def retain_daily_aggregate_deliveries(
+        run_id=_ARGUMENT_NOT_HANDED, deliveries=_ARGUMENT_NOT_HANDED):
     """Retain the daily aggregate deliveries of one run: one
     delivery per run per day per viewer, each carrying the four
     joint outcome components, their denominators, the honest share,
@@ -4133,7 +4134,17 @@ def retain_daily_aggregate_deliveries(run_id, deliveries):
     value itself supplies. The numeric refusal reads component
     values in set and frozenset form through the base iteration
     of their form, and a component value standing as a single
-    text stands judged as the one component it states."""
+    text stands judged as the one component it states. An
+    argument handing stands required at this door (FW6-03):
+    a handing stands missing where the run identifier or the
+    deliveries stand not handed in, and the refusal stands in
+    the named form of this module, stating the door, the
+    ground, and the next step."""
+    if run_id is _ARGUMENT_NOT_HANDED or (
+            deliveries is _ARGUMENT_NOT_HANDED):
+        _refuse_argument_handing(
+            "retain_daily_aggregate_deliveries",
+            "the run identifier and the deliveries", True)
     if run_id is None:
         raise ValueError(
             "identity less aggregate delivery: no run identifier "
@@ -4554,7 +4565,7 @@ def rederive_regime_classification(aggregates):
     }
 
 
-def validate_daily_aggregates(aggregates):
+def validate_daily_aggregates(aggregates=_ARGUMENT_NOT_HANDED):
     """Validate Recorder daily aggregate rows, and no other shape.
 
     Shape separation, stated in the open (R16-18): this act judges
@@ -4575,7 +4586,14 @@ def validate_daily_aggregates(aggregates):
     fields taken by the base get reading, and its component
     values read through the base iteration of their form, never
     through a containment, item, or iteration reading the handed
-    record supplies."""
+    record supplies. An argument handing stands required at
+    this door (FW6-03): a handing stands missing where the
+    aggregates stand not handed in, and the refusal stands in
+    the named form of this module, stating the door, the
+    ground, and the next step."""
+    if aggregates is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "validate_daily_aggregates", "the aggregates", True)
     if not isinstance(aggregates, (list, tuple)):
         return False
     stored_records = list(_base_iter(aggregates))
@@ -5165,7 +5183,8 @@ def event_log_entries(run_id, store_kind="sweep"):
     return _safe_copy(dict.__getitem__(_EVENT_LOGS, stored_key))
 
 
-def retain_daily_snapshot(snapshot, store_kind="sweep"):
+def retain_daily_snapshot(snapshot=_ARGUMENT_NOT_HANDED,
+                          store_kind="sweep"):
     """Retain one DailySnapshot as an opaque payload. No validation
     of the daily state contents stands performed, and no per viewer
     snapshot stands delivered from this path. The growth form of
@@ -5175,7 +5194,15 @@ def retain_daily_snapshot(snapshot, store_kind="sweep"):
     judges it against the maintained index of the forms the run
     bucket already holds. One run bucket carries at most the
     stated cap of 10000 snapshots; a retention past the cap
-    stands refused in named form."""
+    stands refused in named form. An argument handing stands
+    required at this door (FW6-03): a handing stands missing
+    where the snapshot stands not handed in, and the refusal
+    stands in the named form of this module, stating the
+    door, the ground, and the next step."""
+    if snapshot is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "retain_daily_snapshot",
+            "the snapshot and the store kind", True)
     store_kind = _canonical_store_kind(store_kind)
     if not isinstance(snapshot, dict):
         raise ValueError(
@@ -5335,8 +5362,17 @@ def _timing_day(value):
     return value
 
 
-def retain_checkpoint(manifest, store_kind="sweep"):
-    """Retain one checkpoint manifest for a run."""
+def retain_checkpoint(manifest=_ARGUMENT_NOT_HANDED,
+                      store_kind="sweep"):
+    """Retain one checkpoint manifest for a run. An argument
+    handing stands required at this door (FW6-03): a handing
+    stands missing where the manifest stands not handed in,
+    and the refusal stands in the named form of this module,
+    stating the door, the ground, and the next step."""
+    if manifest is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "retain_checkpoint",
+            "the manifest and the store kind", True)
     store_kind = _canonical_store_kind(store_kind)
     if not isinstance(manifest, dict):
         raise ValueError(
