@@ -375,7 +375,7 @@ def _verdict_text_stands(value, stated):
         and str.__eq__(str.__str__(value), stated)
 
 
-def validate_publication_record(record):
+def validate_publication_record(record, *extra_args, **extra_kwargs):
     """Return True only for a complete publication record: it
     names the retirement test run that covered the unit, the
     version that run used, the verdict on each of the fifteen
@@ -391,6 +391,12 @@ def validate_publication_record(record):
     alone, and a set form stands judged against the expected
     failures as a set, so its answer does not follow the
     process hash order."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_publication_record stands refused: this door "
+            "stands handed the record, an argument stands handed in "
+            "beyond the record, and no judgement stands returned; next "
+            "step: hand the record and call the door again")
     if not isinstance(record, dict):
         return False
     for naming_field in ("test_run", "version"):
@@ -444,10 +450,16 @@ def validate_publication_record(record):
     return not remaining
 
 
-def unit_is_publishable(unit):
+def unit_is_publishable(unit, *extra_args, **extra_kwargs):
     """Return True only where a unit carries a valid publication
     record. A unit covered by no recorded test run, or by a run
     with an unrecorded failure, is not published."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "unit_is_publishable stands refused: this door stands "
+            "handed the unit, an argument stands handed in beyond the "
+            "unit, and no publishable reading stands returned; next "
+            "step: hand the unit and call the door again")
     if not isinstance(unit, dict):
         return False
     return validate_publication_record(
@@ -825,10 +837,18 @@ def judge_registry_entry(entry=_ARGUMENT_NOT_HANDED,
     }
 
 
-def validate_registry_entry(entry, compiler, checker, run_log=None):
+def validate_registry_entry(entry, compiler, checker, run_log=None,
+                            *extra_args, **extra_kwargs):
     """Return True only where an entry stands judged in both
     phases by a checker who did not compile it, and the MOD-13
     registry comparison stands performed and passed for it."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_registry_entry stands refused: this door stands "
+            "handed the entry, the compiler, and the checker, an "
+            "argument stands handed in beyond the checker, and no "
+            "judgement stands returned; next step: hand the entry, the "
+            "compiler, and the checker and call the door again")
     return judge_registry_entry(
         entry, compiler, checker, run_log=run_log)["valid"]
 
@@ -2492,7 +2512,7 @@ def _is_code_only_text(text):
     return _plain_word_count(sentence) < _PLAIN_WORDS_MIN
 
 
-def validate_headline_unit(unit):
+def validate_headline_unit(unit, *extra_args, **extra_kwargs):
     """Return True only for a closed unit in the fixed field
     order, carrying its assumption set, its rows, its range kind,
     and every dependence mark as part of the unit itself. The
@@ -2507,6 +2527,12 @@ def validate_headline_unit(unit):
     sentence may not claim the result over all points; and a region stated as a
     record must carry its sampled point enumeration, each point
     as axis values in numbers with its outcome in words."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_headline_unit stands refused: this door stands "
+            "handed the unit, an argument stands handed in beyond the "
+            "unit, and no judgement stands returned; next step: hand "
+            "the unit and call the door again")
     if not isinstance(unit, dict):
         return False
     stored_pairs = list(dict.items(unit))
@@ -2857,7 +2883,7 @@ def quote_headline_unit(unit=_ARGUMENT_NOT_HANDED,
     return _quoted_copy(unit)
 
 
-def first_sentence(text):
+def first_sentence(text, *extra_args, **extra_kwargs):
     """Return the first sentence of a claim text, read on the
     text the claim stores where it carries a stored text, and
     through the module safe string form where it carries
@@ -2867,6 +2893,12 @@ def first_sentence(text):
     place of a claim text, stands refused in named form: no
     sentence stands fabricated from a handing in no text
     form."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "first_sentence stands refused: this door stands handed the "
+            "text, an argument stands handed in beyond the text, and no "
+            "sentence stands returned; next step: hand the text and "
+            "call the door again")
     if text is None or isinstance(
             text, (bool, int, float, complex, Decimal, Fraction,
                    dict, list, tuple, set, frozenset)):
@@ -2877,11 +2909,21 @@ def first_sentence(text):
     return _stored_str(text).split(".", 1)[0]
 
 
-def validate_working_range_claim(text, assumption_set, rows, range_kind):
+def validate_working_range_claim(text, assumption_set, rows,
+                                 range_kind, *extra_args,
+                                 **extra_kwargs):
     """Return True only where the first sentence of a working
     range claim names its assumption set, its rows, and its range
     kind. A first sentence naming none of the three, or only some
     of them, does not meet the claim form."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_working_range_claim stands refused: this door "
+            "stands handed the text, the assumption set, the rows, and "
+            "the range kind, an argument stands handed in beyond the "
+            "range kind, and no judgement stands returned; next step: "
+            "hand the text, the assumption set, the rows, and the range "
+            "kind and call the door again")
     sentence = first_sentence(text)
     if _is_code_only_text(sentence):
         return False
@@ -2898,13 +2940,20 @@ def validate_working_range_claim(text, assumption_set, rows, range_kind):
     return True
 
 
-def moved_reading(delta, reporting_resolution):
+def moved_reading(delta, reporting_resolution, *extra_args, **extra_kwargs):
     """Decide moved or not moved for one trace: the trace moved
     where its change reaches the reporting resolution for that
     trace stated in the family record before runs. The rule reads
     only the recorded change and the recorded resolution, so a
     second reader applying it to the same record reaches the same
     reading."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "moved_reading stands refused: this door stands handed the "
+            "change and the reporting resolution, an argument stands "
+            "handed in beyond the reporting resolution, and no moved "
+            "reading stands returned; next step: hand the change and "
+            "the reporting resolution and call the door again")
     plain_delta = _plain_number_value(delta)
     plain_resolution = _plain_number_value(reporting_resolution)
     if plain_delta is None or plain_resolution is None:
@@ -2931,7 +2980,7 @@ def moved_reading(delta, reporting_resolution):
     return abs(plain_delta) >= plain_resolution
 
 
-def validate_bounding_headline(headline, family_record, run_record):
+def validate_bounding_headline(headline, family_record, run_record, *extra_args, **extra_kwargs):
     """Return True only for a bounding headline in full form: it
     carries the external work issuance axis beside farm size and
     patience, it states which of the three traces moved and which
@@ -2939,6 +2988,14 @@ def validate_bounding_headline(headline, family_record, run_record):
     headline rests on the external work issuance axis or on a farm
     whose internal edge count stands zero or near zero under the
     bound the family record states."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_bounding_headline stands refused: this door "
+            "stands handed the headline, the family record, and the run "
+            "record, an argument stands handed in beyond the run "
+            "record, and no judgement stands returned; next step: hand "
+            "the headline, the family record, and the run record and "
+            "call the door again")
     if not isinstance(headline, dict):
         return False
     axes_value = dict.get(headline, "axes") or ()
@@ -2978,11 +3035,17 @@ def validate_bounding_headline(headline, family_record, run_record):
     return True
 
 
-def validate_envelope_claim(claim):
+def validate_envelope_claim(claim, *extra_args, **extra_kwargs):
     """Return True only under envelope discipline: the claim
     states what holds at sampled points and over the stated ranges
     only, names a failure witness for what fails, and states
     nothing about values between sampled points."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_envelope_claim stands refused: this door stands "
+            "handed the claim, an argument stands handed in beyond the "
+            "claim, and no judgement stands returned; next step: hand "
+            "the claim and call the door again")
     if not isinstance(claim, dict):
         return False
     if dict.__contains__(claim, "holding_region") or dict.__contains__(claim, "claim_sentence"):
@@ -3093,9 +3156,16 @@ def honest_loss_rate_h1(submitted=_ARGUMENT_NOT_HANDED,
     }
 
 
-def top_up_applies(winning_probability):
+def top_up_applies(winning_probability, *extra_args, **extra_kwargs):
     """The top up duty at F-18, read with closed bounds: it
     applies at or above 0.1 and at or below 0.9."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "top_up_applies stands refused: this door stands handed the "
+            "winning probability, an argument stands handed in beyond "
+            "the winning probability, and no top up reading stands "
+            "returned; next step: hand the winning probability and call "
+            "the door again")
     plain_probability = _plain_number_value(winning_probability)
     if plain_probability is None:
         raise ValueError(
@@ -3121,10 +3191,16 @@ def top_up_applies(winning_probability):
     return 0.1 <= plain_probability <= 0.9
 
 
-def point_standing(replicate_count):
+def point_standing(replicate_count, *extra_args, **extra_kwargs):
     """Return the standing of one control point against the 30
     replicate floor, with its count stated. A point below the
     floor borrows no standing of a point at the floor."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "point_standing stands refused: this door stands handed the "
+            "replicate count, an argument stands handed in beyond the "
+            "replicate count, and no standing stands returned; next "
+            "step: hand the replicate count and call the door again")
     count = _whole_number_count(replicate_count)
     if count is None:
         raise ValueError(
@@ -3200,7 +3276,7 @@ def classify_run_outcome(run_length_in_days=_ARGUMENT_NOT_HANDED,
     }
 
 
-def transition_figure(replicates):
+def transition_figure(replicates, *extra_args, **extra_kwargs):
     """Compute the transition figure at one control point over all
     replicates started at that point. Every replicate contributes
     exactly one recorded outcome by the horizon: a first terminal
@@ -3214,6 +3290,12 @@ def transition_figure(replicates):
     standing, unknown, that the sibling doors of this estate
     state over no population, and no denominator stands invented
     for it. The denominator rule stands stated in the result."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "transition_figure stands refused: this door stands handed "
+            "the replicates, an argument stands handed in beyond the "
+            "replicates, and no figure stands returned; next step: hand "
+            "the replicates and call the door again")
     if not isinstance(replicates, (list, tuple, set, frozenset)):
         raise ValueError(
             "transition_figure stands refused: the replicates "
@@ -3288,11 +3370,18 @@ def transition_figure(replicates):
     }
 
 
-def location_for_endpoint(figure, regime, band_endpoint):
+def location_for_endpoint(figure, regime, band_endpoint, *extra_args, **extra_kwargs):
     """Return the location of a band endpoint at a point, or None
     where cumulative incidence by the horizon does not reach the
     endpoint: no location stands reported for that endpoint at
     that point."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "location_for_endpoint stands refused: this door stands "
+            "handed the figure, the regime, and the band endpoint, an "
+            "argument stands handed in beyond the band endpoint, and no "
+            "location stands returned; next step: hand the figure, the "
+            "regime, and the band endpoint and call the door again")
     if not isinstance(figure, dict):
         return None
     incidence = dict.get(figure, "cumulative_incidence") or {}
@@ -3334,7 +3423,7 @@ def location_for_endpoint(figure, regime, band_endpoint):
 
 
 def record_first_observed(previous_evaluation_day, observed_day,
-                          horizon, is_last_day=False):
+                          horizon, is_last_day=False, *extra_args, **extra_kwargs):
     """Record the time of a first observed regime condition as the
     interval from the previous daily evaluation to the evaluation
     at which it was first observed, never as an exact event time.
@@ -3344,6 +3433,14 @@ def record_first_observed(previous_evaluation_day, observed_day,
     number of days at or above zero, and the interval opens
     no later than it closes, or the record stands refused in
     named form."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "record_first_observed stands refused: this door stands "
+            "handed the previous evaluation day, the observed day, and "
+            "the horizon, an argument stands handed in beyond the "
+            "horizon, and no record stands returned; next step: hand "
+            "the previous evaluation day, the observed day, and the "
+            "horizon and call the door again")
     previous_day = _whole_number_count(previous_evaluation_day)
     observed = _whole_number_count(observed_day)
     horizon_day = _whole_number_count(horizon)
@@ -3376,9 +3473,15 @@ def record_first_observed(previous_evaluation_day, observed_day,
     }
 
 
-def validate_observation_time(record):
+def validate_observation_time(record, *extra_args, **extra_kwargs):
     """Return True only where a first observed regime stands in
     interval form. An exact event time fails."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_observation_time stands refused: this door stands "
+            "handed the record, an argument stands handed in beyond the "
+            "record, and no judgement stands returned; next step: hand "
+            "the record and call the door again")
     if not isinstance(record, dict):
         return False
     if dict.get(record, "exact_event_time") is not None:
@@ -3419,9 +3522,15 @@ def _grid_pair(location, act):
             + _form_repr(location) + " stands in no such form") from None
 
 
-def region_shift_steps(location_a, location_b):
+def region_shift_steps(location_a, location_b, *extra_args, **extra_kwargs):
     """Return the shift of a region location between two points,
     in grid steps on each axis."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "region_shift_steps stands refused: this door stands handed "
+            "the two locations, an argument stands handed in beyond the "
+            "two locations, and no shift stands returned; next step: "
+            "hand the two locations and call the door again")
     try:
         pair_a = _grid_pair(location_a, "region_shift_steps")
     except (KeyboardInterrupt, SystemExit):
@@ -3444,7 +3553,7 @@ def region_shift_steps(location_a, location_b):
     )
 
 
-def transition_wording(location_a, location_b, location_reported=None):
+def transition_wording(location_a, location_b, location_reported=None, *extra_args, **extra_kwargs):
     """Return the wording of a stability comparison. A transition
     stands reported as holding only where the region location is
     stable, moving by no more than one grid step on either axis.
@@ -3454,6 +3563,12 @@ def transition_wording(location_a, location_b, location_reported=None):
     where no location stands reported at a point, the report
     states the crossover form or the censored form and makes no
     holding statement."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "transition_wording stands refused: this door stands handed "
+            "the two locations, an argument stands handed in beyond the "
+            "two locations, and no wording stands returned; next step: "
+            "hand the two locations and call the door again")
     if location_reported is not None and not all(location_reported):
         return {
             "wording": "censored form",
@@ -3487,13 +3602,19 @@ def transition_wording(location_a, location_b, location_reported=None):
     }
 
 
-def validate_transition_report(report):
+def validate_transition_report(report, *extra_args, **extra_kwargs):
     """Return True only for a full transition report: the full
     distribution near the threshold, the three regime class
     counts, the honest loss rate in the H1 form beside the
     headline figure, and at least 30 replicates per control point
     near the threshold, with the top up rule applied and recorded
     where a screening point lands within the closed bounds."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_transition_report stands refused: this door "
+            "stands handed the report, an argument stands handed in "
+            "beyond the report, and no judgement stands returned; next "
+            "step: hand the report and call the door again")
     if not isinstance(report, dict):
         return False
     try:
@@ -3541,13 +3662,19 @@ def validate_transition_report(report):
     return True
 
 
-def validate_transition_unit(unit):
+def validate_transition_unit(unit, *extra_args, **extra_kwargs):
     """Return True only where a transition report unit carries, in
     the same unit as its headline figure, the cumulative incidence
     of each terminal regime class by the stated horizon and the
     share of replicates right censored at that horizon, each
     labelled derived from the replicate counts in that unit, and
     every location sentence names its horizon."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_transition_unit stands refused: this door stands "
+            "handed the unit, an argument stands handed in beyond the "
+            "unit, and no judgement stands returned; next step: hand "
+            "the unit and call the door again")
     if not isinstance(unit, dict):
         return False
     figure = dict.get(unit, "transition_figure") or {}
@@ -3602,7 +3729,7 @@ def validate_transition_unit(unit):
     return True
 
 
-def reporter_inputs_for_family(retained_records):
+def reporter_inputs_for_family(retained_records, *extra_args, **extra_kwargs):
     """Return the Reporter inputs of one family as carried through
     the retained records at S-10: the divergence count computed at
     S-04 as it stands, or the blocked family mark where it stands,
@@ -3610,6 +3737,13 @@ def reporter_inputs_for_family(retained_records):
     handing in no record form stands refused in named form,
     so no reader mistakes an unread handing for a genuine
     record carrying neither field."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "reporter_inputs_for_family stands refused: this door "
+            "stands handed the retained records, an argument stands "
+            "handed in beyond the retained records, and no inputs stand "
+            "returned; next step: hand the retained records and call "
+            "the door again")
     if not isinstance(retained_records, dict):
         raise ValueError(
             "reporter_inputs_for_family stands refused: the "
@@ -3654,7 +3788,7 @@ def _stored_truth_stands(value):
     return True
 
 
-def share_report_stands(inputs, share):
+def share_report_stands(inputs, share, *extra_args, **extra_kwargs):
     """Report whether a report may read an affected share as
     standing as reported. The function returns a boolean only: it
     reports the standing of the share for reading, and no caller
@@ -3662,6 +3796,13 @@ def share_report_stands(inputs, share):
     family mark stands for a share, with its count nonzero and
     unresolved, the function returns False for that share, and it
     returns True otherwise."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "share_report_stands stands refused: this door stands "
+            "handed the inputs and the share, an argument stands handed "
+            "in beyond the share, and no standing stands returned; next "
+            "step: hand the inputs and the share and call the door "
+            "again")
     mark = dict.get(inputs, "blocked_family_mark") if isinstance(inputs, dict) else None
     if isinstance(mark, dict):
         affected_text = _registry_stored_text(
@@ -4176,7 +4317,7 @@ def _stored_unit_list(value):
     return []
 
 
-def make_weekly_container(week, units):
+def make_weekly_container(week, units, *extra_args, **extra_kwargs):
     """Build the weekly container for one week in arrival order.
     At most 25 whole headline units stand in the container under
     decision D-12. A unit beyond the cap stands held, reported as
@@ -4191,6 +4332,12 @@ def make_weekly_container(week, units):
     identifier, so a repeat consumes no place inside the cap and
     stands nowhere among the held units, in the same identity
     reading the weekly count states."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "make_weekly_container stands refused: this door stands "
+            "handed the week and the units, an argument stands handed "
+            "in beyond the units, and no container stands built; next "
+            "step: hand the week and the units and call the door again")
     ordered = _stored_unit_list(units)
     for item in ordered:
         if not _unit_identifier_stands(item):
@@ -4233,10 +4380,18 @@ def make_weekly_container(week, units):
     }
 
 
-def next_weekly_container(week, previous_container, new_units):
+def next_weekly_container(week, previous_container, new_units, *extra_args, **extra_kwargs):
     """Build the next weekly container: units held from the
     previous container stand released into it first, in arrival
     order, ahead of the new units of the week."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "next_weekly_container stands refused: this door stands "
+            "handed the week, the previous container, and the new "
+            "units, an argument stands handed in beyond the new units, "
+            "and no container stands built; next step: hand the week, "
+            "the previous container, and the new units and call the "
+            "door again")
     released = _stored_unit_list(
         dict.get(previous_container, "held_units")
         if isinstance(previous_container, dict) else None)
@@ -4290,7 +4445,7 @@ def claim_enters_family(family_record=_ARGUMENT_NOT_HANDED,
 _VISUAL_PRESENTATIONS = ("position", "extent", "colour", "layout")
 
 
-def validate_readout(readout):
+def validate_readout(readout, *extra_args, **extra_kwargs):
     """Return True only under the readout equivalence duty of
     Amendment TG4-56: every quantity presented by position,
     extent, colour, or layout also stands in the same readout as
@@ -4298,6 +4453,12 @@ def validate_readout(readout):
     stands stated in words in the same unit. A readout presenting
     a quantity only in a visual or positional form is not
     published, and this function returns False for it."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_readout stands refused: this door stands handed "
+            "the readout, an argument stands handed in beyond the "
+            "readout, and no judgement stands returned; next step: hand "
+            "the readout and call the door again")
     if not isinstance(readout, dict):
         return False
     quantities = dict.get(readout, "quantities")
@@ -4324,7 +4485,7 @@ def validate_readout(readout):
     return True
 
 
-def validate_disclosure_form(form):
+def validate_disclosure_form(form, *extra_args, **extra_kwargs):
     """Return True only under the disclosure form identification
     duty of Amendment TG4-64: every entry of a disclosure table,
     triangle, or period form states its reported quantity with
@@ -4334,6 +4495,12 @@ def validate_disclosure_form(form):
     the layout. A form whose quantities are identified only by
     their position on the page is not published, and this
     function returns False for it."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_disclosure_form stands refused: this door stands "
+            "handed the form, an argument stands handed in beyond the "
+            "form, and no judgement stands returned; next step: hand "
+            "the form and call the door again")
     if not isinstance(form, dict):
         return False
     entries = dict.get(form, "entries")
@@ -4599,7 +4766,7 @@ def _unnamed_family_fields(family_record):
     return unnamed
 
 
-def validate_family_record(family_record):
+def validate_family_record(family_record, *extra_args, **extra_kwargs):
     """Return whether a family record passes MOD-01 validation
     for Form 1 and supports a reportable run under its
     completeness bar. A record carrying a field standing
@@ -4611,6 +4778,13 @@ def validate_family_record(family_record):
     its standing here on the keys those acts write, in the form
     they write them (Step 16 fix wave 3, row F3-01, ruling
     T16-39)."""
+    if extra_args or extra_kwargs:
+        raise ValueError(
+            "validate_family_record stands refused: this door stands "
+            "handed the family record, an argument stands handed in "
+            "beyond the family record, and no judgement stands "
+            "returned; next step: hand the family record and call the "
+            "door again")
     if not isinstance(family_record, dict):
         return False
     if _unnamed_family_fields(family_record):

@@ -331,12 +331,19 @@ def _alias_values_equal(first, second):
         return False
 
 
-def alias_divergences(record):
+def alias_divergences(record, *extra_args, **extra_kwargs):
     """The diverged alias states of one family record, named:
     one entry per alias pair whose two keys stand present and
     carry different values, across the controller pairs and the
     completeness pairs. A diverged alias state stands named here
-    rather than silently judged (R16-11)."""
+    rather than silently judged (R16-11). A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "alias_divergences cannot stand performed: an argument "
+            "stands handed in beyond the record, this door "
+            "stands handed the record, and no act stands "
+            "performed at this door; next step: hand "
+            "the record and call the door again")
     diverged = []
     if not isinstance(record, dict):
         return diverged
@@ -367,7 +374,7 @@ def alias_divergences(record):
     return diverged
 
 
-def family_record_presentation(record):
+def family_record_presentation(record, *extra_args, **extra_kwargs):
     """The presentation of one family record (Step 16, R16-04):
     the completeness fields standing as open markers stand named
     as awaiting supply, the fields carrying placeholder text
@@ -390,7 +397,18 @@ def family_record_presentation(record):
     placeholder_fields (Step 16 fix wave 4, row F4-02,
     ruling T16-50). The supply itself stands charged to no
     fix and no value stands invented here (OP-16).
+    A handing carrying an argument beyond the stated
+    arguments, in positional or in keyword form, stands
+    refused in the named form of this module, stating
+    the door, the ground, and the next step (FW9-01).
     """
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "family_record_presentation cannot stand performed: an argument "
+            "stands handed in beyond the record, this door "
+            "stands handed the record, and no act stands "
+            "performed at this door; next step: hand "
+            "the record and call the door again")
     if not isinstance(record, dict):
         return {
             "standing": "not a record: no presentation stands",
@@ -641,13 +659,20 @@ def _stored_value_present(value):
 # ---------------------------------------------------------------------------
 
 def make_family_record(family_id="family-under-test", claims=None,
-                       scheduling_order_identifier=None):
+                       scheduling_order_identifier=None, *extra_args, **extra_kwargs):
     """One family record in the Shape 1 form MOD-01 states as
     Form 1: every field of that form stands on the record, under
     the form field names, beside the controller carriage keys.
     The completeness items the seal path checks stand on the
     record by name. The record stands unsealed until
-    seal_family_record seals it."""
+    seal_family_record seals it. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "make_family_record cannot stand performed: an argument "
+            "stands handed in beyond the family id and the claims and the scheduling order identifier, this door "
+            "stands handed the family id and the claims and the scheduling order identifier, and no act stands "
+            "performed at this door; next step: hand "
+            "the family id and the claims and the scheduling order identifier and call the door again")
     if claims is None:
         claims = ["headline claim 1"]
     elif isinstance(claims, (list, tuple, set, frozenset)):
@@ -695,7 +720,7 @@ def make_family_record(family_id="family-under-test", claims=None,
     return record
 
 
-def sweep_manifest(record):
+def sweep_manifest(record, *extra_args, **extra_kwargs):
     """The sweep manifest of one family record, in the Form 23
     fields: the family identifier, the family version, and the
     sealed family record hash, each as the record carries it.
@@ -703,7 +728,14 @@ def sweep_manifest(record):
     cycle guard as the sister family acts of this module,
     checked before the copy: a value past the bound or carrying
     a cycle stands refused in the named form, never copied as a
-    bare RecursionError."""
+    bare RecursionError. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "sweep_manifest cannot stand performed: an argument "
+            "stands handed in beyond the record, this door "
+            "stands handed the record, and no act stands "
+            "performed at this door; next step: hand "
+            "the record and call the door again")
     if not isinstance(record, dict):
         record = {}
     seal = dict.get(record, "seal")
@@ -733,11 +765,18 @@ def sweep_manifest(record):
     }
 
 
-def retained_run_record(run_id, store_kind="sweep"):
+def retained_run_record(run_id, store_kind="sweep", *extra_args, **extra_kwargs):
     """One run record read through MOD-10, the Recorder store
     reading path the plan boundary row for this controller states.
     A record that does not resolve stands raised as the MOD-10
-    named lookup failure, and no record is fabricated here."""
+    named lookup failure, and no record is fabricated here. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "retained_run_record cannot stand performed: an argument "
+            "stands handed in beyond the run id and the store kind, this door "
+            "stands handed the run id and the store kind, and no act stands "
+            "performed at this door; next step: hand "
+            "the run id and the store kind and call the door again")
     return _mod10.read_run_record(run_id, store_kind=store_kind)
 
 
@@ -991,7 +1030,7 @@ def _edit_claim_stands(claim, standing):
     return False
 
 
-def apply_family_edit(record, change=None):
+def apply_family_edit(record, change=None, *extra_args, **extra_kwargs):
     """Apply an edit to a family record. An edit to a sealed record
     creates a new family identifier, and runs under the new
     identifier start again, per Shape 1 and operation C-10. An
@@ -1004,7 +1043,14 @@ def apply_family_edit(record, change=None):
     whose kill check fields name a claim that no longer stands
     is refused in the named form. A claims value that does not
     stand in list or tuple form is refused in the named form,
-    never read character by character or part by part."""
+    never read character by character or part by part. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "apply_family_edit cannot stand performed: an argument "
+            "stands handed in beyond the record and the change, this door "
+            "stands handed the record and the change, and no act stands "
+            "performed at this door; next step: hand "
+            "the record and the change and call the door again")
     if _shape_exceeds_bounds(record):
         raise NamedControllerFailure(_shape_refusal(
             "record", record, "family edit refused"))
@@ -1094,7 +1140,7 @@ def apply_family_edit(record, change=None):
     return edited
 
 
-def family_record_validation_failures(record):
+def family_record_validation_failures(record, *extra_args, **extra_kwargs):
     """The named validation failures of one family record, field
     by field: every missing Form 1 field, every missing
     completeness field of the MOD-01 bar, and every missing
@@ -1105,7 +1151,14 @@ def family_record_validation_failures(record):
     in any form but the form the product own seal and edit acts
     write them, and the four controller bar keys (ecology_point,
     amendment_landed, data_dependent_top_up, look_register)
-    alike (Step 16 fix wave 3, row F3-01, ruling T16-39)."""
+    alike (Step 16 fix wave 3, row F3-01, ruling T16-39). A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "family_record_validation_failures cannot stand performed: an argument "
+            "stands handed in beyond the record, this door "
+            "stands handed the record, and no act stands "
+            "performed at this door; next step: hand "
+            "the record and call the door again")
     if not isinstance(record, dict):
         return ["family record is not a record"]
     failures = []
@@ -1226,7 +1279,7 @@ def validate_family_record(record, *extra_args, **extra_kwargs):
     return True
 
 
-def admit_claim(family, claim=None):
+def admit_claim(family, claim=None, *extra_args, **extra_kwargs):
     """Admit one claim to a family. A claim entering after results
     are seen is barred from the family and supports no headline
     publication from it. The claim stands under the same depth
@@ -1234,7 +1287,14 @@ def admit_claim(family, claim=None):
     module, checked ahead of the copy: a claim past the bound
     or carrying a cycle stands refused in the named form, never
     copied whole, preserved in its cycle, or raised as a bare
-    RecursionError."""
+    RecursionError. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "admit_claim cannot stand performed: an argument "
+            "stands handed in beyond the family and the claim, this door "
+            "stands handed the family and the claim, and no act stands "
+            "performed at this door; next step: hand "
+            "the family and the claim and call the door again")
     if _shape_exceeds_bounds(claim):
         raise NamedControllerFailure(_shape_refusal(
             "claim", claim, "claim cannot be admitted"))
@@ -1274,7 +1334,7 @@ def _plain_number_value(value):
     return float.__float__(value)
 
 
-def kill_check_for_claim(claim):
+def kill_check_for_claim(claim, *extra_args, **extra_kwargs):
     """One named kill check for one headline claim, in four parts:
     the name of the check; the data it runs on, standing outside
     the artefact under check; the judge that applies it, standing
@@ -1284,7 +1344,14 @@ def kill_check_for_claim(claim):
     claim stands in a text form, and through the safe string
     form of this module where it does not, so a claim whose own
     string reading raises or misstates its stored text still
-    stands named whole."""
+    stands named whole. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "kill_check_for_claim cannot stand performed: an argument "
+            "stands handed in beyond the claim, this door "
+            "stands handed the claim, and no act stands "
+            "performed at this door; next step: hand "
+            "the claim and call the door again")
     name_text = _stored_text(claim)
     if name_text is None:
         name_text = _safe_str(claim)
@@ -1300,7 +1367,7 @@ def kill_check_for_claim(claim):
     }
 
 
-def kill_checks_for_family(family_id="family-under-test", claims=None):
+def kill_checks_for_family(family_id="family-under-test", claims=None, *extra_args, **extra_kwargs):
     """The kill checks fixed before runs for one family, one per
     headline claim in the family list. The claims stand read in
     the form of the cured sibling act make_family_record: a
@@ -1308,7 +1375,14 @@ def kill_checks_for_family(family_id="family-under-test", claims=None):
     through the base iteration of its form, and a handing in
     any other form stands as the default claim list, so no
     truth, iteration, or string reading the handing itself
-    supplies directs which claims stand checked."""
+    supplies directs which claims stand checked. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "kill_checks_for_family cannot stand performed: an argument "
+            "stands handed in beyond the family id and the claims, this door "
+            "stands handed the family id and the claims, and no act stands "
+            "performed at this door; next step: hand "
+            "the family id and the claims and call the door again")
     if claims is None:
         claims = ["headline claim 1"]
     elif isinstance(claims, (list, tuple, set, frozenset)):
@@ -1318,9 +1392,16 @@ def kill_checks_for_family(family_id="family-under-test", claims=None):
     return [kill_check_for_claim(claim) for claim in claims]
 
 
-def validate_kill_check(check):
+def validate_kill_check(check, *extra_args, **extra_kwargs):
     """Return True only for a complete kill check whose data and
-    judge both stand outside the artefact under check."""
+    judge both stand outside the artefact under check. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "validate_kill_check cannot stand performed: an argument "
+            "stands handed in beyond the check, this door "
+            "stands handed the check, and no act stands "
+            "performed at this door; next step: hand "
+            "the check and call the door again")
     if not isinstance(check, dict):
         return False
     if not _stored_value_present(dict.get(check, "name")) \
@@ -1334,11 +1415,18 @@ def validate_kill_check(check):
     )
 
 
-def registry_basis_fields():
+def registry_basis_fields(*extra_args, **extra_kwargs):
     """The family facing registry basis carriage of DQ7-07: the
     family record carries the registry basis fields, and until the
     basis stands, the 5 percent figure is not reported as a
-    recomputed result."""
+    recomputed result. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "registry_basis_fields cannot stand performed: an argument "
+            "stands handed in beyond the stated form of this door, this door "
+            "stands handed no argument, and no act stands "
+            "performed at this door; next step: hand "
+            "no argument and call the door again")
     return {
         "basis_standing": "carried, not adopted as recomputed",
         "five_percent_figure_reported_as_recomputed": False,
@@ -1354,10 +1442,17 @@ def registry_basis_fields():
 # Run classes, the stopping rule, and the look register
 # ---------------------------------------------------------------------------
 
-def run_class_markings():
+def run_class_markings(*extra_args, **extra_kwargs):
     """The four run classes and their record markings. The classes
     are distinct; confirmation uses held out seeds and held out
-    settings."""
+    settings. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "run_class_markings cannot stand performed: an argument "
+            "stands handed in beyond the stated form of this door, this door "
+            "stands handed no argument, and no act stands "
+            "performed at this door; next step: hand "
+            "no argument and call the door again")
     return {
         "screening": {"seed_domain": "screening", "held_out_settings": False, "reporting": False},
         "confirmation": {"seed_domain": "held out confirmation", "held_out_settings": True, "reporting": True},
@@ -3021,7 +3116,14 @@ def _run_numeric_failure(run):
     return None
 
 
-def run_record_validation_failures(run):
+def run_record_validation_failures(run, *extra_args, **extra_kwargs):
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "run_record_validation_failures cannot stand performed: an argument "
+            "stands handed in beyond the run, this door "
+            "stands handed the run, and no act stands "
+            "performed at this door; next step: hand "
+            "the run and call the door again")
     if not isinstance(run, dict) or dict.__len__(run) == 0:
         return [
             "the run record stands empty or in no record form: "
@@ -3079,7 +3181,7 @@ def run_record_validation_failures(run):
     return []
 
 
-def validate_run_record(run):
+def validate_run_record(run, *extra_args, **extra_kwargs):
     """Return True only where a run record stands in its class,
     with its class fields stated: an empty record fails, a record
     with no stated class or no stated seed domain fails, a
@@ -3090,7 +3192,14 @@ def validate_run_record(run):
     or replicate_index, standing in no judged form fails. A record
     carrying a barred money field at any depth fails, and a
     record whose anchor scenario values stand at a count other
-    than the three stated values fails."""
+    than the three stated values fails. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "validate_run_record cannot stand performed: an argument "
+            "stands handed in beyond the run, this door "
+            "stands handed the run, and no act stands "
+            "performed at this door; next step: hand "
+            "the run and call the door again")
     if not isinstance(run, dict) or dict.__len__(run) == 0:
         return False
     run_class = _run_field(run, "run_class")
@@ -3127,16 +3236,23 @@ def validate_run_record(run):
     return True
 
 
-def claim_label(claim=None):
+def claim_label(claim=None, *extra_args, **extra_kwargs):
     """The label of one claim: a claim without a settings lineage
-    is labelled a screening finding only."""
+    is labelled a screening finding only. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "claim_label cannot stand performed: an argument "
+            "stands handed in beyond the claim, this door "
+            "stands handed the claim, and no act stands "
+            "performed at this door; next step: hand "
+            "the claim and call the door again")
     if not isinstance(claim, dict) or not _stored_value_present(
             dict.get(claim, "settings_lineage")):
         return "screening finding only"
     return "claim with settings lineage"
 
 
-def readout_status(readout):
+def readout_status(readout, *extra_args, **extra_kwargs):
     """The standing of one readout under the stopping rule, over
     all six conditions together: condition 1, the claim in
     bounding form; condition 2, the search completed at rung 6
@@ -3148,7 +3264,14 @@ def readout_status(readout):
     the assumption set and row identifiers inside the result.
     Established stands only where all six hold. Every lower form
     names the first unmet condition, and names every unmet
-    condition beside it."""
+    condition beside it. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "readout_status cannot stand performed: an argument "
+            "stands handed in beyond the readout, this door "
+            "stands handed the readout, and no act stands "
+            "performed at this door; next step: hand "
+            "the readout and call the door again")
     if not isinstance(readout, dict):
         readout = {}
     battery = dict.get(readout, "check_artefact_battery")
@@ -3229,12 +3352,19 @@ def readout_status(readout):
     }
 
 
-def look_register_for_family(family_id="family-under-test"):
+def look_register_for_family(family_id="family-under-test", *extra_args, **extra_kwargs):
     """The look register of one family, under a prewritten alpha
     spending function fixed in advance. Each entry records the
     look number, the information fraction as a derived ratio, the
     boundary the spending function assigned to that look, and
-    whether the readout crossed it."""
+    whether the readout crossed it. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "look_register_for_family cannot stand performed: an argument "
+            "stands handed in beyond the family id, this door "
+            "stands handed the family id, and no act stands "
+            "performed at this door; next step: hand "
+            "the family id and call the door again")
     return {
         "family_id": family_id,
         "spending_function_fixed_in_advance": True,
@@ -3249,12 +3379,19 @@ def look_register_for_family(family_id="family-under-test"):
     }
 
 
-def validate_look_decision(decision):
+def validate_look_decision(decision, *extra_args, **extra_kwargs):
     """Return True only where a decision rests on a registered
     look. No promotion, refinement, top up beyond a rule fixed in
     the family record before runs, or readout wording decision
     rests on an unregistered look, and a register entry written
-    after the decision it would judge does not cure it."""
+    after the decision it would judge does not cure it. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "validate_look_decision cannot stand performed: an argument "
+            "stands handed in beyond the decision, this door "
+            "stands handed the decision, and no act stands "
+            "performed at this door; next step: hand "
+            "the decision and call the door again")
     if not isinstance(decision, dict):
         return False
     if not _stored_value_present(dict.get(decision, "registered")):
@@ -3269,9 +3406,16 @@ def validate_look_decision(decision):
 # Grids, replicates, screening surfaces, and the decay arm
 # ---------------------------------------------------------------------------
 
-def grid_artefacts(produced_before_pilot=True):
+def grid_artefacts(produced_before_pilot=True, *extra_args, **extra_kwargs):
     """Grid artefacts. Every artefact produced before the NQ-4
-    timing pilot lands is marked provisional, per AC-7."""
+    timing pilot lands is marked provisional, per AC-7. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "grid_artefacts cannot stand performed: an argument "
+            "stands handed in beyond the produced before pilot, this door "
+            "stands handed the produced before pilot, and no act stands "
+            "performed at this door; next step: hand "
+            "the produced before pilot and call the door again")
     standing = "provisional" if produced_before_pilot else "refixed on the pilot figure"
     return [
         {"kind": "grid", "standing": standing},
@@ -3280,11 +3424,18 @@ def grid_artefacts(produced_before_pilot=True):
     ]
 
 
-def grid_decision_log():
+def grid_decision_log(*extra_args, **extra_kwargs):
     """The grid decision log as a family definition record: every
     candidate value and rejection carries the provisional standing
     until the pilot figure lands, and no grid is fixed by the
-    log."""
+    log. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "grid_decision_log cannot stand performed: an argument "
+            "stands handed in beyond the stated form of this door, this door "
+            "stands handed no argument, and no act stands "
+            "performed at this door; next step: hand "
+            "no argument and call the door again")
     return {
         "form": "family definition record",
         "grid_fixed_by_log": False,
@@ -3294,9 +3445,16 @@ def grid_decision_log():
     }
 
 
-def validate_grid_claim(claim):
+def validate_grid_claim(claim, *extra_args, **extra_kwargs):
     """Return False where a grid point stands presented as
-    affordable before the timing pilot lands."""
+    affordable before the timing pilot lands. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "validate_grid_claim cannot stand performed: an argument "
+            "stands handed in beyond the claim, this door "
+            "stands handed the claim, and no act stands "
+            "performed at this door; next step: hand "
+            "the claim and call the door again")
     if not isinstance(claim, dict):
         return False
     if _stored_eq(dict.get(claim, "claim"), "affordable") \
@@ -3344,7 +3502,7 @@ def _sample_name_alias(name):
     return None
 
 
-def sample_statement(runs=None):
+def sample_statement(runs=None, *extra_args, **extra_kwargs):
     """The sample statement of one result, inside the result: the
     count of runs completed in each run class, stated class by
     class, what the sample was as the concrete units counted,
@@ -3358,7 +3516,14 @@ def sample_statement(runs=None):
     each run name stands judged once against the kept names
     through the canonical key and printed name alias forms
     of this module, so the work of one call stands linear
-    in the runs handed in."""
+    in the runs handed in. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "sample_statement cannot stand performed: an argument "
+            "stands handed in beyond the runs, this door "
+            "stands handed the runs, and no act stands "
+            "performed at this door; next step: hand "
+            "the runs and call the door again")
     counts = {run_class: 0 for run_class in RUN_CLASSES}
     named = []
     named_keys = set()
@@ -3470,13 +3635,20 @@ def _sample_name_text(name):
     return text
 
 
-def screening_readout(fixture="F-17", runs=None):
+def screening_readout(fixture="F-17", runs=None, *extra_args, **extra_kwargs):
     """The screening readout for the past programme points of
     fixture F-17: farm shares of 50, 60, and 70 percent, reported
     on the D-05 traces and on the honest loss rate and not on the
     win count, in their weighed and not adopted standing. The
     sample statement stands inside the readout, counted from the
-    runs handed in and from no others."""
+    runs handed in and from no others. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "screening_readout cannot stand performed: an argument "
+            "stands handed in beyond the fixture and the runs, this door "
+            "stands handed the fixture and the runs, and no act stands "
+            "performed at this door; next step: hand "
+            "the fixture and the runs and call the door again")
     return {
         "fixture": fixture,
         "farm_shares_percent": [50, 60, 70],
@@ -3486,13 +3658,20 @@ def screening_readout(fixture="F-17", runs=None):
     }
 
 
-def winning_regime(daily_shares):
+def winning_regime(daily_shares, *extra_args, **extra_kwargs):
     """Return True only where the attacker share stands above the
     honest share at every daily evaluation over the final 30
     simulated days. Shares are evaluated at the end of each
     simulated day; each entry is an attacker and honest pair. An
     entry that is not a pair of numbers fails in the named form,
-    never as a bare unpacking or comparison error."""
+    never as a bare unpacking or comparison error. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "winning_regime cannot stand performed: an argument "
+            "stands handed in beyond the daily shares, this door "
+            "stands handed the daily shares, and no act stands "
+            "performed at this door; next step: hand "
+            "the daily shares and call the door again")
     if isinstance(daily_shares, (list, tuple, set, frozenset)):
         shares = _base_sequence(daily_shares)
     elif daily_shares is None:
@@ -3539,10 +3718,17 @@ def winning_regime(daily_shares):
     return True
 
 
-def validate_screening_claim(claim):
+def validate_screening_claim(claim, *extra_args, **extra_kwargs):
     """Return False where an F-17 screening point stands presented
     as adopted scope: the points are a weighing, not adopted
-    scope."""
+    scope. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "validate_screening_claim cannot stand performed: an argument "
+            "stands handed in beyond the claim, this door "
+            "stands handed the claim, and no act stands "
+            "performed at this door; next step: hand "
+            "the claim and call the door again")
     if not isinstance(claim, dict):
         return False
     if _stored_eq(dict.get(claim, "fixture"), "F-17") \
@@ -3552,13 +3738,20 @@ def validate_screening_claim(claim):
     return True
 
 
-def top_up_applies(winning_probability, replicates_after_top_up):
+def top_up_applies(winning_probability, replicates_after_top_up, *extra_args, **extra_kwargs):
     """The top up rule of fixture F-18 as this controller states
     it, in the one closed bound form the governing plan states
     for F-18: a control point found in screening with a winning
     probability at or above 0.1 and at or below 0.9 is topped
     up to at least 30 replicates, and the rule stands recorded
-    in the run record."""
+    in the run record. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "top_up_applies cannot stand performed: an argument "
+            "stands handed in beyond the winning probability and the replicates after top up, this door "
+            "stands handed the winning probability and the replicates after top up, and no act stands "
+            "performed at this door; next step: hand "
+            "the winning probability and the replicates after top up and call the door again")
     plain_probability = _plain_number_value(winning_probability)
     plain_replicates = _plain_number_value(replicates_after_top_up)
     if plain_probability is None or plain_replicates is None:
@@ -3597,14 +3790,21 @@ DECAY_SLICES = (
 )
 
 
-def decay_arm_readout(fixture="F-14", runs=None):
+def decay_arm_readout(fixture="F-14", runs=None, *extra_args, **extra_kwargs):
     """The decay arm readout: the six named half life slices in
     every plane the arm reports, the two weighed extension slices
     labelled as an outside range extension, and the decay arm
     companion table in the same readout, one row per slice. Each
     row carries its values from the arm it reports or an explicit
     no result standing in words, never placeholder text. The
-    sample statement stands inside the readout."""
+    sample statement stands inside the readout. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "decay_arm_readout cannot stand performed: an argument "
+            "stands handed in beyond the fixture and the runs, this door "
+            "stands handed the fixture and the runs, and no act stands "
+            "performed at this door; next step: hand "
+            "the fixture and the runs and call the door again")
     rows = []
     for slice_name in DECAY_SLICES:
         rows.append({
@@ -3630,9 +3830,16 @@ def decay_arm_readout(fixture="F-14", runs=None):
     }
 
 
-def validate_decay_readout(readout):
+def validate_decay_readout(readout, *extra_args, **extra_kwargs):
     """Return False where a decay arm plane stands reported with
-    no companion table in the same readout."""
+    no companion table in the same readout. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "validate_decay_readout cannot stand performed: an argument "
+            "stands handed in beyond the readout, this door "
+            "stands handed the readout, and no act stands "
+            "performed at this door; next step: hand "
+            "the readout and call the door again")
     if not isinstance(readout, dict):
         return False
     planes = dict.get(readout, "planes")
@@ -3648,10 +3855,17 @@ def validate_decay_readout(readout):
 # Hostile family ownership and counting illustrations
 # ---------------------------------------------------------------------------
 
-def hostile_family_status(fixture="F-13"):
+def hostile_family_status(fixture="F-13", *extra_args, **extra_kwargs):
     """The hostile input family stands as a required sweep family
     under this controller, with magnitudes fixed in the family
-    record before runs."""
+    record before runs. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "hostile_family_status cannot stand performed: an argument "
+            "stands handed in beyond the fixture, this door "
+            "stands handed the fixture, and no act stands "
+            "performed at this door; next step: hand "
+            "the fixture and call the door again")
     return {
         "fixture": fixture,
         "standing": "required",
@@ -3659,10 +3873,17 @@ def hostile_family_status(fixture="F-13"):
     }
 
 
-def validate_sweep_programme(programme):
+def validate_sweep_programme(programme, *extra_args, **extra_kwargs):
     """Return False where a sweep programme carries the hostile
     family as absent, optional, or sampled below magnitude: such
-    a programme has not run as required."""
+    a programme has not run as required. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "validate_sweep_programme cannot stand performed: an argument "
+            "stands handed in beyond the programme, this door "
+            "stands handed the programme, and no act stands "
+            "performed at this door; next step: hand "
+            "the programme and call the door again")
     if not isinstance(programme, dict):
         return False
     families = dict.get(programme, "families")
@@ -3685,9 +3906,16 @@ def validate_sweep_programme(programme):
     return False
 
 
-def hostile_kind_counts_as_run(kind=None, ran_at=None, fixed_magnitude=None):
+def hostile_kind_counts_as_run(kind=None, ran_at=None, fixed_magnitude=None, *extra_args, **extra_kwargs):
     """A hostile kind run below its fixed magnitude does not count
-    as run."""
+    as run. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "hostile_kind_counts_as_run cannot stand performed: an argument "
+            "stands handed in beyond the kind and the ran at and the fixed magnitude, this door "
+            "stands handed the kind and the ran at and the fixed magnitude, and no act stands "
+            "performed at this door; next step: hand "
+            "the kind and the ran at and the fixed magnitude and call the door again")
     if ran_at is None or fixed_magnitude is None:
         return False
     plain_ran_at = _plain_number_value(ran_at)
@@ -3697,11 +3925,18 @@ def hostile_kind_counts_as_run(kind=None, ran_at=None, fixed_magnitude=None):
     return plain_ran_at >= plain_magnitude
 
 
-def counting_basis(fixture="F-20"):
+def counting_basis(fixture="F-20", *extra_args, **extra_kwargs):
     """The Saltelli counting illustrations of fixture F-20: 14,336
     distinct evaluations at 12 inputs and a base sample of 1,024
     without second order indices. The figures illustrate the
-    counting method and price nothing."""
+    counting method and price nothing. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "counting_basis cannot stand performed: an argument "
+            "stands handed in beyond the fixture, this door "
+            "stands handed the fixture, and no act stands "
+            "performed at this door; next step: hand "
+            "the fixture and call the door again")
     return {
         "fixture": fixture,
         "distinct_evaluations": 14336,
@@ -3712,10 +3947,17 @@ def counting_basis(fixture="F-20"):
     }
 
 
-def validate_cost_claim(claim):
+def validate_cost_claim(claim, *extra_args, **extra_kwargs):
     """Return False for any cost claim, run count commitment, or
     affordability statement resting on an F-20 figure, and for an
-    F-19 composite form worded as a measured cost."""
+    F-19 composite form worded as a measured cost. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "validate_cost_claim cannot stand performed: an argument "
+            "stands handed in beyond the claim, this door "
+            "stands handed the claim, and no act stands "
+            "performed at this door; next step: hand "
+            "the claim and call the door again")
     if not isinstance(claim, dict):
         return False
     if _stored_eq(dict.get(claim, "basis_fixture"), "F-20"):
@@ -3727,10 +3969,17 @@ def validate_cost_claim(claim):
     return True
 
 
-def validate_seed_placement(placement):
+def validate_seed_placement(placement, *extra_args, **extra_kwargs):
     """Seed replicates sit outside any sampled base design, and
     held out confirmation seeds form a separate seed family from
-    the screening family."""
+    the screening family. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "validate_seed_placement cannot stand performed: an argument "
+            "stands handed in beyond the placement, this door "
+            "stands handed the placement, and no act stands "
+            "performed at this door; next step: hand "
+            "the placement and call the door again")
     if not isinstance(placement, dict):
         return False
     if _stored_value_present(
@@ -3745,19 +3994,33 @@ def validate_seed_placement(placement):
 # Rule version carriage and the family split
 # ---------------------------------------------------------------------------
 
-def record_version_sets(record_kinds=()):
+def record_version_sets(record_kinds=(), *extra_args, **extra_kwargs):
     """The rule version set each named record kind carries: every
     record carries the exact set under which it was produced, as
-    data."""
+    data. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "record_version_sets cannot stand performed: an argument "
+            "stands handed in beyond the record kinds, this door "
+            "stands handed the record kinds, and no act stands "
+            "performed at this door; next step: hand "
+            "the record kinds and call the door again")
     return {
         kind: "rule-version-set-1"
         for kind in sorted(record_kinds or (), key=_safe_str)
     }
 
 
-def validate_record_version(record):
+def validate_record_version(record, *extra_args, **extra_kwargs):
     """Return False where a record stands presented under a rule
-    version set it was not produced under."""
+    version set it was not produced under. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "validate_record_version cannot stand performed: an argument "
+            "stands handed in beyond the record, this door "
+            "stands handed the record, and no act stands "
+            "performed at this door; next step: hand "
+            "the record and call the door again")
     if not isinstance(record, dict):
         return False
     if not _stored_value_present(_run_field(record, "produced_under")) \
@@ -3769,20 +4032,34 @@ def validate_record_version(record):
         _run_field(record, "presented_under"))
 
 
-def family_version_parts(family_id="family-under-test"):
+def family_version_parts(family_id="family-under-test", *extra_args, **extra_kwargs):
     """The family split by rule version: results under two version
-    sets stand in two version parts of the family."""
+    sets stand in two version parts of the family. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "family_version_parts cannot stand performed: an argument "
+            "stands handed in beyond the family id, this door "
+            "stands handed the family id, and no act stands "
+            "performed at this door; next step: hand "
+            "the family id and call the door again")
     return [
         {"family_id": family_id, "rule_version_set": "set-a", "part": 1},
         {"family_id": family_id, "rule_version_set": "set-b", "part": 2},
     ]
 
 
-def validate_family_pooling(pooling):
+def validate_family_pooling(pooling, *extra_args, **extra_kwargs):
     """Return False for pooled results across a rule change with
     no bound recorded in the family record. Pooling recorded as a
     named bound, stating the two version sets pooled and the
-    ground for pooling them, stands in the recorded form."""
+    ground for pooling them, stands in the recorded form. A handing carrying an argument beyond the stated arguments, in positional or in keyword form, stands refused in the named form of this module, stating the door, the ground, and the next step (FW9-01)."""
+    if extra_args or extra_kwargs:
+        raise NamedControllerFailure(
+            "validate_family_pooling cannot stand performed: an argument "
+            "stands handed in beyond the pooling, this door "
+            "stands handed the pooling, and no act stands "
+            "performed at this door; next step: hand "
+            "the pooling and call the door again")
     if not isinstance(pooling, dict):
         return False
     pooled = dict.get(pooling, "pooled_version_sets")

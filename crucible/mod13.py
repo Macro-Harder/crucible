@@ -938,10 +938,16 @@ def _no_difference_report(fields, first, second, compared_form, points):
     }
 
 
-def ac1_field_list():
+def ac1_field_list(*extra_args, **extra_kwargs):
     """The AC-1 state hash field list and its order, as MOD-01
     carries them. This checker pins the list and the order only,
     while OP-24 stands open in part."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "ac1 field list requires no handings: an argument stands "
+            "handed in beyond the stated handings, and no field list "
+            "stands returned; next step: hand no argument and call "
+            "the door again")
     return list(_mod01.state_hash_field_list())
 
 
@@ -1093,11 +1099,17 @@ def replay_check(first=_ARGUMENT_NOT_HANDED,
     }
 
 
-def ac1_check(run_facts):
+def ac1_check(run_facts, *extra_args, **extra_kwargs):
     """The AC-1 check in its pinned form: the field list and its
     order, with every hashed value that has no plan stated
     canonical form carried as HASH-VALUE-BARRED and entering no
     hash equality claim."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "ac1 check requires its run facts: an argument stands "
+            "handed in beyond the run facts, and no ac1 check stands "
+            "performed; next step: hand the run facts and call the "
+            "door again")
     fields = ac1_field_list()
     values = {}
     for field in fields:
@@ -1158,13 +1170,21 @@ NON_DETERMINISTIC_PERMITTED_USES = (
 
 
 def use_stands_for_marked_run(use, marked_non_deterministic=True,
-                              labelled_screening=False):
+                              labelled_screening=False,
+                              *extra_args, **extra_kwargs):
     """Return True only where a use of a run marked non
     deterministic stands permitted: the run is barred from
     witness, headline support, and confirmation support; it may
     still feed a screening observation labelled as a screening
     observation, and a timing or cost figure under the pilot
     confinement, and no other use."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "use stands for marked run requires its use and its "
+            "stated standings: an argument stands handed in beyond "
+            "the use and the stated standings, and no standing stands "
+            "returned; next step: hand the use and the stated "
+            "standings and call the door again")
     if not marked_non_deterministic:
         return True
     if _base_str_member(use, NON_DETERMINISTIC_BARRED_USES):
@@ -1180,12 +1200,18 @@ def use_stands_for_marked_run(use, marked_non_deterministic=True,
 # Resume equality, AC-2, with the detection part at two points only
 # ---------------------------------------------------------------------------
 
-def detection_comparison_points():
+def detection_comparison_points(*extra_args, **extra_kwargs):
     """The two points at which the detection part of a resume
     comparison runs, and no others: on resume at the first
     verdict state the resumed run produces, and again at run
     close. The daily checkpoint position stands scoped to the
     non detection state."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "detection comparison points requires no handings: an "
+            "argument stands handed in beyond the stated handings, "
+            "and no comparison points stand returned; next step: hand "
+            "no argument and call the door again")
     return list(DETECTION_COMPARISON_POINTS)
 
 
@@ -1330,10 +1356,16 @@ def resume_check(original=_ARGUMENT_NOT_HANDED,
     }
 
 
-def validate_resume_claim(claim):
+def validate_resume_claim(claim, *extra_args, **extra_kwargs):
     """Return False for any resume equality claim for the
     detection part in a form wider than verdict level, or at any
     point beyond the two named points, in any artefact."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "validate resume claim requires its claim: an argument "
+            "stands handed in beyond the claim, and no resume claim "
+            "stands validated; next step: hand the claim and call the "
+            "door again")
     if not isinstance(claim, dict):
         return False
     scope = _base_get(claim, "detection_scope")
@@ -1359,11 +1391,19 @@ def validate_resume_claim(claim):
 # Replication verdicts, Contract J, and the probe
 # ---------------------------------------------------------------------------
 
-def verdict_record(claim_id, standard="exact replay alone", outcome="rests"):
+def verdict_record(claim_id, standard="exact replay alone", outcome="rests", *extra_args, **extra_kwargs):
     """One ReplicationVerdictRecord for one claim, holding the
     claim identifier, the standard applied, and the rests or does
     not rest outcome. A record naming the distributional standard
     while the OP-20 quantities stand unfixed does not stand."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "verdict record requires its claim identifier, its "
+            "standard, and its outcome: an argument stands handed in "
+            "beyond the claim identifier, the standard, and the "
+            "outcome, and no verdict record stands made; next step: "
+            "hand the claim identifier, the standard, and the outcome "
+            "and call the door again")
     if not claim_id:
         raise NamedReplicationFailure(
             "verdict record requires a claim identifier: no claim identifier stands supplied"
@@ -1393,7 +1433,13 @@ def verdict_record(claim_id, standard="exact replay alone", outcome="rests"):
     return record
 
 
-def verdict_record_validation_failures(record):
+def verdict_record_validation_failures(record, *extra_args, **extra_kwargs):
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "verdict record validation failures requires its record: "
+            "an argument stands handed in beyond the record, and no "
+            "validation failures stand returned; next step: hand the "
+            "record and call the door again")
     failures = []
     if not isinstance(record, dict):
         return ["the verdict record stands in no record form"]
@@ -1434,7 +1480,13 @@ def verdict_record_validation_failures(record):
     return failures
 
 
-def replay_claim_validation_failures(claim):
+def replay_claim_validation_failures(claim, *extra_args, **extra_kwargs):
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "replay claim validation failures requires its claim: an "
+            "argument stands handed in beyond the claim, and no "
+            "validation failures stand returned; next step: hand the "
+            "claim and call the door again")
     if not isinstance(claim, dict):
         return ["the replay claim stands in no record form"]
     failures = []
@@ -1451,7 +1503,13 @@ def replay_claim_validation_failures(claim):
     return failures
 
 
-def resume_claim_validation_failures(claim):
+def resume_claim_validation_failures(claim, *extra_args, **extra_kwargs):
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "resume claim validation failures requires its claim: an "
+            "argument stands handed in beyond the claim, and no "
+            "validation failures stand returned; next step: hand the "
+            "claim and call the door again")
     if not isinstance(claim, dict):
         return ["the resume claim stands in no record form"]
     failures = []
@@ -1495,7 +1553,13 @@ def resume_claim_validation_failures(claim):
     return failures
 
 
-def probe_claim_validation_failures(claim):
+def probe_claim_validation_failures(claim, *extra_args, **extra_kwargs):
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "probe claim validation failures requires its claim: an "
+            "argument stands handed in beyond the claim, and no "
+            "validation failures stand returned; next step: hand the "
+            "claim and call the door again")
     if not isinstance(claim, dict):
         return ["the probe claim stands in no record form"]
     failures = []
@@ -1514,7 +1578,13 @@ def probe_claim_validation_failures(claim):
     return failures
 
 
-def scoring_record_validation_failures(record):
+def scoring_record_validation_failures(record, *extra_args, **extra_kwargs):
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "scoring record validation failures requires its record: "
+            "an argument stands handed in beyond the record, and no "
+            "validation failures stand returned; next step: hand the "
+            "record and call the door again")
     if not isinstance(record, dict):
         return ["the scoring record stands in no record form"]
     failures = []
@@ -1543,7 +1613,13 @@ def scoring_record_validation_failures(record):
     return failures
 
 
-def aggregate_form_validation_failures(form):
+def aggregate_form_validation_failures(form, *extra_args, **extra_kwargs):
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "aggregate form validation failures requires its form: an "
+            "argument stands handed in beyond the form, and no "
+            "validation failures stand returned; next step: hand the "
+            "form and call the door again")
     if not isinstance(form, (list, tuple)):
         return ["the aggregate form stands in no list form"]
     failures = []
@@ -1575,7 +1651,14 @@ def aggregate_form_validation_failures(form):
     return failures
 
 
-def publishable_on_replication_failures(claim, verdict):
+def publishable_on_replication_failures(claim, verdict, *extra_args, **extra_kwargs):
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "publishable on replication failures requires its claim "
+            "and its verdict: an argument stands handed in beyond the "
+            "claim and the verdict, and no validation failures stand "
+            "returned; next step: hand the claim and the verdict and "
+            "call the door again")
     if not isinstance(verdict, dict):
         return ["the verdict stands in no record form"]
     failures = []
@@ -1603,7 +1686,7 @@ def publishable_on_replication_failures(claim, verdict):
     return failures
 
 
-def validate_verdict_record(record):
+def validate_verdict_record(record, *extra_args, **extra_kwargs):
     """Return True only for a lawful verdict record. While the
     OP-20 quantities stand unfixed, no record naming the
     distributional equivalence standard stands. The sentence form
@@ -1611,6 +1694,12 @@ def validate_verdict_record(record):
     statement: a record whose sentence form stands empty or
     missing, or whose sentences contradict the joined statement,
     does not validate."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "validate verdict record requires its record: an argument "
+            "stands handed in beyond the record, and no verdict "
+            "record stands validated; next step: hand the record and "
+            "call the door again")
     if not isinstance(record, dict):
         return False
     claim_identifier = dict.get(record, "claim_identifier")
@@ -1676,12 +1765,18 @@ def publishable_on_replication(claim=_ARGUMENT_NOT_HANDED,
     return _base_str_eq(dict.get(verdict, "outcome"), "rests")
 
 
-def probe_record(scenario="headline scenario"):
+def probe_record(scenario="headline scenario", *extra_args, **extra_kwargs):
     """The replication probe record for one scenario: the probe is
     scoped as a probe of specification completeness with a
     disagreement catalogue as its deliverable, not as a full
     second implementation. The catalogue stands carried with its
     field list open inside OP-20, in gated form."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "probe record requires its scenario: an argument stands "
+            "handed in beyond the scenario, and no probe record "
+            "stands returned; next step: hand the scenario and call "
+            "the door again")
     return {
         "scenario": scenario,
         "scope": "probe of specification completeness",
@@ -1696,11 +1791,17 @@ def probe_record(scenario="headline scenario"):
     }
 
 
-def validate_probe_claim(claim):
+def validate_probe_claim(claim, *extra_args, **extra_kwargs):
     """Return False where a headline claim quotes a margin or a
     method as settled before the family record fixes it, or where
     a catalogue stands presented as a delivered form with a
     settled field list."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "validate probe claim requires its claim: an argument "
+            "stands handed in beyond the claim, and no probe claim "
+            "stands validated; next step: hand the claim and call the "
+            "door again")
     if not isinstance(claim, dict):
         return False
     if _stored_present(_base_get(
@@ -1719,11 +1820,17 @@ def validate_probe_claim(claim):
 SCORING_SEPARATIONS = ("authorship", "knowledge", "record separation")
 
 
-def scoring_harness_position():
+def scoring_harness_position(*extra_args, **extra_kwargs):
     """The Scoring Harness sits outside the run boundary, inside
     this slice packaging, and never inside MOD-08. Scoring
     consumes records after the run and returns no value into the
     run."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "scoring harness position requires no handings: an "
+            "argument stands handed in beyond the stated handings, "
+            "and no harness position stands returned; next step: hand "
+            "no argument and call the door again")
     return {
         "position": "outside the run boundary",
         "packaging": "MOD-13",
@@ -1819,11 +1926,17 @@ def score_detection_outputs(outputs=_ARGUMENT_NOT_HANDED,
     }
 
 
-def validate_scoring_record(record):
+def validate_scoring_record(record, *extra_args, **extra_kwargs):
     """Return True only for a scoring record standing outside the
     run boundary under all three separations, returning no value
     into the run, and carrying its profile bound label in the
     stated carriage value."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "validate scoring record requires its record: an argument "
+            "stands handed in beyond the record, and no scoring "
+            "record stands validated; next step: hand the record and "
+            "call the door again")
     if not isinstance(record, dict):
         return False
     if _base_get(record, "inside_run_boundary"):
@@ -1843,12 +1956,19 @@ def validate_scoring_record(record):
 # Witness rerun and history extension, operations C-04 and C-05
 # ---------------------------------------------------------------------------
 
-def witness_rerun(original, rule_set_version=None):
+def witness_rerun(original, rule_set_version=None, *extra_args, **extra_kwargs):
     """A witness rerun under a later rule set: a new run linked to
     the original, carrying the rule set version identity it ran
     under, read as a report of the difference between two rule
     sets and nothing more. The original result, the original run
     record, and the original witness standing stand untouched."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "witness rerun requires its original record and its rule "
+            "set version: an argument stands handed in beyond the "
+            "original record and the rule set version, and no rerun "
+            "record stands returned; next step: hand the original "
+            "record and the rule set version and call the door again")
     if not isinstance(original, dict):
         raise NamedReplicationFailure(
             "witness rerun stands refused: no original record "
@@ -1878,10 +1998,16 @@ def witness_rerun(original, rule_set_version=None):
     return rerun
 
 
-def validate_rerun_reading(reading):
+def validate_rerun_reading(reading, *extra_args, **extra_kwargs):
     """Return False where a rerun stands read as the corrected
     version of the older record, or where it overwrites the
     original result, record, or standing."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "validate rerun reading requires its reading: an argument "
+            "stands handed in beyond the reading, and no rerun "
+            "reading stands validated; next step: hand the reading "
+            "and call the door again")
     if not isinstance(reading, dict):
         return False
     read_as = _base_get(reading, "read_as")
@@ -1893,7 +2019,7 @@ def validate_rerun_reading(reading):
         read_as, "difference between two rule sets only")
 
 
-def rerun_reading_validation_failures(reading):
+def rerun_reading_validation_failures(reading, *extra_args, **extra_kwargs):
     """The named failures companion of validate_rerun_reading:
     each ground the act refuses on stands named apart, so an
     operator can tell a reading stated as the corrected version
@@ -1901,6 +2027,12 @@ def rerun_reading_validation_failures(reading):
     and from a reading stated in no stated form. This companion
     states the act's grounds only and settles nothing under
     OP-16, which stands OPEN."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "rerun reading validation failures requires its reading: "
+            "an argument stands handed in beyond the reading, and no "
+            "validation failures stand returned; next step: hand the "
+            "reading and call the door again")
     if not isinstance(reading, dict):
         return ["the rerun reading stands in no record form"]
     failures = []
@@ -2045,7 +2177,7 @@ def _segment_field_agrees(stated, expected):
         return False
 
 
-def extend_history(history, segment):
+def extend_history(history, segment, *extra_args, **extra_kwargs):
     """Extend a history past its first horizon: the extension
     appends a new linked segment, linked by run identifier and
     segment order, under the same rule set version as the segment
@@ -2066,6 +2198,12 @@ def extend_history(history, segment):
     shared memo, so a part shared across items, or between
     the history and the appended segment, stands in the
     returned history as one copy and the sharing stands."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "extend history requires its history and its segment: an "
+            "argument stands handed in beyond the history and the "
+            "segment, and no history stands extended; next step: hand "
+            "the history and the segment and call the door again")
     if not isinstance(history, (list, tuple)):
         raise NamedReplicationFailure(
             "a history extension stands refused: the handed history "
@@ -2516,7 +2654,8 @@ def _amended_form_failures(entry):
 
 def compare_registry_against_run_log(entry, run_log=None,
                                      retained_records=None,
-                                     family_manifest=None):
+                                     family_manifest=None,
+                                     *extra_args, **extra_kwargs):
     """Compare one SweepFamilyRegistry entry against the run
     log, in the form the brief at section 2.4 and the plan at
     Form 22 item 4 and section 6.1 item 13 state. The act stands
@@ -2567,6 +2706,13 @@ def compare_registry_against_run_log(entry, run_log=None,
     states that the shortfall limb did not run, in its
     shortfall limb performed and shortfall status fields, so
     its absence never reads as a pass of that limb."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "compare registry against run log requires its entry and "
+            "its comparison handings: an argument stands handed in "
+            "beyond the entry and the comparison handings, and no "
+            "comparison stands performed; next step: hand the entry "
+            "and the comparison handings and call the door again")
     claim_id = None
     if isinstance(entry, dict):
         claim_raw = _first_stored_value(
@@ -2678,19 +2824,31 @@ def compare_registry_against_run_log(entry, run_log=None,
     return result
 
 
-def daily_aggregate_form():
+def daily_aggregate_form(*extra_args, **extra_kwargs):
     """The daily aggregate form, identical across horizons and
     carrying no horizon field: the aggregates stay horizon
     neutral."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "daily aggregate form requires no handings: an argument "
+            "stands handed in beyond the stated handings, and no "
+            "aggregate form stands returned; next step: hand no "
+            "argument and call the door again")
     return [
         "run_id", "simulated_day", "joint_outcome_components_per_viewer",
         "honest_share", "gate_passing_shares",
     ]
 
 
-def validate_aggregate_form(form):
+def validate_aggregate_form(form, *extra_args, **extra_kwargs):
     """Return False where an aggregate form carries a horizon
     field or changes meaning with the horizon."""
+    if extra_args or extra_kwargs:
+        raise NamedReplicationFailure(
+            "validate aggregate form requires its form: an argument "
+            "stands handed in beyond the form, and no aggregate form "
+            "stands validated; next step: hand the form and call the "
+            "door again")
     if not isinstance(form, (list, tuple)):
         return False
     stored_form = _base_sequence_items(form)

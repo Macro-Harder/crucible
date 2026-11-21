@@ -873,8 +873,10 @@ def strategy_catalogue(extra_identifiers=None):
     }
 
 
-def make_strategy(identifier, in_protocol_payoff=0,
-                  external_profit_range=None, parameters=None):
+def make_strategy(identifier=_ARGUMENT_NOT_HANDED,
+                  in_protocol_payoff=0,
+                  external_profit_range=None, parameters=None,
+                  **extra_kwargs):
     """State one attacker strategy record.
 
     Each strategy carries an external profit parameter, in
@@ -888,7 +890,12 @@ def make_strategy(identifier, in_protocol_payoff=0,
     text handing, an empty text, or a whitespace only text,
     stands refused in this module named failure form, in the
     identity form the MOD-10 retention door states, and no
-    strategy stands built on such a handing.
+    strategy stands built on such a handing. A handing missing
+    its identifier stands refused in the same named form,
+    stating the door, the ground, and the next step (FW6-03).
+    A handing carrying an argument beyond the stated handings
+    of this door, in keyword form, stands refused in the same
+    named form (FW7-01).
 
     The in protocol payoff stands refused in this module named
     failure form where it stands in no finite numeric form, the
@@ -902,6 +909,20 @@ def make_strategy(identifier, in_protocol_payoff=0,
     handed as None stands as no range handed, and its [0] stands
     as the stated default, unmarked.
     """
+    if extra_kwargs:
+        raise NamedAttackerFailure(
+            "make_strategy stands refused: a strategy stands "
+            "built with its identifier handed in, an argument "
+            "stands handed in beyond the identifier, and no "
+            "strategy stands built; next step: hand the "
+            "identifier and call the door again")
+    if identifier is _ARGUMENT_NOT_HANDED:
+        raise NamedAttackerFailure(
+            "make_strategy stands refused: a strategy stands "
+            "built with its identifier handed in, a handing "
+            "stands missing for the identifier, and no strategy "
+            "stands built; next step: hand the identifier and "
+            "call the door again")
     if identifier is None:
         raise NamedAttackerFailure(
             "make_strategy stands refused: identity less record: "
@@ -984,13 +1005,25 @@ def conditional_briber_strategy(in_protocol_payoff=0,
 
 
 def attacker_payoff(strategy=_ARGUMENT_NOT_HANDED,
-                    external_profit_value=_ARGUMENT_NOT_HANDED):
+                    external_profit_value=_ARGUMENT_NOT_HANDED,
+                    *extra_args, **extra_kwargs):
     """An attacker payoff: its in protocol payoff plus its
     external profit parameter, in simulated units only. A strategy
     standing in no record form, or carrying no numeric in protocol
     payoff, fails by name in this module failure form. A handing
     missing its strategy or its external profit value fails by
-    name in the same form."""
+    name in the same form. A handing carrying an argument
+    beyond the strategy and the external profit value stands
+    refused in the same named form (FW9-02)."""
+    if extra_args or extra_kwargs:
+        raise NamedAttackerFailure(
+            "attacker_payoff stands refused: a payoff stands "
+            "computed with its strategy and its external "
+            "profit value handed in, an argument stands handed "
+            "in beyond the strategy and the external profit "
+            "value, and no payoff stands computed; next step: "
+            "hand the strategy and the external profit value "
+            "and call the door again")
     if (strategy is _ARGUMENT_NOT_HANDED
             or external_profit_value is _ARGUMENT_NOT_HANDED):
         raise NamedAttackerFailure(

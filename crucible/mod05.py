@@ -127,13 +127,20 @@ form of this module instead of escaping as bare interpreter
 text at the call itself (FW5-10)."""
 
 
-def _refuse_argument_handing(door, expected, consequence):
-    """Refuse a missing argument handing at a public act of
+def _refuse_argument_handing(door, expected, consequence, missing=True):
+    """Refuse a wrong argument handing at a public act of
     this module, in named form: the door, the ground, and the
-    next step stand stated (FW5-10)."""
+    next step stand stated (FW5-10). The missing form states
+    a handing stands missing; the beyond form states an
+    argument stands handed in beyond the handed form the door
+    takes (FW6-03)."""
+    if missing:
+        ground = "a handing stands missing among "
+    else:
+        ground = "an argument stands handed in beyond "
     raise ValueError(
         door + " stands refused: this door stands handed "
-        + expected + ", a handing stands missing among "
+        + expected + ", " + ground
         + expected + "; next step: hand " + expected
         + " and call the door again, and " + consequence)
 
@@ -296,18 +303,27 @@ def _proportion_part_ground(part):
     return None
 
 
-def proportion_record(numerator=_ARGUMENT_NOT_HANDED, denominator=_ARGUMENT_NOT_HANDED):
+def proportion_record(numerator=_ARGUMENT_NOT_HANDED, denominator=_ARGUMENT_NOT_HANDED,
+                      *extra_args, **extra_kwargs):
     """A proportion stored only with its numerator and denominator
     stored apart. A proportion without its parts is refused.
     A handing missing its numerator or its denominator stands
     refused in the named form of this module, stating the
-    door, the ground, and the next step (FW5-10)."""
+    door, the ground, and the next step (FW5-10). A handing
+    carrying an argument beyond the numerator and the
+    denominator stands refused in the same named form
+    (FW9-02)."""
     if (numerator is _ARGUMENT_NOT_HANDED
             or denominator is _ARGUMENT_NOT_HANDED):
         _refuse_argument_handing(
             "proportion_record",
             "the numerator and the denominator",
             "no proportion stands stored")
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "proportion_record",
+            "the numerator and the denominator",
+            "no proportion stands stored", missing=False)
     if numerator is None or denominator is None:
         missing = []
         if numerator is None:
@@ -401,7 +417,8 @@ def validate_proportion(record):
     return True
 
 
-def work_credit(events=_ARGUMENT_NOT_HANDED):
+def work_credit(events=_ARGUMENT_NOT_HANDED,
+                *extra_args, **extra_kwargs):
     """Work and acceptance counters computed from the same events.
 
     Each event is one work completion with its acceptance outcome.
@@ -425,12 +442,18 @@ def work_credit(events=_ARGUMENT_NOT_HANDED):
     standings, and no handing stands silently emptied. A
     handing missing its events stands refused in the named
     form of this module, stating the door, the ground, and
-    the next step (FW5-10).
+    the next step (FW5-10). A handing carrying an argument
+    beyond the events stands refused in the same named form
+    (FW9-02).
     """
     if events is _ARGUMENT_NOT_HANDED:
         _refuse_argument_handing(
             "work_credit", "the events",
             "no work credit stands computed")
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "work_credit", "the events",
+            "no work credit stands computed", missing=False)
     if isinstance(events, (list, tuple, set, frozenset)):
         events = _stored_list(events)
     elif isinstance(events, (str, bytes, bytearray, memoryview, dict)):
@@ -531,11 +554,28 @@ def accept_work(events):
 # Vouching, components and graph facts, Shape 8 and Shape 9
 # ---------------------------------------------------------------------------
 
-def vouch(voucher, vouchee, stake, creation_day=0, lifetime=None,
+def vouch(voucher=_ARGUMENT_NOT_HANDED, vouchee=_ARGUMENT_NOT_HANDED,
+          stake=_ARGUMENT_NOT_HANDED, creation_day=0, lifetime=None,
           score_bearing=True, component_identifier=None,
-          component_definition_version=None):
+          component_definition_version=None, **extra_kwargs):
     """One VouchEdge in Shape 8 form, carrying its component
-    identifier under the component definition version in force."""
+    identifier under the component definition version in force.
+    A handing missing its voucher, its vouchee, or its stake
+    stands refused in the named form of this module, stating
+    the door, the ground, and the next step (FW6-03). A handing
+    carrying an argument beyond the stated handings of this
+    door, in keyword form, stands refused in the same named
+    form (FW7-01)."""
+    if extra_kwargs:
+        _refuse_argument_handing(
+            "vouch", "the voucher, the vouchee, and the stake",
+            "no vouch stands returned", missing=False)
+    if (voucher is _ARGUMENT_NOT_HANDED
+            or vouchee is _ARGUMENT_NOT_HANDED
+            or stake is _ARGUMENT_NOT_HANDED):
+        _refuse_argument_handing(
+            "vouch", "the voucher, the vouchee, and the stake",
+            "no vouch stands returned")
     edge = {
         "voucher": voucher,
         "vouchee": vouchee,
@@ -935,7 +975,8 @@ def _stands_count(value):
     return int.__int__(value) >= 0
 
 
-def aggregate_reputation(inputs):
+def aggregate_reputation(inputs=_ARGUMENT_NOT_HANDED,
+                         *extra_args, **extra_kwargs):
     """The recommended candidate behind the aggregation interface,
     in comparison form only. It produces one reputation score for an
     agent inside the comparison programme. It adopts no rule and no
@@ -954,8 +995,20 @@ def aggregate_reputation(inputs):
     numeric form, the vouches in no container form, a vouch entry
     in no dict form, or the stake of a score bearing vouch in no
     numeric form, stands refused in a named failure form naming
-    the field.
+    the field. A handing missing its inputs stands refused in
+    the named form of this module, stating the door, the
+    ground, and the next step (FW6-03). A handing carrying an
+    argument beyond the inputs stands refused in the same
+    named form (FW9-02).
     """
+    if inputs is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "aggregate_reputation", "the inputs",
+            "no score stands returned")
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "aggregate_reputation", "the inputs",
+            "no score stands returned", missing=False)
     if not any(
             _stated_name(inputs, *group) is not None
             for group in _AGGREGATION_FIELD_GROUPS):
@@ -1187,9 +1240,18 @@ def band_membership(score=_ARGUMENT_NOT_HANDED, bands=_ARGUMENT_NOT_HANDED, eval
     }
 
 
-def eligibility(score, bands, evaluation_order=None, panel_minimum=None, cap_maximum=None):
+def eligibility(score=_ARGUMENT_NOT_HANDED, bands=_ARGUMENT_NOT_HANDED,
+                evaluation_order=None, panel_minimum=None, cap_maximum=None):
     """Eligibility judgements for band membership, panel eligibility
-    and cap eligibility in one day, all read from the one score."""
+    and cap eligibility in one day, all read from the one score.
+    A handing missing its score or its bands stands refused at
+    this door in the named form of this module, stating the
+    door, the ground, and the next step (FW6-03)."""
+    if (score is _ARGUMENT_NOT_HANDED
+            or bands is _ARGUMENT_NOT_HANDED):
+        _refuse_argument_handing(
+            "eligibility", "the score and the bands",
+            "no eligibility stands returned")
     result = band_membership(score, bands, evaluation_order=evaluation_order)
     score_plain = _base_number(score)
     if panel_minimum is None:
@@ -1524,7 +1586,9 @@ def _gate_epoch_shape_ground(epoch):
     return None
 
 
-def gate_passing_share(eligible, passing, epoch=None):
+def gate_passing_share(eligible=_ARGUMENT_NOT_HANDED,
+                       passing=_ARGUMENT_NOT_HANDED, epoch=None,
+                       *extra_args, **extra_kwargs):
     """The gate passing share computed per epoch by this core, as a
     proportion stored with its numerator and denominator apart.
 
@@ -1548,7 +1612,23 @@ def gate_passing_share(eligible, passing, epoch=None):
     and depth before the record stands built, and a cyclic
     or over deep epoch stands refused in named form; the
     epoch stands stored by value, so a later mutation of
-    the handed epoch changes no returned record (FW5-06)."""
+    the handed epoch changes no returned record (FW5-06).
+    A handing missing its eligible or its passing value, and
+    a handing carrying an argument beyond the eligible, the
+    passing, and the epoch, stand refused in the named form
+    of this module, stating the door, the ground, and the
+    next step (FW6-03)."""
+    if (eligible is _ARGUMENT_NOT_HANDED
+            or passing is _ARGUMENT_NOT_HANDED):
+        _refuse_argument_handing(
+            "gate_passing_share",
+            "the eligible handing and the passing handing",
+            "no share stands returned")
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "gate_passing_share",
+            "the eligible handing and the passing handing",
+            "no share stands returned", missing=False)
     eligible_is_count = (
         isinstance(eligible, int)
         and not isinstance(eligible, bool))
@@ -1648,7 +1728,9 @@ def gate_passing_share(eligible, passing, epoch=None):
     return share
 
 
-def compute_share(eligible, passing, epoch=None):
+def compute_share(eligible=_ARGUMENT_NOT_HANDED,
+                  passing=_ARGUMENT_NOT_HANDED, epoch=None,
+                  **extra_kwargs):
     """The gate passing share of one epoch, at the compute door.
 
         Arguments: eligible, the eligible count or set; passing,
@@ -1656,17 +1738,40 @@ def compute_share(eligible, passing, epoch=None):
         stands for, or None.
         Returns: the answer of gate_passing_share on the values
         handed in, the share the epoch stands under.
-        Failure: no exception stands raised at this door of its
-        own; a share that cannot stand computed stands as
-        gate_passing_share answers it.
+        Failure: a handing missing its eligible or its passing
+        value stands refused at this door in the named form of
+        this module, stating the door, the ground, and the next
+        step (FW6-03); any other failure of the share act
+        stands as gate_passing_share answers it. A handing
+        carrying an argument beyond the eligible, the passing,
+        and the epoch, in keyword form, stands refused at this
+        door in the same named form (FW7-01).
     """
+    if extra_kwargs:
+        _refuse_argument_handing(
+            "compute_share",
+            "the eligible handing and the passing handing",
+            "no share stands returned", missing=False)
+    if (eligible is _ARGUMENT_NOT_HANDED
+            or passing is _ARGUMENT_NOT_HANDED):
+        _refuse_argument_handing(
+            "compute_share",
+            "the eligible handing and the passing handing",
+            "no share stands returned")
     return gate_passing_share(eligible, passing, epoch=epoch)
 
 
-def share_for_epoch(epoch, eligible=None, passing=None):
+def share_for_epoch(epoch=_ARGUMENT_NOT_HANDED, eligible=None,
+                    passing=None):
     """The share for one epoch, or the explicit value unknown where
     no share was computed and delivered for that epoch. Unknown is
-    never zero."""
+    never zero. A handing missing its epoch stands refused in
+    the named form of this module, stating the door, the
+    ground, and the next step (FW6-03)."""
+    if epoch is _ARGUMENT_NOT_HANDED:
+        _refuse_argument_handing(
+            "share_for_epoch", "the epoch",
+            "no share stands returned")
     if eligible is None or passing is None:
         return UNKNOWN_SHARE
     return gate_passing_share(eligible, passing, epoch=epoch)
@@ -1862,14 +1967,35 @@ def recomputation_sample(records):
     return chosen
 
 
-def recompute_share(logged_shares, recomputed_shares):
+def recompute_share(logged_shares=_ARGUMENT_NOT_HANDED,
+                    recomputed_shares=_ARGUMENT_NOT_HANDED,
+                    *extra_args, **extra_kwargs):
     """The one fact computed twice check, as a check artefact only.
     It stands held in a separate store position from the logged
     share, its only lawful output is a divergence count, ownership
     of the share is unchanged, and no second owner is created.
     Each share handing stands judged for the mapping form the
     act states before any epoch stands read, and a handing in
-    no mapping form stands refused in named form (FW5-05)."""
+    no mapping form stands refused in named form (FW5-05). A
+    handing missing its logged shares or its recomputed
+    shares, and a handing carrying an argument beyond the
+    logged shares and the recomputed shares, stand refused in
+    the named form of this module, stating the door, the
+    ground, and the next step (FW6-03). The argument handing
+    checks stand at the head of this act, before any epoch
+    stands read, so a wrong count handing never reaches the
+    epoch reading of the act body."""
+    if (logged_shares is _ARGUMENT_NOT_HANDED
+            or recomputed_shares is _ARGUMENT_NOT_HANDED):
+        _refuse_argument_handing(
+            "recompute_share",
+            "the logged shares and the recomputed shares",
+            "no share stands returned")
+    if extra_args or extra_kwargs:
+        _refuse_argument_handing(
+            "recompute_share",
+            "the logged shares and the recomputed shares",
+            "no share stands returned", missing=False)
     for handing_name, handing in (
             ("logged_shares", logged_shares),
             ("recomputed_shares", recomputed_shares)):
@@ -1881,7 +2007,18 @@ def recompute_share(logged_shares, recomputed_shares):
                 "mappings of epoch to share, and no share stands "
                 "returned")
     divergent = []
-    for epoch in sorted(set(dict.__iter__(logged_shares)) | set(dict.__iter__(recomputed_shares)), key=str):
+    try:
+        ordered_epochs = sorted(set(dict.__iter__(logged_shares)) | set(dict.__iter__(recomputed_shares)), key=str)
+    except ValueError as error:
+        if "integer string conversion" not in str(error):
+            raise
+        raise ValueError(
+            "recompute_share stands refused: an epoch key "
+            "stands as an integer past the digit limit, a "
+            "share stands recomputed only from epoch keys "
+            "the door can judge, and no share stands "
+            "returned") from None
+    for epoch in ordered_epochs:
         if not dict.__contains__(logged_shares, epoch) or not dict.__contains__(recomputed_shares, epoch) or dict.__getitem__(logged_shares, epoch) != dict.__getitem__(recomputed_shares, epoch):
             divergent.append(epoch)
     divergence = len(divergent)
